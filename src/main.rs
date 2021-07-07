@@ -189,78 +189,8 @@ fn cmp_dir_entry(entry1: &DirEntry, entry2: &DirEntry) -> Ordering {
     }
 }
 
-fn chunkify(str: &str) -> Vec<String> {
-    if str.len() == 0 {
-        return Vec::new();
-    }
-
-    let mut result = Vec::new();
-    let mut chunk = String::new();
-    let mut is_chunk_numeric = str.chars().nth(0).unwrap().is_numeric();
-    let mut str_iter = str.chars().peekable();
-
-    loop {
-        let ch = match str_iter.next() {
-            Some(ch) => ch,
-            None => break,
-        };
-
-        if ch == '.' {
-            if let Some(value) = str_iter.peek() {
-                is_chunk_numeric = value.is_numeric();
-            }
-            result.push(chunk.clone());
-            chunk.clear();
-            result.push(String::from("."));
-        } if ch.is_numeric() == is_chunk_numeric {
-            chunk.push(ch);
-        } else {
-            is_chunk_numeric = !is_chunk_numeric;
-            result.push(chunk.clone());
-            chunk.clear();
-        }
-    }
-
-    result
-}
-
-// TODO(Chris): Use this comparison as per
-// https://github.com/gokcehan/lf/blob/55b9189713f40b5d2058fad7cf77f82d902485f1/misc.go#L173
 fn cmp_alphanum(str1: &str, str2: &str) -> Ordering {
-    let chunks1 = chunkify(str1);
-    let chunks2 = chunkify(str2);
-
-    let mut iter1 = chunks1.iter();
-    let mut iter2 = chunks2.iter();
-
-    // NOTE(Chris): This should do a lexicographical comparison of chunks1 and chunks2, except that
-    // chunks which can be converted into i32 are compared numerically
-    loop {
-        let chunk1 = iter1.next();
-        let chunk2 = iter2.next();
-
-        match (chunk1, chunk2) {
-            (Some(chunk1), Some(chunk2)) => {
-                // TODO(Chris): Handle this int conversion even with file names that are
-                // insanely long numbers
-                let num1 = chunk1.parse::<i32>();
-                let num2 = chunk2.parse::<i32>();
-
-                if let (Ok(num1), Ok(num2)) = (num1, num2) {
-                    return num1.cmp(&num2);
-                }
-
-                match chunk1.cmp(chunk2) {
-                    Ordering::Equal => (),
-                    Ordering::Greater => return Ordering::Greater,
-                    Ordering::Less => return Ordering::Less,
-                }
-            },
-            (Some(_), None) => return Ordering::Greater,
-            (None, Some(_)) => return Ordering::Less,
-            (None, None) => return Ordering::Equal,
-        }
-    }
+    cmp_alphanum_2(str1, str2)
 }
 
 // NOTE(Chris): This is adapted from lf's natural less implementation, which can be found in its
@@ -461,20 +391,10 @@ mod tests {
         assert_eq!(cmp_alphanum("2.bak", "10.bak"), Ordering::Less);
 
         assert_eq!(cmp_alphanum("1.bak", "Cargo.lock"), Ordering::Less);
-    }
 
-    #[test]
-    fn cmp_alphanum_2_works() {
-        assert_eq!(cmp_alphanum_2("10.bak", "1.bak"), Ordering::Greater);
-        assert_eq!(cmp_alphanum_2("1.bak", "10.bak"), Ordering::Less);
+        assert_eq!(cmp_alphanum(".gitignore", "src"), Ordering::Less);
 
-        assert_eq!(cmp_alphanum_2("2.bak", "10.bak"), Ordering::Less);
-
-        assert_eq!(cmp_alphanum_2("1.bak", "Cargo.lock"), Ordering::Less);
-
-        assert_eq!(cmp_alphanum_2(".gitignore", "src"), Ordering::Less);
-
-        assert_eq!(cmp_alphanum_2(".gitignore", ".gitignore"), Ordering::Equal);
+        assert_eq!(cmp_alphanum(".gitignore", ".gitignore"), Ordering::Equal);
     }
 
     #[test]
