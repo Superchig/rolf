@@ -63,44 +63,39 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
     let home_path = Path::new(&home_name[..]);
 
     // NOTE(Chris): The default column ratio is 1:2:3
+    
+    let mut dir_states = DirStates::new()?;
+
+    dir_states.set_current_dir(".")?;
 
     let mut entry_index = 0;
 
-    // TODO(Chris): Eliminate a bunch of unwrap() calls by actually handling errors
-
-    let mut current_dir = std::env::current_dir()?;
-
-    let mut entries = get_sorted_entries(&current_dir);
-
-    // TODO(Chris): Eliminate prev_dir variable entirely, since it seems to be unnecessary
-    let mut prev_dir = current_dir.parent().unwrap().to_path_buf();
-
-    let mut prev_entries = get_sorted_entries(&prev_dir);
+    let mut prev_entry_index = 0;
 
     // Main input loop
     loop {
         // TODO(Chris): Handle case when current_dir is '/'
         // NOTE(Chris): This creates a new String, and it'd be nice to avoid making a heap
         // allocation here, but it's probably not worth trying to figure out how to use only a str
-        let current_dir_display = if current_dir.starts_with(home_path) {
+        let current_dir_display = if dir_states.current_dir.starts_with(home_path) {
             // "~"
             format!(
                 "~/{}",
-                current_dir
+                dir_states.current_dir
                     .strip_prefix(home_path)
                     .unwrap()
                     .to_str()
                     .unwrap()
             )
         } else {
-            current_dir.to_str().unwrap().to_string()
+            dir_states.current_dir.to_str().unwrap().to_string()
         };
 
         let curr_entry;
-        let file_stem = if entries.len() <= 0 {
+        let file_stem = if dir_states.current_entries.len() <= 0 {
             ""
         } else {
-            curr_entry = entries[entry_index as usize].file_name();
+            curr_entry = dir_states.current_entries[entry_index as usize].file_name();
             curr_entry.to_str().unwrap()
         };
 
@@ -133,35 +128,36 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         // as it relates to the current path.
 
         // TODO(Chris): Update entries_index
-        queue_entries_column(&mut w, 1, width / 6 - 2, height, &prev_entries, 0)?;
+        queue_entries_column(&mut w, 1, width / 6 - 2, height - 1, &dir_states.prev_entries, 0)?;
 
         queue_entries_column(
             &mut w,
             second_column,
             width / 2 - 2,
-            height,
-            &entries,
+            height - 1,
+            &dir_states.current_entries,
             entry_index,
         )?;
 
         w.flush()?;
+
 
         match read_char()? {
             'q' => break,
             // TODO(Chris): Account for possibility of no .parent() AKA when
             // current_dir is '/'
             'h' => {
-                std::env::set_current_dir("..")?;
-                current_dir = current_dir.parent().unwrap().to_path_buf();
-                entries = get_sorted_entries(&current_dir);
+                dir_states.set_current_dir("..")?;
+            }
+            'l' => if dir_states.current_entries.len() > 0 {
+                let selected_dir_path = dir_states.current_entries[entry_index as usize].path();
 
-                prev_dir = current_dir.parent().unwrap().to_path_buf();
-                prev_entries = get_sorted_entries(&prev_dir);
+                dir_states.set_current_dir(selected_dir_path)?;
             }
             // TODO(Chris): Implement scrolling down to see more entries in large directories
             'j' => {
-                if entries.len() > 0
-                    && (entry_index as usize) < entries.len() - 1
+                if dir_states.current_entries.len() > 0
+                    && (entry_index as usize) < dir_states.current_entries.len() - 1
                     && entry_index + 2 < height
                 {
                     entry_index += 1
@@ -186,6 +182,48 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
     Ok(())
 }
 
+struct DirStates {
+    current_dir: std::path::PathBuf,
+    current_entries: Vec<DirEntry>,
+    prev_dir: std::path::PathBuf,
+    prev_entries: Vec<DirEntry>,
+}
+
+impl DirStates {
+    fn new() -> crossterm::Result<DirStates> {
+        let current_dir = std::env::current_dir()?;
+
+        let entries = get_sorted_entries(&current_dir);
+
+        let prev_dir = current_dir.parent().unwrap().to_path_buf();
+
+        let prev_entries = get_sorted_entries(&prev_dir);
+
+        Ok(DirStates {
+            current_dir,
+            current_entries: entries,
+            prev_dir,
+            prev_entries,
+        })
+    }
+
+    // TODO(Chris): Check out if io::Result works rather than crossterm::Result
+    fn set_current_dir<P: AsRef<Path>>(self: &mut DirStates, path: P) -> crossterm::Result<()> {
+        std::env::set_current_dir(path)?;
+
+        self.current_dir = std::env::current_dir()?;
+
+        self.current_entries = get_sorted_entries(&self.current_dir);
+
+        // TODO(Chris): Handle case where there is no prev_dir (this results in an Option)
+        self.prev_dir = self.current_dir.parent().unwrap().to_path_buf();
+
+        self.prev_entries = get_sorted_entries(&self.prev_dir);
+
+        Ok(())
+    }       
+}
+
 fn read_char() -> crossterm::Result<char> {
     loop {
         if let Ok(Event::Key(KeyEvent {
@@ -201,9 +239,9 @@ fn read_char() -> crossterm::Result<char> {
 // Sorts std::fs::DirEntry by file type first (with directory coming before files),
 // then by file name. Symlinks are ignored in favor of the original files' file types.
 // lf seems to do this with symlinks as well.
+// TODO(Chris): Get rid of all the zany unwrap() calls in this function, since it's not supposed to
+// fail
 fn cmp_dir_entry(entry1: &DirEntry, entry2: &DirEntry) -> Ordering {
-    // FIXME(Chris): Check if you can replace the calls to std::fs::metadata with DirEntry.metadata
-    // calls
     let file_type1 = match std::fs::metadata(entry1.path()) {
         Ok(metadata) => metadata.file_type(),
         Err(err) => {
