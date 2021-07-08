@@ -14,10 +14,9 @@ use crossterm::{
     execute, queue,
     style::{self, Attribute, Color},
     terminal::{self, ClearType},
-    Result,
 };
 
-fn main() -> Result<()> {
+fn main() -> crossterm::Result<()> {
     let mut w = io::stdout();
 
     execute!(w, terminal::EnterAlternateScreen)?;
@@ -43,7 +42,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run(mut w: &mut io::Stdout) -> Result<()> {
+fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
     let user_name = match std::env::var("USER") {
         Ok(val) => val,
         Err(e) => panic!("Could not read $USER environment variable: {}", e),
@@ -187,7 +186,7 @@ fn run(mut w: &mut io::Stdout) -> Result<()> {
     Ok(())
 }
 
-fn read_char() -> Result<char> {
+fn read_char() -> crossterm::Result<char> {
     loop {
         if let Ok(Event::Key(KeyEvent {
             code: KeyCode::Char(c),
@@ -203,8 +202,28 @@ fn read_char() -> Result<char> {
 // then by file name. Symlinks are ignored in favor of the original files' file types.
 // lf seems to do this with symlinks as well.
 fn cmp_dir_entry(entry1: &DirEntry, entry2: &DirEntry) -> Ordering {
-    let file_type1 = std::fs::metadata(entry1.path()).unwrap().file_type();
-    let file_type2 = std::fs::metadata(entry2.path()).unwrap().file_type();
+    // FIXME(Chris): Check if you can replace the calls to std::fs::metadata with DirEntry.metadata
+    // calls
+    let file_type1 = match std::fs::metadata(entry1.path()) {
+        Ok(metadata) => metadata.file_type(),
+        Err(err) => {
+            match err.kind() {
+                // Just use name of symbolic link
+                io::ErrorKind::NotFound => entry1.metadata().unwrap().file_type(),
+                _ => panic!(err),
+            }
+        },
+    };
+    let file_type2 = match std::fs::metadata(entry1.path()) {
+        Ok(metadata) => metadata.file_type(),
+        Err(err) => {
+            match err.kind() {
+                // Just use name of symbolic link
+                io::ErrorKind::NotFound => entry2.metadata().unwrap().file_type(),
+                _ => panic!(err),
+            }
+        }       
+    };
 
     if file_type1.is_dir() && file_type2.is_file() {
         return Ordering::Less;
@@ -222,7 +241,7 @@ fn queue_entries_column(
     bottom_y: u16,
     entries: &Vec<DirEntry>,
     entry_index: u16,
-) -> Result<()> {
+) -> crossterm::Result<()> {
     let mut curr_y = 1;
 
     queue!(
