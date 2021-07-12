@@ -136,7 +136,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
         // TODO(Chris): Correctly display previous directory column, especially
         // as it relates to the current path.
-
+        
         queue_entries_column(
             &mut w,
             1,
@@ -159,11 +159,16 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
         w.flush()?;
 
+        let column_height = column_bot_y - 1;
+        let second_bottom_index = second_starting_index + column_height;
+
         match read_char()? {
             'q' => break,
             // TODO(Chris): Account for possibility of no .parent() AKA when
             // current_dir is '/'
             'h' => {
+                let old_current_dir = dir_states.current_dir.clone();
+
                 dir_states.set_current_dir("..")?;
 
                 // TODO(Chris): Refactor this into its own method
@@ -172,6 +177,20 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                     .iter()
                     .position(|entry| entry.path() == dir_states.current_dir)
                     .unwrap();
+
+                let curr_entry_index = dir_states
+                    .current_entries
+                    .iter()
+                    .position(|entry| entry.path() == old_current_dir)
+                    .unwrap();
+
+                if curr_entry_index >= column_height as usize {
+                    second_starting_index = (curr_entry_index / 2) as u16;
+                    second_display_offset = (curr_entry_index as u16) - second_starting_index;
+                } else {
+                    second_starting_index = 0;
+                    second_display_offset = curr_entry_index as u16;
+                }
             }
             'l' => {
                 if dir_states.current_entries.len() > 0 {
@@ -189,9 +208,6 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             }
             'j' => {
                 if dir_states.current_entries.len() > 0 {
-                    let column_height = column_bot_y - 1;
-                    let second_bottom_index = second_starting_index + column_height;
-
                     if second_display_offset >= (column_bot_y * 2 / 3)
                         && (second_bottom_index as usize) < dir_states.current_entries.len() - 1
                     {
