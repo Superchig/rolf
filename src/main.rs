@@ -175,7 +175,8 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             }
             'l' => {
                 if dir_states.current_entries.len() > 0 {
-                    let selected_dir_path = dir_states.current_entries[second_display_offset as usize].path();
+                    let selected_dir_path =
+                        dir_states.current_entries[second_display_offset as usize].path();
 
                     dir_states.set_current_dir(selected_dir_path)?;
 
@@ -186,10 +187,6 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                         .unwrap();
                 }
             }
-            // 'e' => {
-            //     second_starting_index += 1;
-            // },
-            // TODO(Chris): Implement scrolling down to see more entries in large directories
             'j' => {
                 if dir_states.current_entries.len() > 0 {
                     let column_height = column_bot_y - 1;
@@ -206,10 +203,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             }
             'k' => {
                 if dir_states.current_entries.len() > 0 {
-                    let column_height = column_bot_y - 1;
-
-                    if second_display_offset <= (column_bot_y * 1 / 3)
-                        && second_starting_index > 0
+                    if second_display_offset <= (column_bot_y * 1 / 3) && second_starting_index > 0
                     {
                         second_starting_index -= 1;
                     } else if second_entry_index > 0 {
@@ -300,7 +294,7 @@ fn cmp_dir_entry(entry1: &DirEntry, entry2: &DirEntry) -> Ordering {
             }
         }
     };
-    let file_type2 = match std::fs::metadata(entry1.path()) {
+    let file_type2 = match std::fs::metadata(entry2.path()) {
         Ok(metadata) => metadata.file_type(),
         Err(err) => {
             match err.kind() {
