@@ -13,6 +13,7 @@ fn is_digit(b: u8) -> bool {
 // "chunks" in each string, comparing them as necessary. By using these index variables, this
 // algorithm doesn't seem to make any heap allocations.
 // TODO(Chris): Profile this implementation to check if there are any heap allocations.
+// FIXME(Chris): Handle the string comparisons to be like lf's (so an 'E' comes after an 'a')
 pub fn cmp_natural(str1: &str, str2: &str) -> Ordering {
     // if natural_less(str1, str2) {
     //     return Ordering::Less;
@@ -21,7 +22,6 @@ pub fn cmp_natural(str1: &str, str2: &str) -> Ordering {
     // } else {
     //     return Ordering::Greater;
     // }
-
 
     // NOTE(Chris): This is going to involve some more allocations than may be strictly necessary,
     // but we're doing this so we can easily index chars1 and chars2.
@@ -73,7 +73,7 @@ pub fn cmp_natural(str1: &str, str2: &str) -> Ordering {
         // If the string forms of the chunks are equal, then keep going. We haven't found out the
         // ordering of the overall strings yet.
         if s1[lo1..hi1] == s2[lo2..hi2] {
-            continue
+            continue;
         }
 
         // If both chunks are digits, then convert them into actual ints and compare them
