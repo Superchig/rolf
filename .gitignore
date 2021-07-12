@@ -1,4 +1,5 @@
 /target
 *.bak
 /none
+/many
 stderr.txt

@@ -3,6 +3,7 @@ mod natural_sort; // This declares the exiswtence of the natural_sort module, wh
 
 use natural_sort::cmp_natural;
 use std::cmp::Ordering;
+use std::collections::hash_map::HashMap;
 use std::error::Error;
 use std::fs::DirEntry;
 use std::io::{self, Write};
@@ -77,6 +78,12 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
     let mut second_starting_index = 0;
 
+    let mut left_paths = HashMap::new();
+
+    // FIXME(Chris): Eliminate flickering
+    // Flickering only happens in debug mode, but joshuto (which uses termion) doesn't have this
+    // problem. Perhaps we should move from crossterm to termion?
+
     // Main input loop
     loop {
         // TODO(Chris): Handle case when current_dir is '/'
@@ -136,7 +143,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
         // TODO(Chris): Correctly display previous directory column, especially
         // as it relates to the current path.
-        
+
         queue_entries_column(
             &mut w,
             1,
@@ -168,10 +175,16 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             // current_dir is '/'
             'h' => {
                 let old_current_dir = dir_states.current_dir.clone();
+                if dir_states.current_entries.len() > 0 {
+                    left_paths.insert(
+                        dir_states.current_dir.clone(),
+                        dir_states.current_entries[second_entry_index as usize].path(),
+                    );
+                }
 
                 dir_states.set_current_dir("..")?;
 
-                // TODO(Chris): Refactor this into its own method
+                // TODO(Chris): Refactor into a function
                 prev_entry_index = dir_states
                     .prev_entries
                     .iter()
@@ -184,6 +197,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                     .position(|entry| entry.path() == old_current_dir)
                     .unwrap();
 
+                // TODO(Chris): Refactor into a function
                 if curr_entry_index >= column_height as usize {
                     second_starting_index = (curr_entry_index / 2) as u16;
                     second_display_offset = (curr_entry_index as u16) - second_starting_index;
@@ -192,18 +206,45 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                     second_display_offset = curr_entry_index as u16;
                 }
             }
+            // FIXME(Chris): When traveling back into a directory, place the starting index
+            // properly depending on how the directory was left
             'l' => {
                 if dir_states.current_entries.len() > 0 {
                     let selected_dir_path =
-                        dir_states.current_entries[second_display_offset as usize].path();
+                        dir_states.current_entries[second_entry_index as usize].path();
 
-                    dir_states.set_current_dir(selected_dir_path)?;
+                    dir_states.set_current_dir(&selected_dir_path)?;
 
                     prev_entry_index = dir_states
                         .prev_entries
                         .iter()
                         .position(|entry| entry.path() == dir_states.current_dir)
                         .unwrap();
+
+                    eprintln!("left_paths: {:#?}", left_paths);
+
+                    match left_paths.get(&selected_dir_path) {
+                        Some(path) => {
+                            let curr_entry_index = dir_states
+                                .current_entries
+                                .iter()
+                                .position(|entry| entry.path() == *path)
+                                .unwrap();
+
+                            if curr_entry_index >= column_height as usize {
+                                second_starting_index = (curr_entry_index / 2) as u16;
+                                second_display_offset =
+                                    (curr_entry_index as u16) - second_starting_index;
+                            } else {
+                                second_starting_index = 0;
+                                second_display_offset = curr_entry_index as u16;
+                            }
+                        }
+                        None => {
+                            second_starting_index = 0;
+                            second_display_offset = 0;
+                        }
+                    };
                 }
             }
             'j' => {
@@ -234,8 +275,6 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             _ => (),
         }
     }
-
-    execute!(w, style::ResetColor, cursor::Show,)?;
 
     Ok(())
 }
