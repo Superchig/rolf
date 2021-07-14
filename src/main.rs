@@ -126,6 +126,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         queue!(
             w,
             cursor::MoveTo(0, 0),
+            terminal::Clear(ClearType::CurrentLine),
             style::SetForegroundColor(Color::DarkGreen),
             style::SetAttribute(Attribute::Bold),
             style::Print(format!("{}@{}", user_name, host_name)),
@@ -135,7 +136,6 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             style::Print(format!("{}/", current_dir_display)),
             style::SetForegroundColor(Color::White),
             style::Print(file_stem),
-            cursor::MoveToNextLine(1),
         )?;
 
         // The terminal's height is also the index of the lowest cell
