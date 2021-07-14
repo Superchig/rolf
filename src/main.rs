@@ -1,4 +1,4 @@
-mod natural_sort; // This declares the exiswtence of the natural_sort module, which searches by
+mod natural_sort; // This declares the existence of the natural_sort module, which searches by
                   // default for natural_sort.rs or natural_sort/mod.rs
 
 use natural_sort::cmp_natural;
@@ -76,13 +76,22 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         .position(|entry| entry.path() == dir_states.current_dir)
         .unwrap();
 
+    // TODO(Chris): Consider refactoring these weird flags into functions?
+
+    let mut first_column_changed = true;
+
+    let mut second_column_changed = true;
+
     let mut second_starting_index = 0;
 
     let mut left_paths = HashMap::new();
 
-    // FIXME(Chris): Eliminate flickering
-    // Flickering only happens in debug mode, but joshuto (which uses termion) doesn't have this
-    // problem. Perhaps we should move from crossterm to termion?
+    queue!(
+        w,
+        style::ResetColor,
+        terminal::Clear(ClearType::All),
+        cursor::Hide,
+    )?;
 
     // Main input loop
     loop {
@@ -116,14 +125,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
         queue!(
             w,
-            style::ResetColor,
-            terminal::Clear(ClearType::All),
-            cursor::Hide,
             cursor::MoveTo(0, 0),
-        )?;
-
-        queue!(
-            w,
             style::SetForegroundColor(Color::DarkGreen),
             style::SetAttribute(Attribute::Bold),
             style::Print(format!("{}@{}", user_name, host_name)),
@@ -144,25 +146,33 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         // TODO(Chris): Correctly display previous directory column, especially
         // as it relates to the current path.
 
-        queue_entries_column(
-            &mut w,
-            1,
-            width / 6 - 2,
-            column_bot_y,
-            &dir_states.prev_entries,
-            prev_entry_index as u16,
-            0,
-        )?;
+        if first_column_changed {
+            queue_entries_column(
+                &mut w,
+                1,
+                width / 6 - 2,
+                column_bot_y,
+                &dir_states.prev_entries,
+                prev_entry_index as u16,
+                0,
+            )?;
 
-        queue_entries_column(
-            &mut w,
-            second_column,
-            width / 2 - 2,
-            column_bot_y,
-            &dir_states.current_entries,
-            second_display_offset,
-            second_starting_index,
-        )?;
+            first_column_changed = false;
+        }
+
+        if second_column_changed {
+            queue_entries_column(
+                &mut w,
+                second_column,
+                width / 2 - 2,
+                column_bot_y,
+                &dir_states.current_entries,
+                second_display_offset,
+                second_starting_index,
+            )?;
+
+            second_column_changed = false;
+        }
 
         w.flush()?;
 
@@ -205,6 +215,11 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                     second_starting_index = 0;
                     second_display_offset = curr_entry_index as u16;
                 }
+
+                // TODO(Chris): Consider combining these two flags into one, since we're not using
+                // them separately
+                first_column_changed = true;
+                second_column_changed = true;
             }
             // FIXME(Chris): When traveling back into a directory, place the starting index
             // properly depending on how the directory was left
@@ -245,10 +260,16 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                             second_display_offset = 0;
                         }
                     };
+
+                    first_column_changed = true;
+                    second_column_changed = true;
                 }
             }
             'j' => {
                 if dir_states.current_entries.len() > 0 {
+                    let old_starting_index = second_starting_index;
+                    let old_display_offset = second_display_offset;
+
                     if second_display_offset >= (column_bot_y * 2 / 3)
                         && (second_bottom_index as usize) < dir_states.current_entries.len() - 1
                     {
@@ -256,21 +277,42 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                     } else if second_entry_index != second_bottom_index {
                         second_display_offset += 1;
                     }
+
+                    update_entries_column(
+                        w,
+                        second_column,
+                        width / 2 - 2,
+                        &dir_states.current_entries,
+                        old_display_offset,
+                        old_starting_index,
+                        second_display_offset,
+                        second_starting_index,
+                    )?;
                 }
             }
             'k' => {
                 if dir_states.current_entries.len() > 0 {
+                    let old_starting_index = second_starting_index;
+                    let old_display_offset = second_display_offset;
+
                     if second_display_offset <= (column_bot_y * 1 / 3) && second_starting_index > 0
                     {
                         second_starting_index -= 1;
                     } else if second_entry_index > 0 {
                         second_display_offset -= 1;
                     }
-                }
 
-                // if second_display_offset > 0 {
-                //     second_display_offset -= 1;
-                // }
+                    update_entries_column(
+                        w,
+                        second_column,
+                        width / 2 - 2,
+                        &dir_states.current_entries,
+                        old_display_offset,
+                        old_starting_index,
+                        second_display_offset,
+                        second_starting_index,
+                    )?;
+                }
             }
             _ => (),
         }
@@ -372,6 +414,76 @@ fn cmp_dir_entry(entry1: &DirEntry, entry2: &DirEntry) -> Ordering {
     }
 }
 
+fn update_entries_column(
+    w: &mut io::Stdout,
+    left_x: u16,
+    right_x: u16,
+    entries: &Vec<DirEntry>,
+    old_offset: u16,
+    old_start_index: u16,
+    new_offset: u16,
+    new_start_index: u16,
+) -> crossterm::Result<()> {
+    if new_start_index != old_start_index {
+        // TODO(Chris): Find a way to avoid copy-pasting the height here (from a much earlier
+        // queue_entries_column call)
+        let (_width, height) = terminal::size()?;
+        let column_bot_y = height - 2;
+        queue_entries_column(w, left_x, right_x, column_bot_y, entries, new_offset, new_start_index)?;
+        return Ok(());
+    }
+
+    queue!(w, style::SetAttribute(Attribute::Reset))?;
+
+    // Update the old offset
+    queue_full_entry(w, &entries, left_x, right_x, old_offset, old_start_index)?;
+
+    // Update the new offset
+    queue!(w, style::SetAttribute(Attribute::Reverse))?;
+
+    queue_full_entry(w, &entries, left_x, right_x, new_offset, new_start_index)?;
+
+    queue!(w, style::SetAttribute(Attribute::NoReverse))?;
+
+    Ok(())
+}
+
+fn queue_full_entry(
+    w: &mut io::Stdout,
+    entries: &Vec<DirEntry>,
+    left_x: u16,
+    right_x: u16,
+    new_offset: u16,
+    new_start_index: u16,
+) -> crossterm::Result<()> {
+    let new_entry_index = new_start_index + new_offset;
+    let new_entry = &entries[new_entry_index as usize];
+    let new_file_type = std::fs::symlink_metadata(new_entry.path())?.file_type();
+
+    if new_file_type.is_dir() {
+        queue!(
+            w,
+            style::SetForegroundColor(Color::DarkBlue),
+            style::SetAttribute(Attribute::Bold),
+        )?;
+    } else if new_file_type.is_file() {
+        queue!(w, style::SetForegroundColor(Color::White))?;
+    } else if new_file_type.is_symlink() {
+        queue!(w, style::SetForegroundColor(Color::DarkCyan), style::SetAttribute(Attribute::Bold))?;
+    }
+
+    queue!(w, cursor::MoveTo(left_x, new_offset + 1), style::Print(' '))?; // 1 is the starting y for columns
+
+    // TODO(Chris): Inline this function, since it's only used once
+    queue_entry(w, left_x, right_x, new_entry.file_name().to_str().unwrap())?;
+
+    if new_file_type.is_dir() || new_file_type.is_symlink() {
+        queue!(w, style::SetAttribute(Attribute::NormalIntensity))?;
+    }
+
+    Ok(())
+}
+
 fn queue_entries_column(
     w: &mut io::Stdout,
     left_x: u16,
@@ -381,7 +493,7 @@ fn queue_entries_column(
     offset: u16,
     start_index: u16, // Index to start with in entries
 ) -> crossterm::Result<()> {
-    let mut curr_y = 1;
+    let mut curr_y = 1; // 1 is the starting y for columns
 
     queue!(
         w,
@@ -400,61 +512,72 @@ fn queue_entries_column(
         )?;
     } else {
         let our_entries = &entries[start_index as usize..];
-        for entry in our_entries {
+        for _entry in our_entries {
             if curr_y > bottom_y {
                 break;
             }
 
             let is_curr_entry = curr_y - 1 == offset;
-            let file_type = std::fs::symlink_metadata(entry.path())?.file_type();
 
             if is_curr_entry {
                 queue!(w, style::SetAttribute(Attribute::Reverse))?;
             }
 
-            if file_type.is_dir() {
-                queue!(
-                    w,
-                    style::SetForegroundColor(Color::DarkBlue),
-                    style::SetAttribute(Attribute::Bold)
-                )?;
-            }
-
-            queue!(w, cursor::MoveTo(left_x, curr_y), style::Print(' '))?;
-
-            let file_name = entry.file_name();
-            let file_name = file_name.to_str().unwrap();
-
-            for (index, ch) in file_name.char_indices() {
-                if (left_x as usize) + index >= (right_x as usize) - 2 {
-                    queue!(w, style::Print('~'),)?;
-                    break;
-                }
-
-                queue!(w, style::Print(ch),)?;
-            }
-
-            if (left_x as usize) + file_name.len() >= (right_x as usize) - 2 {
-                queue!(w, style::Print(' '))?;
-            } else {
-                // This conversion is fine since file_name.len() can't be longer than
-                // the terminal width in this instance.
-                let mut curr_x = left_x + (file_name.len() as u16);
-
-                while curr_x < right_x {
-                    queue!(w, style::Print(' '))?;
-
-                    curr_x += 1;
-                }
-            }
-
-            queue!(w, style::ResetColor)?;
+            queue_full_entry(w, &entries, left_x, right_x, curr_y - 1, start_index)?;
 
             if is_curr_entry {
                 queue!(w, style::SetAttribute(Attribute::Reset))?;
             }
 
             curr_y += 1;
+        }
+    }
+
+    let col_width = right_x - left_x;
+
+    // Ensure that the bottom of "short buffers" are properly cleared
+    while curr_y <= bottom_y {
+        queue!(w, cursor::MoveTo(left_x, curr_y))?;
+
+        for _ in 0..col_width {
+            queue!(w, style::Print(' '))?;
+        }
+
+        curr_y += 1;
+    }
+
+    Ok(())
+}
+
+// This inherits the cursor's current y
+fn queue_entry(
+    w: &mut io::Stdout,
+    left_x: u16,
+    right_x: u16,
+    file_name: &str,
+) -> crossterm::Result<()> {
+    // Print as much of the file name as possible, truncating with '~' if necessary
+    for (index, ch) in file_name.char_indices() {
+        if (left_x as usize) + index >= (right_x as usize) - 2 {
+            queue!(w, style::Print('~'),)?;
+            break;
+        }
+
+        queue!(w, style::Print(ch),)?;
+    }
+
+    // Ensure that there are spaces printed at the end of the file name
+    if (left_x as usize) + file_name.len() >= (right_x as usize) - 2 {
+        queue!(w, style::Print(' '))?;
+    } else {
+        // This conversion is fine since file_name.len() can't be longer than
+        // the terminal width in this instance.
+        let mut curr_x = left_x + (file_name.len() as u16);
+
+        while curr_x < right_x {
+            queue!(w, style::Print(' '))?;
+
+            curr_x += 1;
         }
     }
 

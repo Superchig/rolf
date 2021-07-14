@@ -2,4 +2,6 @@
 *.bak
 /none
 /many
+link_dir
+link_txt
 stderr.txt
