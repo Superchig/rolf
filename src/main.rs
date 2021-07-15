@@ -188,7 +188,12 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                 if dir_states.current_entries.len() > 0 {
                     left_paths.insert(
                         dir_states.current_dir.clone(),
-                        dir_states.current_entries[second_entry_index as usize].path(),
+                        DirLocation {
+                            dir_path: dir_states.current_entries[second_entry_index as usize]
+                                .path(),
+                            starting_index: second_starting_index,
+                            display_offset: second_display_offset,
+                        },
                     );
                 }
 
@@ -221,8 +226,6 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                 first_column_changed = true;
                 second_column_changed = true;
             }
-            // FIXME(Chris): When traveling back into a directory, place the starting index
-            // properly depending on how the directory was left
             'l' => {
                 if dir_states.current_entries.len() > 0 {
                     let selected_dir_path =
@@ -236,23 +239,31 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                         .position(|entry| entry.path() == dir_states.current_dir)
                         .unwrap();
 
-                    eprintln!("left_paths: {:#?}", left_paths);
-
                     match left_paths.get(&selected_dir_path) {
-                        Some(path) => {
+                        Some(dir_location) => {
                             let curr_entry_index = dir_states
                                 .current_entries
                                 .iter()
-                                .position(|entry| entry.path() == *path)
-                                .unwrap();
+                                .position(|entry| entry.path() == *dir_location.dir_path);
 
-                            if curr_entry_index >= column_height as usize {
-                                second_starting_index = (curr_entry_index / 2) as u16;
-                                second_display_offset =
-                                    (curr_entry_index as u16) - second_starting_index;
-                            } else {
-                                second_starting_index = 0;
-                                second_display_offset = curr_entry_index as u16;
+                            match curr_entry_index {
+                                Some(curr_entry_index) => {
+                                    let orig_entry_index = (dir_location.starting_index
+                                        + dir_location.display_offset)
+                                        as usize;
+                                    if curr_entry_index == orig_entry_index {
+                                        second_starting_index = dir_location.starting_index;
+                                        second_display_offset = dir_location.display_offset;
+                                    } else {
+                                        second_starting_index = (curr_entry_index / 2) as u16;
+                                        second_display_offset =
+                                            (curr_entry_index as u16) - second_starting_index;
+                                    }
+                                }
+                                None => {
+                                    second_starting_index = 0;
+                                    second_display_offset = 0;
+                                }
                             }
                         }
                         None => {
@@ -319,6 +330,12 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
     }
 
     Ok(())
+}
+
+struct DirLocation {
+    dir_path: std::path::PathBuf,
+    starting_index: u16,
+    display_offset: u16,
 }
 
 struct DirStates {
@@ -429,7 +446,15 @@ fn update_entries_column(
         // queue_entries_column call)
         let (_width, height) = terminal::size()?;
         let column_bot_y = height - 2;
-        queue_entries_column(w, left_x, right_x, column_bot_y, entries, new_offset, new_start_index)?;
+        queue_entries_column(
+            w,
+            left_x,
+            right_x,
+            column_bot_y,
+            entries,
+            new_offset,
+            new_start_index,
+        )?;
         return Ok(());
     }
 
@@ -469,7 +494,11 @@ fn queue_full_entry(
     } else if new_file_type.is_file() {
         queue!(w, style::SetForegroundColor(Color::White))?;
     } else if new_file_type.is_symlink() {
-        queue!(w, style::SetForegroundColor(Color::DarkCyan), style::SetAttribute(Attribute::Bold))?;
+        queue!(
+            w,
+            style::SetForegroundColor(Color::DarkCyan),
+            style::SetAttribute(Attribute::Bold)
+        )?;
     }
 
     queue!(w, cursor::MoveTo(left_x, new_offset + 1), style::Print(' '))?; // 1 is the starting y for columns
@@ -539,7 +568,7 @@ fn queue_entries_column(
     while curr_y <= bottom_y {
         queue!(w, cursor::MoveTo(left_x, curr_y))?;
 
-        for _ in 0..col_width {
+        for _ in 0..=col_width {
             queue!(w, style::Print(' '))?;
         }
 
