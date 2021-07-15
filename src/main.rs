@@ -278,7 +278,9 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                 }
             }
             'j' => {
-                if (second_entry_index as usize) < dir_states.current_entries.len() - 1 {
+                if dir_states.current_entries.len() > 0
+                    && (second_entry_index as usize) < dir_states.current_entries.len() - 1
+                {
                     let old_starting_index = second_starting_index;
                     let old_display_offset = second_display_offset;
 
@@ -540,6 +542,8 @@ fn queue_entries_column(
             style::SetAttribute(Attribute::Reset),
             style::Print(" "),
         )?;
+
+        curr_y += 1;
     } else {
         let our_entries = &entries[start_index as usize..];
         for _entry in our_entries {
