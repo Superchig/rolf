@@ -527,17 +527,13 @@ fn queue_entries_column(
 ) -> crossterm::Result<()> {
     let mut curr_y = 1; // 1 is the starting y for columns
 
-    queue!(
-        w,
-        style::SetForegroundColor(Color::White),
-        style::SetAttribute(Attribute::Reset),
-    )?;
     if entries.len() <= 0 {
         queue!(
             w,
             cursor::MoveTo(left_x, curr_y),
             style::Print(" "),
             style::SetAttribute(Attribute::Reverse),
+            style::SetForegroundColor(Color::White),
             style::Print("empty"),
             style::SetAttribute(Attribute::Reset),
             style::Print(" "),
