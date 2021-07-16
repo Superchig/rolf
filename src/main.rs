@@ -226,6 +226,73 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
         let second_bottom_index = second_starting_index + column_height;
 
+        let mut enter_entry = || -> crossterm::Result<()> {
+            if dir_states.current_entries.len() > 0 {
+                save_location(
+                    &mut left_paths,
+                    &dir_states,
+                    second_entry_index,
+                    second_starting_index,
+                    second_display_offset,
+                );
+
+                let selected_entry = &dir_states.current_entries[second_entry_index as usize];
+
+                let selected_file_type = selected_entry.file_type().unwrap();
+
+                if selected_file_type.is_dir() {
+                    let selected_dir_path = selected_entry.path();
+
+                    // FIXME(Chris): Avoid substituting apparent path with symlink target when
+                    // entering symlinked directories
+                    dir_states.set_current_dir(&selected_dir_path)?;
+
+                    match left_paths.get(&selected_dir_path) {
+                        Some(dir_location) => {
+                            let curr_entry_index = dir_states
+                                .current_entries
+                                .iter()
+                                .position(|entry| entry.path() == *dir_location.dir_path);
+
+                            match curr_entry_index {
+                                Some(curr_entry_index) => {
+                                    let orig_entry_index = (dir_location.starting_index
+                                        + dir_location.display_offset)
+                                        as usize;
+                                    if curr_entry_index == orig_entry_index {
+                                        second_starting_index = dir_location.starting_index;
+                                        second_display_offset = dir_location.display_offset;
+                                    } else {
+                                        second_starting_index = (curr_entry_index / 2) as u16;
+                                        second_display_offset =
+                                            (curr_entry_index as u16) - second_starting_index;
+                                    }
+                                }
+                                None => {
+                                    second_starting_index = 0;
+                                    second_display_offset = 0;
+                                }
+                            }
+                        }
+                        None => {
+                            second_starting_index = 0;
+                            second_display_offset = 0;
+                        }
+                    };
+
+                    first_column_changed = true;
+                    second_column_changed = true;
+                    third_column_changed = ThirdColumnChange::Yes {
+                        index: (second_starting_index + second_display_offset) as usize,
+                    };
+                } else if selected_file_type.is_file() {
+                    open::that(selected_entry.path())?;
+                }
+            }
+
+            Ok(())
+        };
+
         match event::read()? {
             Event::Key(event) => match event.code {
                 KeyCode::Char(ch) => {
@@ -266,75 +333,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                             };
                         }
                         'l' => {
-                            if dir_states.current_entries.len() > 0 {
-                                save_location(
-                                    &mut left_paths,
-                                    &dir_states,
-                                    second_entry_index,
-                                    second_starting_index,
-                                    second_display_offset,
-                                );
-
-                                let selected_entry =
-                                    &dir_states.current_entries[second_entry_index as usize];
-
-                                let selected_file_type = selected_entry.file_type().unwrap();
-
-                                if selected_file_type.is_dir() {
-                                    let selected_dir_path = selected_entry.path();
-
-                                    // FIXME(Chris): Avoid substituting apparent path with symlink target when
-                                    // entering symlinked directories
-                                    dir_states.set_current_dir(&selected_dir_path)?;
-
-                                    match left_paths.get(&selected_dir_path) {
-                                        Some(dir_location) => {
-                                            let curr_entry_index =
-                                                dir_states.current_entries.iter().position(
-                                                    |entry| entry.path() == *dir_location.dir_path,
-                                                );
-
-                                            match curr_entry_index {
-                                                Some(curr_entry_index) => {
-                                                    let orig_entry_index = (dir_location
-                                                        .starting_index
-                                                        + dir_location.display_offset)
-                                                        as usize;
-                                                    if curr_entry_index == orig_entry_index {
-                                                        second_starting_index =
-                                                            dir_location.starting_index;
-                                                        second_display_offset =
-                                                            dir_location.display_offset;
-                                                    } else {
-                                                        second_starting_index =
-                                                            (curr_entry_index / 2) as u16;
-                                                        second_display_offset = (curr_entry_index
-                                                            as u16)
-                                                            - second_starting_index;
-                                                    }
-                                                }
-                                                None => {
-                                                    second_starting_index = 0;
-                                                    second_display_offset = 0;
-                                                }
-                                            }
-                                        }
-                                        None => {
-                                            second_starting_index = 0;
-                                            second_display_offset = 0;
-                                        }
-                                    };
-
-                                    first_column_changed = true;
-                                    second_column_changed = true;
-                                    third_column_changed = ThirdColumnChange::Yes {
-                                        index: (second_starting_index + second_display_offset)
-                                            as usize,
-                                    };
-                                } else if selected_file_type.is_file() {
-                                    open::that(selected_entry.path())?;
-                                }
-                            }
+                            enter_entry()?;
                         }
                         'j' => {
                             if dir_states.current_entries.len() > 0
@@ -403,6 +402,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                         _ => (),
                     }
                 }
+                KeyCode::Enter => enter_entry()?,
                 _ => (),
             },
             Event::Mouse(_) => (),
@@ -412,8 +412,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                 first_column_changed = true;
                 second_column_changed = true;
                 third_column_changed = ThirdColumnChange::Yes {
-                    index: (second_starting_index + second_display_offset)
-                        as usize,
+                    index: (second_starting_index + second_display_offset) as usize,
                 };
             }
         }
