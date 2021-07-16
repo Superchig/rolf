@@ -94,3 +94,22 @@ pub fn cmp_natural(str1: &str, str2: &str) -> Ordering {
         return s1[lo1..hi1].cmp(&s2[lo2..hi2]);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cmp_alphanum_works() {
+        assert_eq!(cmp_natural("10.bak", "1.bak"), Ordering::Greater);
+        assert_eq!(cmp_natural("1.bak", "10.bak"), Ordering::Less);
+
+        assert_eq!(cmp_natural("2.bak", "10.bak"), Ordering::Less);
+
+        assert_eq!(cmp_natural("1.bak", "Cargo.lock"), Ordering::Less);
+
+        assert_eq!(cmp_natural(".gitignore", "src"), Ordering::Less);
+
+        assert_eq!(cmp_natural(".gitignore", ".gitignore"), Ordering::Equal);
+    }
+}

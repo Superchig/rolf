@@ -4,7 +4,6 @@ mod natural_sort; // This declares the existence of the natural_sort module, whi
 use natural_sort::cmp_natural;
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
-use std::error::Error;
 use std::fs::DirEntry;
 use std::io::{self, Write};
 use std::path::Path;
@@ -296,6 +295,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                         w,
                         second_column,
                         width / 2 - 2,
+                        column_bot_y,
                         &dir_states.current_entries,
                         old_display_offset,
                         old_starting_index,
@@ -320,6 +320,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                         w,
                         second_column,
                         width / 2 - 2,
+                        column_bot_y,
                         &dir_states.current_entries,
                         old_display_offset,
                         old_starting_index,
@@ -399,7 +400,6 @@ impl DirStates {
         })
     }
 
-    // TODO(Chris): Check out if io::Result works rather than crossterm::Result
     fn set_current_dir<P: AsRef<Path>>(self: &mut DirStates, path: P) -> crossterm::Result<()> {
         std::env::set_current_dir(path)?;
 
@@ -492,6 +492,7 @@ fn update_entries_column(
     w: &mut io::Stdout,
     left_x: u16,
     right_x: u16,
+    column_bot_y: u16,
     entries: &Vec<DirEntry>,
     old_offset: u16,
     old_start_index: u16,
@@ -499,10 +500,6 @@ fn update_entries_column(
     new_start_index: u16,
 ) -> crossterm::Result<()> {
     if new_start_index != old_start_index {
-        // TODO(Chris): Find a way to avoid copy-pasting the height here (from a much earlier
-        // queue_entries_column call)
-        let (_width, height) = terminal::size()?;
-        let column_bot_y = height - 2;
         queue_entries_column(
             w,
             left_x,
@@ -656,7 +653,7 @@ fn queue_entry(
 
     // Ensure that there are spaces printed at the end of the file name
     if (left_x as usize) + file_name.len() >= (right_x as usize) - 2 {
-        queue!(w, style::Print(' '))?;
+        queue!(w, style::Print("  "))?;
     } else {
         // This conversion is fine since file_name.len() can't be longer than
         // the terminal width in this instance.
@@ -681,52 +678,4 @@ fn get_sorted_entries<P: AsRef<Path>>(path: P) -> Vec<DirEntry> {
     entries.sort_by(cmp_dir_entry);
 
     entries
-}
-
-// TODO(Chris): Move this assertion (and possibly a related assert macro) into another file
-
-#[derive(Debug)]
-struct AssertionError {
-    description: String,
-}
-
-impl Error for AssertionError {
-    fn description(&self) -> &str {
-        &self.description
-    }
-}
-
-impl std::fmt::Display for AssertionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Assertion failed: ")
-    }
-}
-
-// TODO(Chris): Put this test and the cmp_alphanum function in its own
-// file
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cmp_alphanum_works() {
-        assert_eq!(cmp_natural("10.bak", "1.bak"), Ordering::Greater);
-        assert_eq!(cmp_natural("1.bak", "10.bak"), Ordering::Less);
-
-        assert_eq!(cmp_natural("2.bak", "10.bak"), Ordering::Less);
-
-        assert_eq!(cmp_natural("1.bak", "Cargo.lock"), Ordering::Less);
-
-        assert_eq!(cmp_natural(".gitignore", "src"), Ordering::Less);
-
-        assert_eq!(cmp_natural(".gitignore", ".gitignore"), Ordering::Equal);
-    }
-
-    #[test]
-    fn scratch() {
-        println!("{:#?}", "C".cmp("1"));
-        assert!(true);
-
-        assert_eq!(false, true);
-    }
 }
