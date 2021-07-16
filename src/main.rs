@@ -555,14 +555,14 @@ fn queue_full_entry(
         )?;
     }
 
-    queue!(
-        w,
-        cursor::MoveTo(left_x, display_offset + 1),
-        style::Print(' ')
-    )?; // 1 is the starting y for columns
-
     // TODO(Chris): Inline this function, since it's only used once
-    queue_entry(w, left_x, right_x, new_entry.file_name().to_str().unwrap())?;
+    queue_entry(
+        w,
+        left_x,
+        right_x,
+        display_offset,
+        new_entry.file_name().to_str().unwrap(),
+    )?;
 
     if new_file_type.is_dir() || new_file_type.is_symlink() {
         queue!(w, style::SetAttribute(Attribute::NormalIntensity))?;
@@ -593,6 +593,14 @@ fn queue_entries_column(
             style::SetAttribute(Attribute::Reset),
             style::Print(" "),
         )?;
+
+        let mut curr_x = 7; // Length of " empty "
+        
+        while curr_x <= right_x {
+            queue!(w, style::Print(' '))?;
+
+            curr_x += 1;
+        }
 
         curr_y += 1;
     } else {
@@ -639,31 +647,66 @@ fn queue_entry(
     w: &mut io::Stdout,
     left_x: u16,
     right_x: u16,
+    display_offset: u16,
     file_name: &str,
 ) -> crossterm::Result<()> {
-    // Print as much of the file name as possible, truncating with '~' if necessary
-    for (index, ch) in file_name.char_indices() {
-        if (left_x as usize) + index >= (right_x as usize) - 2 {
-            queue!(w, style::Print('~'),)?;
-            break;
-        }
+    let mut curr_x = left_x; // This is the cell which we are about to print into
 
-        queue!(w, style::Print(ch),)?;
-    }
+    queue!(
+        w,
+        cursor::MoveTo(left_x, display_offset + 1),
+        style::Print(' ')
+    )?; // 1 is the starting y for columns
+    curr_x += 1;
 
-    // Ensure that there are spaces printed at the end of the file name
-    if (left_x as usize) + file_name.len() >= (right_x as usize) - 2 {
-        queue!(w, style::Print("  "))?;
-    } else {
+    // NOTE(Chris): In lf, we start by printing an initial space. This is already done above.
+    // If the file name is smaller than the column width - 2, print the name and then add spaces
+    // until the end of the column
+    // If the file name is exactly the column width - 2, print the name and then add spaces until
+    // the end of the column (which is now just one space)
+    // If the file name is more than the column width - 2, print the name until the end of column -
+    // 2, then add a "~" (this is in column - 1),
+    // then add spaces until the end of the column (which is now just one space)
+
+    // NOTE(Chris): "until" here means up to and including that cell
+    // The "end of column" is the last cell in the column
+    // A column does not include the gaps in between columns (there's an uncolored gap on the side
+    // of each column, resulting in there being a two-cell gap between any two columns)
+
+    // This is the number of cells in the column. If right_x and left_x were equal, there would
+    // still be exactly one cell in the column, which is why we add 1.
+    let col_width = (right_x - left_x + 1) as usize;
+
+    if file_name.len() <= col_width - 2 {
+        queue!(w, style::Print(file_name))?;
         // This conversion is fine since file_name.len() can't be longer than
         // the terminal width in this instance.
-        let mut curr_x = left_x + (file_name.len() as u16);
+        curr_x += file_name.len() as u16;
+    } else {
+        // Print the name until the end of column - 2
+        for ch in file_name.chars() {
+            // If curr_x == right_x - 1, then a character was printed into right_x - 2 in the
+            // previous iteration of the loop
+            if curr_x == right_x - 1 {
+                break;
+            }
 
-        while curr_x < right_x {
-            queue!(w, style::Print(' '))?;
+            queue!(w, style::Print(ch))?;
 
             curr_x += 1;
         }
+
+        assert!(curr_x == right_x - 1);
+
+        // This '~' is now in column - 1
+        queue!(w, style::Print('~'))?;
+        curr_x += 1;
+    }
+
+    while curr_x <= right_x {
+        queue!(w, style::Print(' '))?;
+
+        curr_x += 1;
     }
 
     Ok(())
