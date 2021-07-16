@@ -1,6 +1,8 @@
 mod natural_sort; // This declares the existence of the natural_sort module, which searches by
                   // default for natural_sort.rs or natural_sort/mod.rs
 
+use open;
+
 use natural_sort::cmp_natural;
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
@@ -220,8 +222,6 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             ThirdColumnChange::No => (),
         }
 
-        // FIXME(Chris): Render a third panel which previews directories
-
         w.flush()?;
 
         let second_bottom_index = second_starting_index + column_height;
@@ -275,55 +275,65 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                     second_display_offset,
                                 );
 
-                                let selected_dir_path =
-                                    dir_states.current_entries[second_entry_index as usize].path();
+                                let selected_entry =
+                                    &dir_states.current_entries[second_entry_index as usize];
 
-                                // FIXME(Chris): Avoid substituting apparent path with symlink target when
-                                // entering symlinked directories
-                                dir_states.set_current_dir(&selected_dir_path)?;
+                                let selected_file_type = selected_entry.file_type().unwrap();
 
-                                match left_paths.get(&selected_dir_path) {
-                                    Some(dir_location) => {
-                                        let curr_entry_index =
-                                            dir_states.current_entries.iter().position(|entry| {
-                                                entry.path() == *dir_location.dir_path
-                                            });
+                                if selected_file_type.is_dir() {
+                                    let selected_dir_path = selected_entry.path();
 
-                                        match curr_entry_index {
-                                            Some(curr_entry_index) => {
-                                                let orig_entry_index = (dir_location.starting_index
-                                                    + dir_location.display_offset)
-                                                    as usize;
-                                                if curr_entry_index == orig_entry_index {
-                                                    second_starting_index =
-                                                        dir_location.starting_index;
-                                                    second_display_offset =
-                                                        dir_location.display_offset;
-                                                } else {
-                                                    second_starting_index =
-                                                        (curr_entry_index / 2) as u16;
-                                                    second_display_offset = (curr_entry_index
-                                                        as u16)
-                                                        - second_starting_index;
+                                    // FIXME(Chris): Avoid substituting apparent path with symlink target when
+                                    // entering symlinked directories
+                                    dir_states.set_current_dir(&selected_dir_path)?;
+
+                                    match left_paths.get(&selected_dir_path) {
+                                        Some(dir_location) => {
+                                            let curr_entry_index =
+                                                dir_states.current_entries.iter().position(
+                                                    |entry| entry.path() == *dir_location.dir_path,
+                                                );
+
+                                            match curr_entry_index {
+                                                Some(curr_entry_index) => {
+                                                    let orig_entry_index = (dir_location
+                                                        .starting_index
+                                                        + dir_location.display_offset)
+                                                        as usize;
+                                                    if curr_entry_index == orig_entry_index {
+                                                        second_starting_index =
+                                                            dir_location.starting_index;
+                                                        second_display_offset =
+                                                            dir_location.display_offset;
+                                                    } else {
+                                                        second_starting_index =
+                                                            (curr_entry_index / 2) as u16;
+                                                        second_display_offset = (curr_entry_index
+                                                            as u16)
+                                                            - second_starting_index;
+                                                    }
+                                                }
+                                                None => {
+                                                    second_starting_index = 0;
+                                                    second_display_offset = 0;
                                                 }
                                             }
-                                            None => {
-                                                second_starting_index = 0;
-                                                second_display_offset = 0;
-                                            }
                                         }
-                                    }
-                                    None => {
-                                        second_starting_index = 0;
-                                        second_display_offset = 0;
-                                    }
-                                };
+                                        None => {
+                                            second_starting_index = 0;
+                                            second_display_offset = 0;
+                                        }
+                                    };
 
-                                first_column_changed = true;
-                                second_column_changed = true;
-                                third_column_changed = ThirdColumnChange::Yes {
-                                    index: (second_starting_index + second_display_offset) as usize,
-                                };
+                                    first_column_changed = true;
+                                    second_column_changed = true;
+                                    third_column_changed = ThirdColumnChange::Yes {
+                                        index: (second_starting_index + second_display_offset)
+                                            as usize,
+                                    };
+                                } else if selected_file_type.is_file() {
+                                    open::that(selected_entry.path())?;
+                                }
                             }
                         }
                         'j' => {
@@ -401,6 +411,10 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
                 first_column_changed = true;
                 second_column_changed = true;
+                third_column_changed = ThirdColumnChange::Yes {
+                    index: (second_starting_index + second_display_offset)
+                        as usize,
+                };
             }
         }
     }
@@ -409,7 +423,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 }
 
 enum ThirdColumnChange {
-    No,         // The 3rd column should not change
+    No, // The 3rd column should not change
     // index means the index of the entry in
     // curr_entries that should be previewed in the 3rd column
     Yes { index: usize },
@@ -649,6 +663,7 @@ fn queue_entries_column(
 ) -> crossterm::Result<()> {
     let mut curr_y = 1; // 1 is the starting y for columns
 
+    queue!(w, style::SetAttribute(Attribute::Reset))?;
     if entries.len() <= 0 {
         queue!(
             w,
