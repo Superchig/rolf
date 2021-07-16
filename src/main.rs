@@ -22,6 +22,8 @@ fn main() -> crossterm::Result<()> {
 
     terminal::enable_raw_mode()?;
 
+    queue!(w, terminal::EnterAlternateScreen)?;
+
     let result = run(&mut w);
 
     execute!(
