@@ -71,11 +71,11 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
     let mut second_display_offset = 0;
 
-    let mut prev_entry_index = dir_states
-        .prev_entries
-        .iter()
-        .position(|entry| entry.path() == dir_states.current_dir)
-        .unwrap();
+    // let mut prev_entry_index = dir_states
+    //     .prev_entries
+    //     .iter()
+    //     .position(|entry| entry.path() == dir_states.current_dir)
+    //     .unwrap();
 
     // TODO(Chris): Consider refactoring these weird flags into functions?
 
@@ -85,7 +85,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
     let mut second_starting_index = 0;
 
-    let mut left_paths = HashMap::new();
+    let mut left_paths: HashMap<std::path::PathBuf, DirLocation> = HashMap::new();
 
     queue!(
         w,
@@ -99,7 +99,9 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         // TODO(Chris): Handle case when current_dir is '/'
         // NOTE(Chris): This creates a new String, and it'd be nice to avoid making a heap
         // allocation here, but it's probably not worth trying to figure out how to use only a str
-        let current_dir_display = if dir_states.current_dir.starts_with(home_path) {
+        let current_dir_display = if dir_states.current_dir == home_path {
+            String::from("~")
+        } else if dir_states.current_dir.starts_with(home_path) {
             // "~"
             format!(
                 "~/{}",
@@ -143,19 +145,24 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         let (width, height) = terminal::size()?;
         let second_column = width / 6 + 1;
         let column_bot_y = height - 2;
-
-        // TODO(Chris): Correctly display previous directory column, especially
-        // as it relates to the current path.
+        let column_height = column_bot_y - 1;
 
         if first_column_changed {
+            let (display_offset, starting_index) = find_correct_location(
+                &left_paths,
+                column_height,
+                &dir_states.prev_dir,
+                &dir_states.prev_entries,
+                &dir_states.current_dir,
+            );
             queue_entries_column(
                 &mut w,
                 1,
                 width / 6 - 2,
                 column_bot_y,
                 &dir_states.prev_entries,
-                prev_entry_index as u16,
-                0,
+                display_offset,
+                starting_index,
             )?;
 
             first_column_changed = false;
@@ -177,7 +184,6 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
         w.flush()?;
 
-        let column_height = column_bot_y - 1;
         let second_bottom_index = second_starting_index + column_height;
 
         match read_char()? {
@@ -187,40 +193,26 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             'h' => {
                 let old_current_dir = dir_states.current_dir.clone();
                 if dir_states.current_entries.len() > 0 {
-                    left_paths.insert(
-                        dir_states.current_dir.clone(),
-                        DirLocation {
-                            dir_path: dir_states.current_entries[second_entry_index as usize]
-                                .path(),
-                            starting_index: second_starting_index,
-                            display_offset: second_display_offset,
-                        },
+                    save_location(
+                        &mut left_paths,
+                        &dir_states,
+                        second_entry_index,
+                        second_starting_index,
+                        second_display_offset,
                     );
                 }
 
                 dir_states.set_current_dir("..")?;
 
-                // TODO(Chris): Refactor into a function
-                prev_entry_index = dir_states
-                    .prev_entries
-                    .iter()
-                    .position(|entry| entry.path() == dir_states.current_dir)
-                    .unwrap();
-
-                let curr_entry_index = dir_states
-                    .current_entries
-                    .iter()
-                    .position(|entry| entry.path() == old_current_dir)
-                    .unwrap();
-
-                // TODO(Chris): Refactor into a function
-                if curr_entry_index >= column_height as usize {
-                    second_starting_index = (curr_entry_index / 2) as u16;
-                    second_display_offset = (curr_entry_index as u16) - second_starting_index;
-                } else {
-                    second_starting_index = 0;
-                    second_display_offset = curr_entry_index as u16;
-                }
+                let (display_offset, starting_index) = find_correct_location(
+                    &left_paths,
+                    column_height,
+                    &dir_states.current_dir,
+                    &dir_states.current_entries,
+                    &old_current_dir,
+                );
+                second_display_offset = display_offset;
+                second_starting_index = starting_index;
 
                 // TODO(Chris): Consider combining these two flags into one, since we're not using
                 // them separately
@@ -229,16 +221,24 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             }
             'l' => {
                 if dir_states.current_entries.len() > 0 {
+                    save_location(
+                        &mut left_paths,
+                        &dir_states,
+                        second_entry_index,
+                        second_starting_index,
+                        second_display_offset,
+                    );
+
                     let selected_dir_path =
                         dir_states.current_entries[second_entry_index as usize].path();
 
                     dir_states.set_current_dir(&selected_dir_path)?;
 
-                    prev_entry_index = dir_states
-                        .prev_entries
-                        .iter()
-                        .position(|entry| entry.path() == dir_states.current_dir)
-                        .unwrap();
+                    // prev_entry_index = dir_states
+                    //     .prev_entries
+                    //     .iter()
+                    //     .position(|entry| entry.path() == dir_states.current_dir)
+                    //     .unwrap();
 
                     match left_paths.get(&selected_dir_path) {
                         Some(dir_location) => {
@@ -335,12 +335,45 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
     Ok(())
 }
 
+// For the list consisting of the entries in parent_entries, find the correct display offset and
+// starting index that will put the cursor on dir
+fn find_correct_location(
+    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
+    column_height: u16,
+    parent_dir: &std::path::PathBuf,
+    parent_entries: &Vec<DirEntry>,
+    dir: &std::path::PathBuf,
+) -> (u16, u16) {
+    return match left_paths.get(parent_dir) {
+        Some(dir_location) => (dir_location.display_offset, dir_location.starting_index),
+        None => {
+            let first_bottom_index = column_height;
+
+            let parent_entry_index = parent_entries
+                .iter()
+                .position(|entry| entry.path() == *dir)
+                .unwrap();
+
+            if parent_entry_index <= first_bottom_index as usize {
+                (parent_entry_index as u16, 0)
+            } else {
+                // Center vaguely on prev_entry_index
+                let down_offset = column_height / 2;
+
+                (down_offset, (parent_entry_index as u16) - down_offset)
+            }
+        }
+    };
+}
+
+#[derive(Debug)]
 struct DirLocation {
     dir_path: std::path::PathBuf,
     starting_index: u16,
     display_offset: u16,
 }
 
+#[derive(Debug)]
 struct DirStates {
     current_dir: std::path::PathBuf,
     current_entries: Vec<DirEntry>,
@@ -434,6 +467,27 @@ fn cmp_dir_entry(entry1: &DirEntry, entry2: &DirEntry) -> Ordering {
     }
 }
 
+fn save_location(
+    left_paths: &mut HashMap<
+        std::path::PathBuf,
+        DirLocation,
+        std::collections::hash_map::RandomState,
+    >,
+    dir_states: &DirStates,
+    second_entry_index: u16,
+    second_starting_index: u16,
+    second_display_offset: u16,
+) {
+    left_paths.insert(
+        dir_states.current_dir.clone(),
+        DirLocation {
+            dir_path: dir_states.current_entries[second_entry_index as usize].path(),
+            starting_index: second_starting_index,
+            display_offset: second_display_offset,
+        },
+    );
+}
+
 fn update_entries_column(
     w: &mut io::Stdout,
     left_x: u16,
@@ -481,10 +535,10 @@ fn queue_full_entry(
     entries: &Vec<DirEntry>,
     left_x: u16,
     right_x: u16,
-    new_offset: u16,
-    new_start_index: u16,
+    display_offset: u16,
+    starting_index: u16,
 ) -> crossterm::Result<()> {
-    let new_entry_index = new_start_index + new_offset;
+    let new_entry_index = starting_index + display_offset;
     let new_entry = &entries[new_entry_index as usize];
     let new_file_type = std::fs::symlink_metadata(new_entry.path())?.file_type();
 
@@ -504,7 +558,11 @@ fn queue_full_entry(
         )?;
     }
 
-    queue!(w, cursor::MoveTo(left_x, new_offset + 1), style::Print(' '))?; // 1 is the starting y for columns
+    queue!(
+        w,
+        cursor::MoveTo(left_x, display_offset + 1),
+        style::Print(' ')
+    )?; // 1 is the starting y for columns
 
     // TODO(Chris): Inline this function, since it's only used once
     queue_entry(w, left_x, right_x, new_entry.file_name().to_str().unwrap())?;
