@@ -1,5 +1,42 @@
 use std::cmp::Ordering;
 
+fn is_uppercase(b: u8) -> bool {
+    b'A' <= b && b <= b'Z'
+}
+
+fn is_lowercase(b: u8) -> bool {
+    b'a' <= b && b <= b'z'
+}
+
+fn to_lowercase(b: u8) -> u8 {
+    assert!(is_uppercase(b));
+
+    b + 32
+}
+
+fn cmp_mixed_caps(str1: &[u8], str2: &[u8]) -> Ordering {
+    let both = str1.iter().zip(str2.iter());
+
+    for pair in both {
+        let ch1 = *pair.0;
+        let ch2 = *pair.1;
+
+        if ch1 == ch2 {
+            continue;
+        }
+
+        if is_uppercase(ch1) && is_lowercase(ch2) {
+            return to_lowercase(ch1).cmp(&ch2);
+        } else if is_lowercase(ch1) && is_uppercase(ch2) {
+            return ch1.cmp(&to_lowercase(ch2));
+        } else {
+            return ch1.cmp(&ch2);
+        }
+    }
+
+    str1.len().cmp(&str2.len())
+}
+
 fn is_digit(b: u8) -> bool {
     // 48 = '0'
     // 57 = '9'
@@ -13,20 +50,7 @@ fn is_digit(b: u8) -> bool {
 // "chunks" in each string, comparing them as necessary. By using these index variables, this
 // algorithm doesn't seem to make any heap allocations.
 // TODO(Chris): Profile this implementation to check if there are any heap allocations.
-// FIXME(Chris): Handle the string comparisons to be like lf's (so an 'E' comes after an 'a')
 pub fn cmp_natural(str1: &str, str2: &str) -> Ordering {
-    // if natural_less(str1, str2) {
-    //     return Ordering::Less;
-    // } else if str1 == str2 {
-    //     return Ordering::Equal;
-    // } else {
-    //     return Ordering::Greater;
-    // }
-
-    // NOTE(Chris): This is going to involve some more allocations than may be strictly necessary,
-    // but we're doing this so we can easily index chars1 and chars2.
-    // let s1: Vec<char> = str1.chars().collect();
-    // let s2: Vec<char> = str2.chars().collect();
     let s1 = str1.as_bytes();
     let s2 = str2.as_bytes();
 
@@ -91,7 +115,8 @@ pub fn cmp_natural(str1: &str, str2: &str) -> Ordering {
         // If we've made it this far, then neither are the string forms of the chunks equal nor are
         // both of the chunks actually numerical. Thus, these chunks are the ones which will
         // finally determine the order of the strings, so we only need to compare them.
-        return s1[lo1..hi1].cmp(&s2[lo2..hi2]);
+        // return s1[lo1..hi1].cmp(&s2[lo2..hi2]);
+        return cmp_mixed_caps(&s1[lo1..hi1], &s2[lo2..hi2]);
     }
 }
 
@@ -100,7 +125,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cmp_alphanum_works() {
+    fn cmp_natural_works() {
         assert_eq!(cmp_natural("10.bak", "1.bak"), Ordering::Greater);
         assert_eq!(cmp_natural("1.bak", "10.bak"), Ordering::Less);
 
@@ -111,5 +136,19 @@ mod tests {
         assert_eq!(cmp_natural(".gitignore", "src"), Ordering::Less);
 
         assert_eq!(cmp_natural(".gitignore", ".gitignore"), Ordering::Equal);
+
+        assert_eq!(cmp_natural("class_schedule", "Electron_Background"), Ordering::Less);
+    }
+
+    #[test]
+    fn cmp_mixed_caps_works() {
+        assert!(is_uppercase(b'E'));
+        assert!(!is_uppercase(b'e'));
+
+        assert!(is_lowercase(b'd'));
+        
+        assert_eq!(to_lowercase(b'E'), b'e');
+
+        assert_eq!(cmp_mixed_caps(b"anagramster-py", b"Electron"), Ordering::Less);
     }
 }

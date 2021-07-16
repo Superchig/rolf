@@ -677,7 +677,9 @@ fn queue_entry(
     // still be exactly one cell in the column, which is why we add 1.
     let col_width = (right_x - left_x + 1) as usize;
 
-    if file_name.len() <= col_width - 2 {
+    let file_name_len = file_name.chars().count();
+
+    if file_name_len <= col_width - 2 {
         queue!(w, style::Print(file_name))?;
         // This conversion is fine since file_name.len() can't be longer than
         // the terminal width in this instance.
