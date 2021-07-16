@@ -73,10 +73,14 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
     let mut second_display_offset = 0;
 
     // TODO(Chris): Consider refactoring these weird flags into functions?
+    // TODO(Chris): Refactor these flags to use should rather than changed
 
     let mut first_column_changed = true;
 
     let mut second_column_changed = true;
+
+    // This is really more like should_change_third_column
+    let mut third_column_changed = ThirdColumnChange::Yes { index: 0 };
 
     let mut second_starting_index = 0;
 
@@ -177,6 +181,52 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             second_column_changed = false;
         }
 
+        match third_column_changed {
+            ThirdColumnChange::Yes {
+                index: change_index,
+            } => {
+                let potential_third_dir = &dir_states.current_entries[change_index as usize];
+
+                if potential_third_dir.file_type().unwrap().is_dir() {
+                    let third_dir = potential_third_dir.path();
+                    let third_entries = get_sorted_entries(&third_dir);
+
+                    // We should figure out if left_paths has any info. If it does,
+                    // we should display stuff with its relevant offset and
+                    // starting index. If it doesn't, then we should simply use
+                    // offset and starting index of 0.  I don't think we actually
+                    // need find_correct_location.
+
+                    let (display_offset, starting_index) = match left_paths.get(&third_dir) {
+                        Some(dir_location) => {
+                            (dir_location.display_offset, dir_location.starting_index)
+                        }
+                        None => (0, 0),
+                    };
+
+                    queue_entries_column(
+                        &mut w,
+                        width / 2 + 1,
+                        width - 2,
+                        column_bot_y,
+                        &third_entries,
+                        display_offset,
+                        starting_index,
+                    )?;
+                } else {
+                    queue_blank_column(&mut w, width / 2 + 1, width - 2, column_height)?;
+                }
+
+                third_column_changed = ThirdColumnChange::No;
+            }
+            ThirdColumnChange::YesToBlank => {
+                queue_blank_column(w, width / 2 + 1, width - 2, column_height)?;
+            }
+            ThirdColumnChange::No => (),
+        }
+
+        // FIXME(Chris): Render a third panel which previews directories
+
         w.flush()?;
 
         let second_bottom_index = second_starting_index + column_height;
@@ -216,6 +266,9 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                             // them separately
                             first_column_changed = true;
                             second_column_changed = true;
+                            third_column_changed = ThirdColumnChange::Yes {
+                                index: (second_starting_index + second_display_offset) as usize,
+                            };
                         }
                         'l' => {
                             if dir_states.current_entries.len() > 0 {
@@ -273,6 +326,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
                                 first_column_changed = true;
                                 second_column_changed = true;
+                                third_column_changed = ThirdColumnChange::YesToBlank;
                             }
                         }
                         'j' => {
@@ -303,6 +357,10 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                     second_display_offset,
                                     second_starting_index,
                                 )?;
+
+                                third_column_changed = ThirdColumnChange::Yes {
+                                    index: (second_starting_index + second_display_offset) as usize,
+                                };
                             }
                         }
                         'k' => {
@@ -329,6 +387,10 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                     second_display_offset,
                                     second_starting_index,
                                 )?;
+
+                                third_column_changed = ThirdColumnChange::Yes {
+                                    index: (second_starting_index + second_display_offset) as usize,
+                                };
                             }
                         }
                         _ => (),
@@ -338,13 +400,23 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             },
             Event::Mouse(_) => (),
             Event::Resize(_, _) => {
+                queue!(w, terminal::Clear(ClearType::All))?;
+
                 first_column_changed = true;
                 second_column_changed = true;
-            },
+            }
         }
     }
 
     Ok(())
+}
+
+enum ThirdColumnChange {
+    No,         // The 3rd column should not change
+    YesToBlank, // The 3rd column should be changed to all blank
+    // index means the index of the entry in
+    // curr_entries that should be previewed in the 3rd column
+    Yes { index: usize },
 }
 
 // For the list consisting of the entries in parent_entries, find the correct display offset and
@@ -593,7 +665,7 @@ fn queue_entries_column(
             style::Print(" "),
         )?;
 
-        let mut curr_x = 7; // Length of " empty "
+        let mut curr_x = left_x + 7; // Length of " empty "
 
         while curr_x <= right_x {
             queue!(w, style::Print(' '))?;
@@ -625,13 +697,13 @@ fn queue_entries_column(
         }
     }
 
-    let col_width = right_x - left_x;
+    let col_width = right_x - left_x + 1;
 
     // Ensure that the bottom of "short buffers" are properly cleared
     while curr_y <= bottom_y {
         queue!(w, cursor::MoveTo(left_x, curr_y))?;
 
-        for _ in 0..=col_width {
+        for _ in 0..col_width {
             queue!(w, style::Print(' '))?;
         }
 
@@ -708,6 +780,30 @@ fn queue_entry(
         queue!(w, style::Print(' '))?;
 
         curr_x += 1;
+    }
+
+    Ok(())
+}
+
+fn queue_blank_column(
+    w: &mut io::Stdout,
+    left_x: u16,
+    right_x: u16,
+    column_height: u16,
+) -> crossterm::Result<()> {
+    let mut curr_y = 1; // 1 is the starting y for columns
+
+    while curr_y < column_height {
+        queue!(w, cursor::MoveTo(left_x, curr_y))?;
+
+        let mut curr_x = left_x;
+        while curr_x <= right_x {
+            queue!(w, style::Print(' '))?;
+
+            curr_x += 1;
+        }
+
+        curr_y += 1;
     }
 
     Ok(())
