@@ -11,7 +11,7 @@ use std::vec::Vec;
 
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, KeyEvent},
+    event::{self, Event, KeyCode},
     execute, queue,
     style::{self, Attribute, Color},
     terminal::{self, ClearType},
@@ -69,12 +69,6 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
     dir_states.set_current_dir(".")?;
 
     let mut second_display_offset = 0;
-
-    // let mut prev_entry_index = dir_states
-    //     .prev_entries
-    //     .iter()
-    //     .position(|entry| entry.path() == dir_states.current_dir)
-    //     .unwrap();
 
     // TODO(Chris): Consider refactoring these weird flags into functions?
 
@@ -185,151 +179,166 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
         let second_bottom_index = second_starting_index + column_height;
 
-        match read_char()? {
-            'q' => break,
-            // TODO(Chris): Account for possibility of no .parent() AKA when
-            // current_dir is '/'
-            'h' => {
-                let old_current_dir = dir_states.current_dir.clone();
-                if dir_states.current_entries.len() > 0 {
-                    save_location(
-                        &mut left_paths,
-                        &dir_states,
-                        second_entry_index,
-                        second_starting_index,
-                        second_display_offset,
-                    );
-                }
+        match event::read()? {
+            Event::Key(event) => match event.code {
+                KeyCode::Char(ch) => {
+                    match ch {
+                        'q' => break,
+                        // TODO(Chris): Account for possibility of no .parent() AKA when
+                        // current_dir is '/'
+                        'h' => {
+                            let old_current_dir = dir_states.current_dir.clone();
+                            if dir_states.current_entries.len() > 0 {
+                                save_location(
+                                    &mut left_paths,
+                                    &dir_states,
+                                    second_entry_index,
+                                    second_starting_index,
+                                    second_display_offset,
+                                );
+                            }
 
-                dir_states.set_current_dir("..")?;
+                            dir_states.set_current_dir("..")?;
 
-                let (display_offset, starting_index) = find_correct_location(
-                    &left_paths,
-                    column_height,
-                    &dir_states.current_dir,
-                    &dir_states.current_entries,
-                    &old_current_dir,
-                );
-                second_display_offset = display_offset;
-                second_starting_index = starting_index;
+                            let (display_offset, starting_index) = find_correct_location(
+                                &left_paths,
+                                column_height,
+                                &dir_states.current_dir,
+                                &dir_states.current_entries,
+                                &old_current_dir,
+                            );
+                            second_display_offset = display_offset;
+                            second_starting_index = starting_index;
 
-                // TODO(Chris): Consider combining these two flags into one, since we're not using
-                // them separately
-                first_column_changed = true;
-                second_column_changed = true;
-            }
-            'l' => {
-                if dir_states.current_entries.len() > 0 {
-                    save_location(
-                        &mut left_paths,
-                        &dir_states,
-                        second_entry_index,
-                        second_starting_index,
-                        second_display_offset,
-                    );
+                            // TODO(Chris): Consider combining these two flags into one, since we're not using
+                            // them separately
+                            first_column_changed = true;
+                            second_column_changed = true;
+                        }
+                        'l' => {
+                            if dir_states.current_entries.len() > 0 {
+                                save_location(
+                                    &mut left_paths,
+                                    &dir_states,
+                                    second_entry_index,
+                                    second_starting_index,
+                                    second_display_offset,
+                                );
 
-                    let selected_dir_path =
-                        dir_states.current_entries[second_entry_index as usize].path();
+                                let selected_dir_path =
+                                    dir_states.current_entries[second_entry_index as usize].path();
 
-                    dir_states.set_current_dir(&selected_dir_path)?;
+                                // FIXME(Chris): Avoid substituting apparent path with symlink target when
+                                // entering symlinked directories
+                                dir_states.set_current_dir(&selected_dir_path)?;
 
-                    // prev_entry_index = dir_states
-                    //     .prev_entries
-                    //     .iter()
-                    //     .position(|entry| entry.path() == dir_states.current_dir)
-                    //     .unwrap();
+                                match left_paths.get(&selected_dir_path) {
+                                    Some(dir_location) => {
+                                        let curr_entry_index =
+                                            dir_states.current_entries.iter().position(|entry| {
+                                                entry.path() == *dir_location.dir_path
+                                            });
 
-                    match left_paths.get(&selected_dir_path) {
-                        Some(dir_location) => {
-                            let curr_entry_index = dir_states
-                                .current_entries
-                                .iter()
-                                .position(|entry| entry.path() == *dir_location.dir_path);
-
-                            match curr_entry_index {
-                                Some(curr_entry_index) => {
-                                    let orig_entry_index = (dir_location.starting_index
-                                        + dir_location.display_offset)
-                                        as usize;
-                                    if curr_entry_index == orig_entry_index {
-                                        second_starting_index = dir_location.starting_index;
-                                        second_display_offset = dir_location.display_offset;
-                                    } else {
-                                        second_starting_index = (curr_entry_index / 2) as u16;
-                                        second_display_offset =
-                                            (curr_entry_index as u16) - second_starting_index;
+                                        match curr_entry_index {
+                                            Some(curr_entry_index) => {
+                                                let orig_entry_index = (dir_location.starting_index
+                                                    + dir_location.display_offset)
+                                                    as usize;
+                                                if curr_entry_index == orig_entry_index {
+                                                    second_starting_index =
+                                                        dir_location.starting_index;
+                                                    second_display_offset =
+                                                        dir_location.display_offset;
+                                                } else {
+                                                    second_starting_index =
+                                                        (curr_entry_index / 2) as u16;
+                                                    second_display_offset = (curr_entry_index
+                                                        as u16)
+                                                        - second_starting_index;
+                                                }
+                                            }
+                                            None => {
+                                                second_starting_index = 0;
+                                                second_display_offset = 0;
+                                            }
+                                        }
                                     }
-                                }
-                                None => {
-                                    second_starting_index = 0;
-                                    second_display_offset = 0;
-                                }
+                                    None => {
+                                        second_starting_index = 0;
+                                        second_display_offset = 0;
+                                    }
+                                };
+
+                                first_column_changed = true;
+                                second_column_changed = true;
                             }
                         }
-                        None => {
-                            second_starting_index = 0;
-                            second_display_offset = 0;
+                        'j' => {
+                            if dir_states.current_entries.len() > 0
+                                && (second_entry_index as usize)
+                                    < dir_states.current_entries.len() - 1
+                            {
+                                let old_starting_index = second_starting_index;
+                                let old_display_offset = second_display_offset;
+
+                                if second_display_offset >= (column_bot_y * 2 / 3)
+                                    && (second_bottom_index as usize)
+                                        < dir_states.current_entries.len() - 1
+                                {
+                                    second_starting_index += 1;
+                                } else if second_entry_index != second_bottom_index {
+                                    second_display_offset += 1;
+                                }
+
+                                update_entries_column(
+                                    w,
+                                    second_column,
+                                    width / 2 - 2,
+                                    column_bot_y,
+                                    &dir_states.current_entries,
+                                    old_display_offset,
+                                    old_starting_index,
+                                    second_display_offset,
+                                    second_starting_index,
+                                )?;
+                            }
                         }
-                    };
+                        'k' => {
+                            if dir_states.current_entries.len() > 0 {
+                                let old_starting_index = second_starting_index;
+                                let old_display_offset = second_display_offset;
 
-                    first_column_changed = true;
-                    second_column_changed = true;
-                }
-            }
-            'j' => {
-                if dir_states.current_entries.len() > 0
-                    && (second_entry_index as usize) < dir_states.current_entries.len() - 1
-                {
-                    let old_starting_index = second_starting_index;
-                    let old_display_offset = second_display_offset;
+                                if second_display_offset <= (column_bot_y * 1 / 3)
+                                    && second_starting_index > 0
+                                {
+                                    second_starting_index -= 1;
+                                } else if second_entry_index > 0 {
+                                    second_display_offset -= 1;
+                                }
 
-                    if second_display_offset >= (column_bot_y * 2 / 3)
-                        && (second_bottom_index as usize) < dir_states.current_entries.len() - 1
-                    {
-                        second_starting_index += 1;
-                    } else if second_entry_index != second_bottom_index {
-                        second_display_offset += 1;
+                                update_entries_column(
+                                    w,
+                                    second_column,
+                                    width / 2 - 2,
+                                    column_bot_y,
+                                    &dir_states.current_entries,
+                                    old_display_offset,
+                                    old_starting_index,
+                                    second_display_offset,
+                                    second_starting_index,
+                                )?;
+                            }
+                        }
+                        _ => (),
                     }
-
-                    update_entries_column(
-                        w,
-                        second_column,
-                        width / 2 - 2,
-                        column_bot_y,
-                        &dir_states.current_entries,
-                        old_display_offset,
-                        old_starting_index,
-                        second_display_offset,
-                        second_starting_index,
-                    )?;
                 }
-            }
-            'k' => {
-                if dir_states.current_entries.len() > 0 {
-                    let old_starting_index = second_starting_index;
-                    let old_display_offset = second_display_offset;
-
-                    if second_display_offset <= (column_bot_y * 1 / 3) && second_starting_index > 0
-                    {
-                        second_starting_index -= 1;
-                    } else if second_entry_index > 0 {
-                        second_display_offset -= 1;
-                    }
-
-                    update_entries_column(
-                        w,
-                        second_column,
-                        width / 2 - 2,
-                        column_bot_y,
-                        &dir_states.current_entries,
-                        old_display_offset,
-                        old_starting_index,
-                        second_display_offset,
-                        second_starting_index,
-                    )?;
-                }
-            }
-            _ => (),
+                _ => (),
+            },
+            Event::Mouse(_) => (),
+            Event::Resize(_, _) => {
+                first_column_changed = true;
+                second_column_changed = true;
+            },
         }
     }
 
@@ -358,7 +367,7 @@ fn find_correct_location(
             if parent_entry_index <= first_bottom_index as usize {
                 (parent_entry_index as u16, 0)
             } else {
-                // Center vaguely on prev_entry_index
+                // Center vaguely on parent_entry_index
                 let down_offset = column_height / 2;
 
                 (down_offset, (parent_entry_index as u16) - down_offset)
@@ -413,18 +422,6 @@ impl DirStates {
         self.prev_entries = get_sorted_entries(&self.prev_dir);
 
         Ok(())
-    }
-}
-
-fn read_char() -> crossterm::Result<char> {
-    loop {
-        if let Ok(Event::Key(KeyEvent {
-            code: KeyCode::Char(c),
-            ..
-        })) = event::read()
-        {
-            return Ok(c);
-        }
     }
 }
 
@@ -595,7 +592,7 @@ fn queue_entries_column(
         )?;
 
         let mut curr_x = 7; // Length of " empty "
-        
+
         while curr_x <= right_x {
             queue!(w, style::Print(' '))?;
 
