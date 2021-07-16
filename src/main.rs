@@ -185,42 +185,37 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             ThirdColumnChange::Yes {
                 index: change_index,
             } => {
-                let potential_third_dir = &dir_states.current_entries[change_index as usize];
-
-                if potential_third_dir.file_type().unwrap().is_dir() {
-                    let third_dir = potential_third_dir.path();
-                    let third_entries = get_sorted_entries(&third_dir);
-
-                    // We should figure out if left_paths has any info. If it does,
-                    // we should display stuff with its relevant offset and
-                    // starting index. If it doesn't, then we should simply use
-                    // offset and starting index of 0.  I don't think we actually
-                    // need find_correct_location.
-
-                    let (display_offset, starting_index) = match left_paths.get(&third_dir) {
-                        Some(dir_location) => {
-                            (dir_location.display_offset, dir_location.starting_index)
-                        }
-                        None => (0, 0),
-                    };
-
-                    queue_entries_column(
-                        &mut w,
-                        width / 2 + 1,
-                        width - 2,
-                        column_bot_y,
-                        &third_entries,
-                        display_offset,
-                        starting_index,
-                    )?;
-                } else {
+                if dir_states.current_entries.len() <= 0 {
                     queue_blank_column(&mut w, width / 2 + 1, width - 2, column_height)?;
+                } else {
+                    let potential_third_dir = &dir_states.current_entries[change_index as usize];
+
+                    if potential_third_dir.file_type().unwrap().is_dir() {
+                        let third_dir = potential_third_dir.path();
+                        let third_entries = get_sorted_entries(&third_dir);
+
+                        let (display_offset, starting_index) = match left_paths.get(&third_dir) {
+                            Some(dir_location) => {
+                                (dir_location.display_offset, dir_location.starting_index)
+                            }
+                            None => (0, 0),
+                        };
+
+                        queue_entries_column(
+                            &mut w,
+                            width / 2 + 1,
+                            width - 2,
+                            column_bot_y,
+                            &third_entries,
+                            display_offset,
+                            starting_index,
+                        )?;
+                    } else {
+                        queue_blank_column(&mut w, width / 2 + 1, width - 2, column_height)?;
+                    }
                 }
 
                 third_column_changed = ThirdColumnChange::No;
-            }
-            ThirdColumnChange::YesToBlank => {
-                queue_blank_column(w, width / 2 + 1, width - 2, column_height)?;
             }
             ThirdColumnChange::No => (),
         }
@@ -326,7 +321,9 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
                                 first_column_changed = true;
                                 second_column_changed = true;
-                                third_column_changed = ThirdColumnChange::YesToBlank;
+                                third_column_changed = ThirdColumnChange::Yes {
+                                    index: (second_starting_index + second_display_offset) as usize,
+                                };
                             }
                         }
                         'j' => {
@@ -413,7 +410,6 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
 enum ThirdColumnChange {
     No,         // The 3rd column should not change
-    YesToBlank, // The 3rd column should be changed to all blank
     // index means the index of the entry in
     // curr_entries that should be previewed in the 3rd column
     Yes { index: usize },
