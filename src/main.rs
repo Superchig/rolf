@@ -9,6 +9,7 @@ use std::collections::hash_map::HashMap;
 use std::fs::DirEntry;
 use std::io::{self, Write};
 use std::path::Path;
+use std::process::Command;
 use std::vec::Vec;
 
 use crossterm::{
@@ -75,7 +76,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
     let mut second_display_offset = 0;
 
     // TODO(Chris): Consider refactoring these weird flags into functions?
-    // TODO(Chris): Refactor these flags to use should rather than changed
+    // FIXME(Chris): Rename these flags to use 'should' rather than 'changed'
 
     let mut first_column_changed = true;
 
@@ -394,6 +395,53 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                     second_starting_index,
                                 )?;
 
+                                third_column_changed = ThirdColumnChange::Yes {
+                                    index: (second_starting_index + second_display_offset) as usize,
+                                };
+                            }
+                        }
+                        'e' => {
+                            let editor = match std::env::var("VISUAL") {
+                                Err(std::env::VarError::NotPresent) => {
+                                    match std::env::var("EDITOR") {
+                                        Err(std::env::VarError::NotPresent) => String::from(""),
+                                        Err(err) => panic!(err),
+                                        Ok(editor) => editor,
+                                    }
+                                }
+                                Err(err) => panic!(err),
+                                Ok(visual) => visual,
+                            };
+
+                            // It'd be nice if we could do breaking on blocks to exit this whole
+                            // match statement early, but labeling blocks is still in unstable,
+                            // as seen in https://github.com/rust-lang/rust/issues/48594
+                            if editor != "" {
+                                let selected_entry =
+                                    &dir_states.current_entries[second_entry_index as usize];
+
+                                let shell_command = format!(
+                                    "{} {}",
+                                    editor,
+                                    selected_entry
+                                        .path()
+                                        .to_str()
+                                        .expect("Failed to convert path to string")
+                                );
+
+                                queue!(w, terminal::LeaveAlternateScreen)?;
+
+                                Command::new("sh")
+                                    .arg("-c")
+                                    .arg(shell_command)
+                                    .status()
+                                    .expect("failed to execute editor command");
+
+                                queue!(w, terminal::EnterAlternateScreen)?;
+
+                                // FIXME(Chris): Refactor this into a closure, I guess
+                                first_column_changed = true;
+                                second_column_changed = true;
                                 third_column_changed = ThirdColumnChange::Yes {
                                     index: (second_starting_index + second_display_offset) as usize,
                                 };
