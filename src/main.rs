@@ -7,7 +7,7 @@ use natural_sort::cmp_natural;
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
 use std::fs::DirEntry;
-use std::io::{self, Write};
+use std::io::{self, Stdout, Write};
 use std::path::Path;
 use std::process::Command;
 use std::vec::Vec;
@@ -75,15 +75,11 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
     let mut second_display_offset = 0;
 
-    // TODO(Chris): Consider refactoring these weird flags into functions?
-    // FIXME(Chris): Rename these flags to use 'should' rather than 'changed'
+    // FIXME(Chris): Consider refactoring these weird flags into functions?
+    // FIXME(Chris): Eliminate the flags entirely and replace them with calls to their relevant
+    // functions
 
-    let mut first_column_changed = true;
-
-    let mut second_column_changed = true;
-
-    // This is really more like should_change_third_column
-    let mut third_column_changed = ThirdColumnChange::Yes { index: 0 };
+    let mut is_first_iteration = true;
 
     let mut second_starting_index = 0;
 
@@ -98,25 +94,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
     // Main input loop
     loop {
-        // TODO(Chris): Handle case when current_dir is '/'
-        // NOTE(Chris): This creates a new String, and it'd be nice to avoid making a heap
-        // allocation here, but it's probably not worth trying to figure out how to use only a str
-        let current_dir_display = if dir_states.current_dir == home_path {
-            String::from("~")
-        } else if dir_states.current_dir.starts_with(home_path) {
-            // "~"
-            format!(
-                "~/{}",
-                dir_states
-                    .current_dir
-                    .strip_prefix(home_path)
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-            )
-        } else {
-            dir_states.current_dir.to_str().unwrap().to_string()
-        };
+        let current_dir_display = format_current_dir(&dir_states, home_path);
 
         let second_entry_index = second_starting_index + second_display_offset;
 
@@ -149,78 +127,38 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         let column_bot_y = height - 2;
         let column_height = column_bot_y - 1;
 
-        if first_column_changed {
-            let (display_offset, starting_index) = find_correct_location(
-                &left_paths,
-                column_height,
-                &dir_states.prev_dir,
-                &dir_states.prev_entries,
-                &dir_states.current_dir,
-            );
-            queue_entries_column(
+        if is_first_iteration {
+            queue_first_column(
                 &mut w,
-                1,
-                width / 6 - 2,
+                &dir_states,
+                &left_paths,
+                width,
+                column_height,
                 column_bot_y,
-                &dir_states.prev_entries,
-                display_offset,
-                starting_index,
             )?;
 
-            first_column_changed = false;
-        }
-
-        if second_column_changed {
-            queue_entries_column(
+            queue_second_column(
                 &mut w,
                 second_column,
-                width / 2 - 2,
+                width,
                 column_bot_y,
                 &dir_states.current_entries,
                 second_display_offset,
                 second_starting_index,
             )?;
 
-            second_column_changed = false;
-        }
+            // FIXME(Chris): Check that this function call is handled correctly
+            queue_third_column(
+                w,
+                &dir_states,
+                &left_paths,
+                width,
+                column_height,
+                column_bot_y,
+                0,
+            )?;
 
-        match third_column_changed {
-            ThirdColumnChange::Yes {
-                index: change_index,
-            } => {
-                if dir_states.current_entries.len() <= 0 {
-                    queue_blank_column(&mut w, width / 2 + 1, width - 2, column_height)?;
-                } else {
-                    let potential_third_dir = &dir_states.current_entries[change_index as usize];
-
-                    if potential_third_dir.file_type().unwrap().is_dir() {
-                        let third_dir = potential_third_dir.path();
-                        let third_entries = get_sorted_entries(&third_dir);
-
-                        let (display_offset, starting_index) = match left_paths.get(&third_dir) {
-                            Some(dir_location) => {
-                                (dir_location.display_offset, dir_location.starting_index)
-                            }
-                            None => (0, 0),
-                        };
-
-                        queue_entries_column(
-                            &mut w,
-                            width / 2 + 1,
-                            width - 2,
-                            column_bot_y,
-                            &third_entries,
-                            display_offset,
-                            starting_index,
-                        )?;
-                    } else {
-                        queue_blank_column(&mut w, width / 2 + 1, width - 2, column_height)?;
-                    }
-                }
-
-                third_column_changed = ThirdColumnChange::No;
-            }
-            ThirdColumnChange::No => (),
+            is_first_iteration = false;
         }
 
         w.flush()?;
@@ -281,11 +219,32 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                         }
                     };
 
-                    first_column_changed = true;
-                    second_column_changed = true;
-                    third_column_changed = ThirdColumnChange::Yes {
-                        index: (second_starting_index + second_display_offset) as usize,
-                    };
+                    queue_first_column(
+                        &mut w,
+                        &dir_states,
+                        &left_paths,
+                        width,
+                        column_height,
+                        column_bot_y,
+                    )?;
+                    queue_second_column(
+                        &mut w,
+                        second_column,
+                        width,
+                        column_bot_y,
+                        &dir_states.current_entries,
+                        second_display_offset,
+                        second_starting_index,
+                    )?;
+                    queue_third_column(
+                        w,
+                        &dir_states,
+                        &left_paths,
+                        width,
+                        column_height,
+                        column_bot_y,
+                        (second_starting_index + second_display_offset) as usize,
+                    )?;
                 } else if selected_file_type.is_file() {
                     open::that(selected_entry.path())?;
                 }
@@ -327,11 +286,32 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
                             // TODO(Chris): Consider combining these two flags into one, since we're not using
                             // them separately
-                            first_column_changed = true;
-                            second_column_changed = true;
-                            third_column_changed = ThirdColumnChange::Yes {
-                                index: (second_starting_index + second_display_offset) as usize,
-                            };
+                            queue_first_column(
+                                &mut w,
+                                &dir_states,
+                                &left_paths,
+                                width,
+                                column_height,
+                                column_bot_y,
+                            )?;
+                            queue_second_column(
+                                &mut w,
+                                second_column,
+                                width,
+                                column_bot_y,
+                                &dir_states.current_entries,
+                                second_display_offset,
+                                second_starting_index,
+                            )?;
+                            queue_third_column(
+                                w,
+                                &dir_states,
+                                &left_paths,
+                                width,
+                                column_height,
+                                column_bot_y,
+                                (second_starting_index + second_display_offset) as usize,
+                            )?;
                         }
                         'l' => {
                             enter_entry()?;
@@ -365,9 +345,15 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                     second_starting_index,
                                 )?;
 
-                                third_column_changed = ThirdColumnChange::Yes {
-                                    index: (second_starting_index + second_display_offset) as usize,
-                                };
+                                queue_third_column(
+                                    w,
+                                    &dir_states,
+                                    &left_paths,
+                                    width,
+                                    column_height,
+                                    column_bot_y,
+                                    (second_starting_index + second_display_offset) as usize,
+                                )?;
                             }
                         }
                         'k' => {
@@ -395,9 +381,15 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                     second_starting_index,
                                 )?;
 
-                                third_column_changed = ThirdColumnChange::Yes {
-                                    index: (second_starting_index + second_display_offset) as usize,
-                                };
+                                queue_third_column(
+                                    w,
+                                    &dir_states,
+                                    &left_paths,
+                                    width,
+                                    column_height,
+                                    column_bot_y,
+                                    (second_starting_index + second_display_offset) as usize,
+                                )?;
                             }
                         }
                         'e' => {
@@ -440,11 +432,32 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                 queue!(w, terminal::EnterAlternateScreen)?;
 
                                 // FIXME(Chris): Refactor this into a closure, I guess
-                                first_column_changed = true;
-                                second_column_changed = true;
-                                third_column_changed = ThirdColumnChange::Yes {
-                                    index: (second_starting_index + second_display_offset) as usize,
-                                };
+                                queue_first_column(
+                                    &mut w,
+                                    &dir_states,
+                                    &left_paths,
+                                    width,
+                                    column_height,
+                                    column_bot_y,
+                                )?;
+                                queue_second_column(
+                                    &mut w,
+                                    second_column,
+                                    width,
+                                    column_bot_y,
+                                    &dir_states.current_entries,
+                                    second_display_offset,
+                                    second_starting_index,
+                                )?;
+                                queue_third_column(
+                                    w,
+                                    &dir_states,
+                                    &left_paths,
+                                    width,
+                                    column_height,
+                                    column_bot_y,
+                                    (second_starting_index + second_display_offset) as usize,
+                                )?;
                             }
                         }
                         _ => (),
@@ -457,11 +470,32 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             Event::Resize(_, _) => {
                 queue!(w, terminal::Clear(ClearType::All))?;
 
-                first_column_changed = true;
-                second_column_changed = true;
-                third_column_changed = ThirdColumnChange::Yes {
-                    index: (second_starting_index + second_display_offset) as usize,
-                };
+                queue_first_column(
+                    &mut w,
+                    &dir_states,
+                    &left_paths,
+                    width,
+                    column_height,
+                    column_bot_y,
+                )?;
+                queue_second_column(
+                    &mut w,
+                    second_column,
+                    width,
+                    column_bot_y,
+                    &dir_states.current_entries,
+                    second_display_offset,
+                    second_starting_index,
+                )?;
+                queue_third_column(
+                    w,
+                    &dir_states,
+                    &left_paths,
+                    width,
+                    column_height,
+                    column_bot_y,
+                    (second_starting_index + second_display_offset) as usize,
+                )?;
             }
         }
     }
@@ -469,11 +503,119 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
     Ok(())
 }
 
-enum ThirdColumnChange {
-    No, // The 3rd column should not change
-    // index means the index of the entry in
-    // curr_entries that should be previewed in the 3rd column
-    Yes { index: usize },
+fn queue_first_column(
+    mut w: &mut Stdout,
+    dir_states: &DirStates,
+    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
+    width: u16,
+    column_height: u16,
+    column_bot_y: u16,
+) -> crossterm::Result<()> {
+    let (display_offset, starting_index) = find_correct_location(
+        &left_paths,
+        column_height,
+        &dir_states.prev_dir,
+        &dir_states.prev_entries,
+        &dir_states.current_dir,
+    );
+    queue_entries_column(
+        &mut w,
+        1,
+        width / 6 - 2,
+        column_bot_y,
+        &dir_states.prev_entries,
+        display_offset,
+        starting_index,
+    )?;
+
+    Ok(())
+}
+
+// All this function actually does is call queue_entries_column, but it's here to match the naming
+// scheme of queue_first_column and queue_third_column
+fn queue_second_column(
+    mut w: &mut Stdout,
+    second_column: u16,
+    width: u16,
+    column_bot_y: u16,
+    // dir_states: &DirStates,
+    entries: &Vec<DirEntry>,
+    second_display_offset: u16,
+    second_starting_index: u16,
+) -> crossterm::Result<()> {
+    queue_entries_column(
+        &mut w,
+        second_column,
+        width / 2 - 2,
+        column_bot_y,
+        &entries,
+        second_display_offset,
+        second_starting_index,
+    )?;
+
+    Ok(())
+}
+
+fn queue_third_column(
+    mut w: &mut Stdout,
+    dir_states: &DirStates,
+    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
+    width: u16,
+    column_height: u16,
+    column_bot_y: u16,
+    change_index: usize,
+) -> crossterm::Result<()> {
+    if dir_states.current_entries.len() <= 0 {
+        queue_blank_column(&mut w, width / 2 + 1, width - 2, column_height)?;
+    } else {
+        let potential_third_dir = &dir_states.current_entries[change_index];
+
+        if potential_third_dir.file_type().unwrap().is_dir() {
+            let third_dir = potential_third_dir.path();
+            let third_entries = get_sorted_entries(&third_dir);
+
+            let (display_offset, starting_index) = match left_paths.get(&third_dir) {
+                Some(dir_location) => (dir_location.display_offset, dir_location.starting_index),
+                None => (0, 0),
+            };
+
+            queue_entries_column(
+                &mut w,
+                width / 2 + 1,
+                width - 2,
+                column_bot_y,
+                &third_entries,
+                display_offset,
+                starting_index,
+            )?;
+        } else {
+            queue_blank_column(&mut w, width / 2 + 1, width - 2, column_height)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn format_current_dir(dir_states: &DirStates, home_path: &Path) -> String {
+    // TODO(Chris): Handle case when current_dir is '/'
+    // NOTE(Chris): This creates a new String, and it'd be nice to avoid making a heap
+    // allocation here, but it's probably not worth trying to figure out how to use only a str
+    if dir_states.current_dir == *home_path {
+        String::from("~")
+    } else if dir_states.current_dir.starts_with(home_path) {
+        // "~"
+        format!(
+            "~/{}",
+            dir_states
+                .current_dir
+                .strip_prefix(home_path)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        )
+    } else {
+        dir_states.current_dir.to_str().unwrap().to_string()
+    }
 }
 
 // For the list consisting of the entries in parent_entries, find the correct display offset and
