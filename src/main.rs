@@ -75,10 +75,6 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
     let mut second_display_offset = 0;
 
-    // FIXME(Chris): Consider refactoring these weird flags into functions?
-    // FIXME(Chris): Eliminate the flags entirely and replace them with calls to their relevant
-    // functions
-
     let mut is_first_iteration = true;
 
     let mut second_starting_index = 0;
@@ -128,34 +124,16 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         let column_height = column_bot_y - 1;
 
         if is_first_iteration {
-            queue_first_column(
+            queue_all_columns(
                 &mut w,
                 &dir_states,
                 &left_paths,
                 width,
                 column_height,
                 column_bot_y,
-            )?;
-
-            queue_second_column(
-                &mut w,
                 second_column,
-                width,
-                column_bot_y,
-                &dir_states.current_entries,
                 second_display_offset,
                 second_starting_index,
-            )?;
-
-            // FIXME(Chris): Check that this function call is handled correctly
-            queue_third_column(
-                w,
-                &dir_states,
-                &left_paths,
-                width,
-                column_height,
-                column_bot_y,
-                0,
             )?;
 
             is_first_iteration = false;
@@ -219,31 +197,16 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                         }
                     };
 
-                    queue_first_column(
+                    queue_all_columns(
                         &mut w,
                         &dir_states,
                         &left_paths,
                         width,
                         column_height,
                         column_bot_y,
-                    )?;
-                    queue_second_column(
-                        &mut w,
                         second_column,
-                        width,
-                        column_bot_y,
-                        &dir_states.current_entries,
                         second_display_offset,
                         second_starting_index,
-                    )?;
-                    queue_third_column(
-                        w,
-                        &dir_states,
-                        &left_paths,
-                        width,
-                        column_height,
-                        column_bot_y,
-                        (second_starting_index + second_display_offset) as usize,
                     )?;
                 } else if selected_file_type.is_file() {
                     open::that(selected_entry.path())?;
@@ -284,33 +247,16 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                             second_display_offset = display_offset;
                             second_starting_index = starting_index;
 
-                            // TODO(Chris): Consider combining these two flags into one, since we're not using
-                            // them separately
-                            queue_first_column(
+                            queue_all_columns(
                                 &mut w,
                                 &dir_states,
                                 &left_paths,
                                 width,
                                 column_height,
                                 column_bot_y,
-                            )?;
-                            queue_second_column(
-                                &mut w,
                                 second_column,
-                                width,
-                                column_bot_y,
-                                &dir_states.current_entries,
                                 second_display_offset,
                                 second_starting_index,
-                            )?;
-                            queue_third_column(
-                                w,
-                                &dir_states,
-                                &left_paths,
-                                width,
-                                column_height,
-                                column_bot_y,
-                                (second_starting_index + second_display_offset) as usize,
                             )?;
                         }
                         'l' => {
@@ -431,32 +377,16 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
                                 queue!(w, terminal::EnterAlternateScreen)?;
 
-                                // FIXME(Chris): Refactor this into a closure, I guess
-                                queue_first_column(
+                                queue_all_columns(
                                     &mut w,
                                     &dir_states,
                                     &left_paths,
                                     width,
                                     column_height,
                                     column_bot_y,
-                                )?;
-                                queue_second_column(
-                                    &mut w,
                                     second_column,
-                                    width,
-                                    column_bot_y,
-                                    &dir_states.current_entries,
                                     second_display_offset,
                                     second_starting_index,
-                                )?;
-                                queue_third_column(
-                                    w,
-                                    &dir_states,
-                                    &left_paths,
-                                    width,
-                                    column_height,
-                                    column_bot_y,
-                                    (second_starting_index + second_display_offset) as usize,
                                 )?;
                             }
                         }
@@ -470,35 +400,61 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             Event::Resize(_, _) => {
                 queue!(w, terminal::Clear(ClearType::All))?;
 
-                queue_first_column(
+                queue_all_columns(
                     &mut w,
                     &dir_states,
                     &left_paths,
                     width,
                     column_height,
                     column_bot_y,
-                )?;
-                queue_second_column(
-                    &mut w,
                     second_column,
-                    width,
-                    column_bot_y,
-                    &dir_states.current_entries,
                     second_display_offset,
                     second_starting_index,
-                )?;
-                queue_third_column(
-                    w,
-                    &dir_states,
-                    &left_paths,
-                    width,
-                    column_height,
-                    column_bot_y,
-                    (second_starting_index + second_display_offset) as usize,
                 )?;
             }
         }
     }
+
+    Ok(())
+}
+
+fn queue_all_columns(
+    mut w: &mut Stdout,
+    dir_states: &DirStates,
+    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
+    width: u16,
+    column_height: u16,
+    column_bot_y: u16,
+    second_column: u16,
+    second_display_offset: u16,
+    second_starting_index: u16,
+) -> crossterm::Result<()> {
+    queue_first_column(
+        &mut w,
+        &dir_states,
+        &left_paths,
+        width,
+        column_height,
+        column_bot_y,
+    )?;
+    queue_second_column(
+        &mut w,
+        second_column,
+        width,
+        column_bot_y,
+        &dir_states.current_entries,
+        second_display_offset,
+        second_starting_index,
+    )?;
+    queue_third_column(
+        w,
+        &dir_states,
+        &left_paths,
+        width,
+        column_height,
+        column_bot_y,
+        (second_starting_index + second_display_offset) as usize,
+    )?;
 
     Ok(())
 }
