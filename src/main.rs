@@ -2,6 +2,7 @@ mod natural_sort; // This declares the existence of the natural_sort module, whi
                   // default for natural_sort.rs or natural_sort/mod.rs
 
 use open;
+use which::which;
 
 use natural_sort::cmp_natural;
 use std::cmp::Ordering;
@@ -64,6 +65,10 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         Ok(val) => val,
         Err(e) => panic!("Could not read $HOME: {}", e),
     };
+
+    let mut available_execs: HashMap<&str, std::path::PathBuf> = HashMap::new();
+
+    available_execs.insert("highlight", which("highlight").unwrap());
 
     let home_path = Path::new(&home_name[..]);
 
@@ -128,6 +133,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                 &mut w,
                 &dir_states,
                 &left_paths,
+                &available_execs,
                 width,
                 column_height,
                 column_bot_y,
@@ -201,6 +207,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                         &mut w,
                         &dir_states,
                         &left_paths,
+                        &available_execs,
                         width,
                         column_height,
                         column_bot_y,
@@ -251,6 +258,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                 &mut w,
                                 &dir_states,
                                 &left_paths,
+                                &available_execs,
                                 width,
                                 column_height,
                                 column_bot_y,
@@ -295,6 +303,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                     w,
                                     &dir_states,
                                     &left_paths,
+                                    &available_execs,
                                     width,
                                     column_height,
                                     column_bot_y,
@@ -331,6 +340,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                     w,
                                     &dir_states,
                                     &left_paths,
+                                    &available_execs,
                                     width,
                                     column_height,
                                     column_bot_y,
@@ -375,12 +385,13 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                     .status()
                                     .expect("failed to execute editor command");
 
-                                queue!(w, terminal::EnterAlternateScreen)?;
+                                queue!(w, terminal::EnterAlternateScreen, cursor::Hide)?;
 
                                 queue_all_columns(
                                     &mut w,
                                     &dir_states,
                                     &left_paths,
+                                    &available_execs,
                                     width,
                                     column_height,
                                     column_bot_y,
@@ -404,6 +415,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                     &mut w,
                     &dir_states,
                     &left_paths,
+                    &available_execs,
                     width,
                     column_height,
                     column_bot_y,
@@ -422,6 +434,7 @@ fn queue_all_columns(
     mut w: &mut Stdout,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
+    available_execs: &HashMap<&str, std::path::PathBuf>,
     width: u16,
     column_height: u16,
     column_bot_y: u16,
@@ -450,6 +463,7 @@ fn queue_all_columns(
         w,
         &dir_states,
         &left_paths,
+        &available_execs,
         width,
         column_height,
         column_bot_y,
@@ -516,18 +530,24 @@ fn queue_third_column(
     mut w: &mut Stdout,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
+    available_execs: &HashMap<&str, std::path::PathBuf>,
     width: u16,
     column_height: u16,
     column_bot_y: u16,
     change_index: usize,
 ) -> crossterm::Result<()> {
-    if dir_states.current_entries.len() <= 0 {
-        queue_blank_column(&mut w, width / 2 + 1, width - 2, column_height)?;
-    } else {
-        let potential_third_dir = &dir_states.current_entries[change_index];
+    let left_x = width / 2 + 1;
+    let right_x = width - 2;
 
-        if potential_third_dir.file_type().unwrap().is_dir() {
-            let third_dir = potential_third_dir.path();
+    if dir_states.current_entries.len() <= 0 {
+        queue_blank_column(&mut w, left_x, right_x, column_height)?;
+    } else {
+        let display_entry = &dir_states.current_entries[change_index];
+
+        let file_type = display_entry.file_type().unwrap();
+
+        if file_type.is_dir() {
+            let third_dir = display_entry.path();
             let third_entries = get_sorted_entries(&third_dir);
 
             let (display_offset, starting_index) = match left_paths.get(&third_dir) {
@@ -544,8 +564,66 @@ fn queue_third_column(
                 display_offset,
                 starting_index,
             )?;
+        } else if file_type.is_file() {
+            // FIXME(Chris): Implement extension matching
+
+            let third_file = display_entry.path();
+
+            match third_file.extension() {
+                Some(os_str_ext) => match os_str_ext.to_str() {
+                    Some(ext) => match ext {
+                        "jpg" => (),
+                        _ => match available_execs.get("highlight") {
+                            None => (),
+                            Some(highlight) => {
+                                // FIXME(Chris): Finish implementing highlight command
+
+                                // TODO(Chris): Actually show that something went wrong
+                                // TODO(Chris): Avoid loading entire file into RAM
+                                let output = Command::new(highlight)
+                                    .arg("-O")
+                                    .arg("ansi")
+                                    .arg(&third_file)
+                                    .output()
+                                    .unwrap();
+
+                                // TODO(Chris): Handle case when file is not valid utf8
+                                if let Ok(text) = std::str::from_utf8(&output.stdout) {
+                                    queue_blank_column(&mut w, left_x, right_x, column_height)?;
+
+                                    let mut curr_y = 1; // Columns start at y = 1
+                                    queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
+
+                                    queue!(&mut w, terminal::DisableLineWrap)?;
+
+                                    for ch in text.as_bytes() {
+                                        if curr_y > column_bot_y {
+                                            break;
+                                        }
+
+                                        if *ch == b'\n' {
+                                            curr_y += 1;
+
+                                            queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
+                                        } else {
+                                            w.write(&[*ch])?;
+                                        }
+                                    }
+
+                                    queue!(&mut w, terminal::EnableLineWrap)?;
+                                }
+                            }
+                        },
+                    },
+                    None => (),
+                },
+                None => (),
+            }
+
+            // FIXME(Chris): Remove when unnecessary
+            // queue_blank_column(&mut w, left_x, right_x, column_height)?;
         } else {
-            queue_blank_column(&mut w, width / 2 + 1, width - 2, column_height)?;
+            queue_blank_column(&mut w, left_x, right_x, column_height)?;
         }
     }
 
@@ -949,7 +1027,7 @@ fn queue_blank_column(
 ) -> crossterm::Result<()> {
     let mut curr_y = 1; // 1 is the starting y for columns
 
-    while curr_y < column_height {
+    while curr_y <= column_height {
         queue!(w, cursor::MoveTo(left_x, curr_y))?;
 
         let mut curr_x = left_x;
