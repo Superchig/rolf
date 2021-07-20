@@ -411,6 +411,8 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             },
             Event::Mouse(_) => (),
             Event::Resize(_, _) => {
+                eprintln!("Resizing terminal window...");
+
                 queue!(w, terminal::Clear(ClearType::All))?;
 
                 queue_all_columns(
@@ -608,11 +610,29 @@ fn queue_third_column(
 
                                             queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
                                         } else {
+                                            // NOTE(Chris): We write directly to stdout so as to
+                                            // allow the ANSI escape codes to match the end of a
+                                            // line
                                             w.write(&[*ch])?;
                                         }
                                     }
 
                                     queue!(&mut w, terminal::EnableLineWrap)?;
+
+                                    // TODO(Chris): Figure out why the right-most edge of the
+                                    // terminal sometimes has a character that should be one beyond
+                                    // that right-most edge. This bug occurs when right-most edge
+                                    // isn't blanked out (as is currently done below).
+
+                                    // Clear the right-most edge of the terminal, since it might
+                                    // have been drawn over when printing file contents
+                                    for curr_y in 1..=column_bot_y {
+                                        queue!(
+                                            &mut w,
+                                            cursor::MoveTo(width, curr_y),
+                                            style::Print(' ')
+                                        )?;
+                                    }
                                 }
                             }
                         },
@@ -622,8 +642,8 @@ fn queue_third_column(
                 None => (),
             }
 
-            // FIXME(Chris): Remove when unnecessary
-            // queue_blank_column(&mut w, left_x, right_x, column_height)?;
+        // FIXME(Chris): Remove when unnecessary
+        // queue_blank_column(&mut w, left_x, right_x, column_height)?;
         } else {
             queue_blank_column(&mut w, left_x, right_x, column_height)?;
         }
