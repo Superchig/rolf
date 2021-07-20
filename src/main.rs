@@ -125,8 +125,10 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         // The terminal's height is also the index of the lowest cell
         let (width, height) = terminal::size()?;
         let second_column = width / 6 + 1;
+        // Represents the bottom-most y-cell of a column
         let column_bot_y = height - 2;
-        let column_height = column_bot_y - 1;
+        // Represents the number of cells in a column vertically.
+        let column_height = height - 2;
 
         if is_first_iteration {
             queue_all_columns(
@@ -280,10 +282,10 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
                                 if second_display_offset >= (column_bot_y * 2 / 3)
                                     && (second_bottom_index as usize)
-                                        < dir_states.current_entries.len() - 1
+                                        < dir_states.current_entries.len()
                                 {
                                     second_starting_index += 1;
-                                } else if second_entry_index != second_bottom_index {
+                                } else if second_entry_index < second_bottom_index {
                                     second_display_offset += 1;
                                 }
 
