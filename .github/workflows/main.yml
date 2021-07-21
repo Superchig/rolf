@@ -25,6 +25,7 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
       
+      - name: Restore Rust cache
       - uses: Swatinem/rust-cache@v1
       
       - name: Make a Linux amd64 build
@@ -32,10 +33,28 @@ jobs:
       
       - name: Create distributable archive
         run: |
-          chmod +x target/release/rolf
-          tar czf rolf-linux-amd64.tar.gz target/release/rolf LICENSE
+          ARCHIVE_DIR=rolf-linux-amd64
+          mkdir "$ARCHIVE_DIR"
+          cp -t "$ARCHIVE_DIR" target/release/rolf
+          chmod +x "$ARCHIVE_DIR"/rolf
+
+          cp -t "$ARCHIVE_DIR" LICENSE
+
+          echo "$GITHUB_SHA" > "$ARCHIVE_DIR"/prerelease-commit-sha
+
+          tar czf "$ARCHIVE_DIR".tar.gz "$ARCHIVE_DIR"
       
-      - run: echo "NAME_WITH_SHA=Pre-release $GITHUB_SHA" >> $GITHUB_ENV
+      - run: |
+          echo "NAME_WITH_SHA=Pre-release $GITHUB_SHA" >> $GITHUB_ENV
+      
+      - name: Delete old tag
+        uses: dev-drprasad/delete-older-releases@v0.2.0
+        with:
+          # repo: <owner>/<repoName> # defaults to current repo
+          keep_latest: 0
+          delete_tag_pattern: latest # defaults to ""
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Make pre-release
         uses: softprops/action-gh-release@v1
