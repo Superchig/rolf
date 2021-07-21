@@ -35,6 +35,8 @@ jobs:
           chmod +x target/release/rolf
           tar czf rolf-linux-amd64.tar.gz target/release/rolf LICENSE
       
+      - run: echo "NAME_WITH_SHA=Pre-release $GITHUB_SHA" >> $GITHUB_ENV
+      
       - name: Make pre-release
         uses: softprops/action-gh-release@v1
         with:
@@ -45,4 +47,3 @@ jobs:
           tag_name: latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NAME_WITH_SHA: Pre-release ${{ env.GITHUB_SHA }}
