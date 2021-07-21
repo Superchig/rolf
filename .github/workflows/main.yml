@@ -25,6 +25,8 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
       
+      - uses: Swatinem/rust-cache@v1
+      
       - name: Make a Linux amd64 build
         run: cargo build --release --locked
       
@@ -32,8 +34,6 @@ jobs:
         run: |
           chmod +x target/release/rolf
           tar czf rolf-linux-amd64.tar.gz target/release/rolf LICENSE
-
-      - uses: Swatinem/rust-cache@v1
       
       - name: Make pre-release
         uses: softprops/action-gh-release@v1
