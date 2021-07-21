@@ -35,14 +35,16 @@ jobs:
           echo Add other actions to build,
           echo test, and deploy your project.
       
-      - run: cargo build --release --locked
+      - name: Make a Linux amd64 build
+        run: cargo build --release --locked
       # - run: tar czf rolf-linux-amd64.tar.gz target/release/rolf
       
-      - uses: "marvinpinto/action-automatic-releases@latest"
+      - name: Pre-release
+        uses: softprops/action-gh-release@v1
         with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "latest"
-          prerelease: true
-          title: Development Build
           files: |
             target/release/rolf
+            LICENSE
+          name: Pre-release ${{ env.GITHUB_SHA }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
