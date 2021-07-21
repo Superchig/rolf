@@ -48,11 +48,11 @@ jobs:
           echo "NAME_WITH_SHA=Pre-release $GITHUB_SHA" >> $GITHUB_ENV
       
       - name: Delete old tag
-        uses: dev-drprasad/delete-older-releases@v0.2.0
+        uses: dev-drprasad/delete-tag-and-release@v0.2.0
         with:
-          # repo: <owner>/<repoName> # defaults to current repo
-          keep_latest: 0
-          delete_tag_pattern: latest # defaults to ""
+          delete_release: true # default: false
+          tag_name: latest # tag name to delete
+          # repo: <owner>/<repoName> # target repo (optional). defaults to repo running this action
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
