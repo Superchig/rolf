@@ -20,3 +20,4 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
       an optional dependency.
 - [ ] Implement command-line
 - [ ] Display image previews
+- [ ] Make symlinks actually usable
