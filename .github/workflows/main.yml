@@ -37,16 +37,20 @@ jobs:
       
       - name: Make a Linux amd64 build
         run: cargo build --release --locked
-      # - run: tar czf rolf-linux-amd64.tar.gz target/release/rolf
+      
+      - name: Create distributable archive
+        run: |
+          chmod +x target/release/rolf
+          tar czf rolf-linux-amd64.tar.gz target/release/rolf LICENSE
       
       - name: Make pre-release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            target/release/rolf
+            rolf-linux-amd64.tar.gz
             LICENSE
-          name: Pre-release
+          name: Pre-release "$GITHUB_SHA"
           prerelease: true
-          tag_name: Pre-release
+          tag_name: latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
