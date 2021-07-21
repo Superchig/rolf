@@ -124,11 +124,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
         // The terminal's height is also the index of the lowest cell
         let (width, height) = terminal::size()?;
-        let second_column = width / 6 + 1;
-        // Represents the bottom-most y-cell of a column
-        let column_bot_y = height - 2;
-        // Represents the number of cells in a column vertically.
-        let column_height = height - 2;
+        let (second_column, column_bot_y, column_height) = calc_second_column_info(width, height);
 
         if is_first_iteration {
             queue_all_columns(
@@ -411,9 +407,11 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             },
             Event::Mouse(_) => (),
             Event::Resize(_, _) => {
-                eprintln!("Resizing terminal window...");
-
                 queue!(w, terminal::Clear(ClearType::All))?;
+
+                let (width, height) = terminal::size()?;
+                let (second_column, column_bot_y, column_height) =
+                    calc_second_column_info(width, height);
 
                 queue_all_columns(
                     &mut w,
@@ -432,6 +430,16 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
     }
 
     Ok(())
+}
+
+fn calc_second_column_info(width: u16, height: u16) -> (u16, u16, u16) {
+    let second_column = width / 6 + 1;
+    // Represents the bottom-most y-cell of a column
+    let column_bot_y = height - 2;
+    // Represents the number of cells in a column vertically.
+    let column_height = height - 2;
+
+    (second_column, column_bot_y, column_height)
 }
 
 fn queue_all_columns(
