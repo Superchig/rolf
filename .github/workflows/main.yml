@@ -40,8 +40,9 @@ jobs:
         with:
           files: |
             rolf-linux-amd64.tar.gz
-          name: Pre-release ${{ env.GITHUB_SHA }}
+          name: ${{ env.NAME_WITH_SHA }}
           prerelease: true
           tag_name: latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NAME_WITH_SHA: Pre-release ${{ env.GITHUB_SHA }}
