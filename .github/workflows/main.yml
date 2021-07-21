@@ -39,12 +39,13 @@ jobs:
         run: cargo build --release --locked
       # - run: tar czf rolf-linux-amd64.tar.gz target/release/rolf
       
-      - name: Pre-release
+      - name: Make pre-release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             target/release/rolf
             LICENSE
-          name: Pre-release ${{ env.GITHUB_SHA }}
-        env:
+          name: Pre-release
+          prerelease: true
+          tag_name: Pre-release
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
