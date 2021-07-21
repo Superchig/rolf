@@ -13,7 +13,7 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 ## TODOs
 - [x] Render three panels
 - [x] Support super-basic hjkl movement
-- [ ] Allow keys rebinding
+- [ ] Allow key rebindings
 - [x] Use [highlight](http://www.andre-simon.de/doku/highlight/highlight.php)
       for text file highlighting
 - [ ] Make [highlight](http://www.andre-simon.de/doku/highlight/highlight.php)
