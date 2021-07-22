@@ -577,8 +577,6 @@ fn queue_third_column(
                 starting_index,
             )?;
         } else if file_type.is_file() {
-            // FIXME(Chris): Implement extension matching
-
             let third_file = display_entry.path();
 
             match third_file.extension() {
@@ -588,8 +586,6 @@ fn queue_third_column(
                         _ => match available_execs.get("highlight") {
                             None => (),
                             Some(highlight) => {
-                                // FIXME(Chris): Finish implementing highlight command
-
                                 // TODO(Chris): Actually show that something went wrong
                                 // TODO(Chris): Avoid loading entire file into RAM
                                 let output = Command::new(highlight)
@@ -649,9 +645,6 @@ fn queue_third_column(
                 },
                 None => (),
             }
-
-        // FIXME(Chris): Remove when unnecessary
-        // queue_blank_column(&mut w, left_x, right_x, column_height)?;
         } else {
             queue_blank_column(&mut w, left_x, right_x, column_height)?;
         }
