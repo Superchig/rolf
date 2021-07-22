@@ -42,7 +42,7 @@ fn main() -> crossterm::Result<()> {
 
     match result {
         Ok(_) => println!("Goodbye."),
-        Err(err) => panic!(err),
+        Err(err) => panic!("{}", err),
     }
 
     Ok(())
@@ -351,11 +351,11 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                 Err(std::env::VarError::NotPresent) => {
                                     match std::env::var("EDITOR") {
                                         Err(std::env::VarError::NotPresent) => String::from(""),
-                                        Err(err) => panic!(err),
+                                        Err(err) => panic!("{}", err),
                                         Ok(editor) => editor,
                                     }
                                 }
-                                Err(err) => panic!(err),
+                                Err(err) => panic!("{}", err),
                                 Ok(visual) => visual,
                             };
 
@@ -767,7 +767,7 @@ fn cmp_dir_entry(entry1: &DirEntry, entry2: &DirEntry) -> Ordering {
             match err.kind() {
                 // Just use name of symbolic link
                 io::ErrorKind::NotFound => entry1.metadata().unwrap().file_type(),
-                _ => panic!(err),
+                _ => panic!("{}", err),
             }
         }
     };
@@ -777,7 +777,7 @@ fn cmp_dir_entry(entry1: &DirEntry, entry2: &DirEntry) -> Ordering {
             match err.kind() {
                 // Just use name of symbolic link
                 io::ErrorKind::NotFound => entry2.metadata().unwrap().file_type(),
-                _ => panic!(err),
+                _ => panic!("{}", err),
             }
         }
     };
