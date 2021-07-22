@@ -22,3 +22,4 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 - [ ] Display image previews
 - [ ] Make symlinks actually usable
 - [ ] Fix compiler warnings on latest version of Rust stable
+- [ ] Add Windows support
