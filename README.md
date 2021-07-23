@@ -19,7 +19,8 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 - [ ] Make [highlight](http://www.andre-simon.de/doku/highlight/highlight.php)
       an optional dependency.
 - [ ] Implement command-line
-- [ ] Display image previews
+- [x] EXPERIMENTAL: Display image previews on kitty
+  - [ ] Fix broken parts of image previews
 - [ ] Make symlinks actually usable
 - [ ] Fix compiler warnings on latest version of Rust stable
 - [ ] Add Windows support

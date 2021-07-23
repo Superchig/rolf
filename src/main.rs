@@ -13,6 +13,8 @@ use std::path::Path;
 use std::process::Command;
 use std::vec::Vec;
 
+use image::GenericImageView;
+
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode},
@@ -93,6 +95,27 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         cursor::Hide,
     )?;
 
+    // TODO(Chris): Implement a cross-platform way of getting the terminal size in pixels
+    let win_pixels = unsafe {
+        let mut winsize = libc::winsize {
+            ws_col: 0,
+            ws_row: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+
+        // NOTE(Chris): From Linux's man ioctl_tty
+        const TIOCGWINSZ: u64 = 21523;
+
+        // 0 is the file descriptor for stdin
+        libc::ioctl(0, TIOCGWINSZ, &mut winsize);
+
+        WindowPixels {
+            width: winsize.ws_xpixel,
+            height: winsize.ws_ypixel,
+        }
+    };
+
     // Main input loop
     loop {
         let current_dir_display = format_current_dir(&dir_states, home_path);
@@ -122,6 +145,9 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             style::Print(file_stem),
         )?;
 
+        // TODO(Chris): Check if we're currently using the kitty terminal (or anything which
+        // supports its image protocol)
+
         // The terminal's height is also the index of the lowest cell
         let (width, height) = terminal::size()?;
         let (second_column, column_bot_y, column_height) = calc_second_column_info(width, height);
@@ -129,6 +155,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         if is_first_iteration {
             queue_all_columns(
                 &mut w,
+                &win_pixels,
                 &dir_states,
                 &left_paths,
                 &available_execs,
@@ -203,6 +230,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
                     queue_all_columns(
                         &mut w,
+                        &win_pixels,
                         &dir_states,
                         &left_paths,
                         &available_execs,
@@ -254,6 +282,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
                             queue_all_columns(
                                 &mut w,
+                                &win_pixels,
                                 &dir_states,
                                 &left_paths,
                                 &available_execs,
@@ -299,6 +328,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
                                 queue_third_column(
                                     w,
+                                    &win_pixels,
                                     &dir_states,
                                     &left_paths,
                                     &available_execs,
@@ -336,6 +366,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
                                 queue_third_column(
                                     w,
+                                    &win_pixels,
                                     &dir_states,
                                     &left_paths,
                                     &available_execs,
@@ -387,6 +418,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
                                 queue_all_columns(
                                     &mut w,
+                                    &win_pixels,
                                     &dir_states,
                                     &left_paths,
                                     &available_execs,
@@ -415,6 +447,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
                 queue_all_columns(
                     &mut w,
+                    &win_pixels,
                     &dir_states,
                     &left_paths,
                     &available_execs,
@@ -444,6 +477,7 @@ fn calc_second_column_info(width: u16, height: u16) -> (u16, u16, u16) {
 
 fn queue_all_columns(
     mut w: &mut Stdout,
+    win_pixels: &WindowPixels,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
@@ -473,6 +507,7 @@ fn queue_all_columns(
     )?;
     queue_third_column(
         w,
+        &win_pixels,
         &dir_states,
         &left_paths,
         &available_execs,
@@ -540,6 +575,7 @@ fn queue_second_column(
 
 fn queue_third_column(
     mut w: &mut Stdout,
+    win_pixels: &WindowPixels,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
@@ -559,6 +595,11 @@ fn queue_third_column(
         let file_type = display_entry.file_type().unwrap();
 
         if file_type.is_dir() {
+            // It's a bit wasteful to clear this whole column when queue_entries_column will clear
+            // the resulting items anyways, but this at least eliminates any image previews from
+            // previous draws.
+            queue_blank_column(&mut w, left_x, right_x, column_height)?;
+
             let third_dir = display_entry.path();
             let third_entries = get_sorted_entries(&third_dir);
 
@@ -577,12 +618,40 @@ fn queue_third_column(
                 starting_index,
             )?;
         } else if file_type.is_file() {
+            queue_blank_column(&mut w, left_x, right_x, column_height)?;
+
             let third_file = display_entry.path();
 
             match third_file.extension() {
                 Some(os_str_ext) => match os_str_ext.to_str() {
                     Some(ext) => match ext {
-                        "jpg" => (),
+                        "png" | "jpg" => {
+                            // FIXME(Chris): Implement image previews
+
+                            let img = image::io::Reader::open(&third_file)?.decode().unwrap();
+
+                            let (img_width, _img_height) = img.dimensions();
+
+                            let win_px_width = win_pixels.width;
+
+                            // let img_cells_width = (win_px_width as u32) / img_width;
+                            // TODO(Chris): Check if this crashes on sufficiently large images
+                            let img_cells_width =
+                                img_width * (width as u32) / (win_px_width as u32);
+                            // let img_cells_height = (win_px_height as u32) / img_height;
+
+                            let conf = viuer::Config {
+                                // set offset
+                                x: left_x,
+                                // y: 1,
+                                // set dimensions
+                                width: Some(img_cells_width),
+                                // height: Some(25),
+                                ..Default::default()
+                            };
+
+                            viuer::print(&img, &conf).expect("Image printing failed.");
+                        }
                         _ => match available_execs.get("highlight") {
                             None => (),
                             Some(highlight) => {
@@ -597,8 +666,6 @@ fn queue_third_column(
 
                                 // TODO(Chris): Handle case when file is not valid utf8
                                 if let Ok(text) = std::str::from_utf8(&output.stdout) {
-                                    queue_blank_column(&mut w, left_x, right_x, column_height)?;
-
                                     let mut curr_y = 1; // Columns start at y = 1
                                     queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
 
@@ -651,6 +718,12 @@ fn queue_third_column(
     }
 
     Ok(())
+}
+
+#[derive(Debug)]
+struct WindowPixels {
+    width: u16,
+    height: u16,
 }
 
 fn format_current_dir(dir_states: &DirStates, home_path: &Path) -> String {
@@ -1048,6 +1121,10 @@ fn queue_blank_column(
     right_x: u16,
     column_height: u16,
 ) -> crossterm::Result<()> {
+    // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
+    let draw_beginning = b"\x1b_Ga=d;\x1b\\"; // Delete all visible images
+    w.write(draw_beginning)?;
+
     let mut curr_y = 1; // 1 is the starting y for columns
 
     while curr_y <= column_height {

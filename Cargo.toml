@@ -10,3 +10,11 @@ edition = "2018"
 crossterm = "0.20" # Cross-platform terminal drawing
 open = "1.7.0" # Cross-platform file opener
 which = "4.1.0" # Cross-platform equivalent of Unix 'which'
+viuer = "0.5.1" # For viewing images across different terminal protocols
+image = "0.23.14" # For decoding images
+libc = "0.2"
+
+# All dependencies (but not this crate itself or any workspace member)
+# will be compiled with -Copt-level=2 . This includes build dependencies.
+[profile.dev.package."*"]
+opt-level = 3
