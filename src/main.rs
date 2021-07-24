@@ -95,27 +95,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         cursor::Hide,
     )?;
 
-    // TODO(Chris): Implement a cross-platform way of getting the terminal size in pixels
-    let win_pixels = unsafe {
-        let mut winsize = libc::winsize {
-            ws_col: 0,
-            ws_row: 0,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
-
-        // NOTE(Chris): From Linux's man ioctl_tty
-        const TIOCGWINSZ: u64 = 21523;
-
-        // 0 is the file descriptor for stdin
-        libc::ioctl(0, TIOCGWINSZ, &mut winsize);
-
-        WindowPixels {
-            width: winsize.ws_xpixel,
-            height: winsize.ws_ypixel,
-        }
-    };
-
+    let mut win_pixels = get_win_pixels()?;
     // Main input loop
     loop {
         let current_dir_display = format_current_dir(&dir_states, home_path);
@@ -445,6 +425,8 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                 let (second_column, column_bot_y, column_height) =
                     calc_second_column_info(width, height);
 
+                win_pixels = get_win_pixels()?;
+
                 queue_all_columns(
                     &mut w,
                     &win_pixels,
@@ -463,6 +445,40 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
     }
 
     Ok(())
+}
+
+// A Linux-specifc, possibly-safe wrapper around an ioctl call with TIOCGWINSZ.
+// Gets the width and height of the terminal in pixels.
+fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
+    let win_pixels = unsafe {
+        let mut winsize = libc::winsize {
+            ws_col: 0,
+            ws_row: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+
+        // NOTE(Chris): From Linux's man ioctl_tty
+        const TIOCGWINSZ: u64 = 21523;
+
+        // 0 is the file descriptor for stdin
+        let err = libc::ioctl(0, TIOCGWINSZ, &mut winsize);
+        if err != 0 {
+            let errno_location = libc::__errno_location();
+            let errno = (*errno_location) as i32;
+
+            return Err(io::Error::from_raw_os_error(errno));
+
+            // panic!("Failed to get the size of terminal window in pixels.");
+        }
+
+        WindowPixels {
+            width: winsize.ws_xpixel,
+            height: winsize.ws_ypixel,
+        }
+    };
+
+    Ok(win_pixels)
 }
 
 fn calc_second_column_info(width: u16, height: u16) -> (u16, u16, u16) {
@@ -627,23 +643,31 @@ fn queue_third_column(
                     Some(ext) => match ext {
                         "png" | "jpg" => {
                             // FIXME(Chris): Implement image previews
+                            // TODO(Chris): Load and display images asynchronously to allow more
+                            // input while scrolling through images
+
+                            let win_px_width = win_pixels.width;
 
                             let img = image::io::Reader::open(&third_file)?.decode().unwrap();
 
                             let (img_width, _img_height) = img.dimensions();
 
-                            let win_px_width = win_pixels.width;
-
-                            // let img_cells_width = (win_px_width as u32) / img_width;
                             // TODO(Chris): Check if this crashes on sufficiently large images
-                            let img_cells_width =
+                            let mut img_cells_width =
                                 img_width * (width as u32) / (win_px_width as u32);
-                            // let img_cells_height = (win_px_height as u32) / img_height;
+
+                            if (left_x as u32) + img_cells_width >= (width as u32) {
+                                img_cells_width = (width - left_x - 2) as u32;
+                            }
+
+                            // FIXME(Chris): Rotate jpgs properly, since image-rs seems to just
+                            // ignore the orientation tag set by jpgs
+                            // https://magnushoff.com/articles/jpeg-orientation/
 
                             let conf = viuer::Config {
                                 // set offset
                                 x: left_x,
-                                // y: 1,
+                                y: 1,
                                 // set dimensions
                                 width: Some(img_cells_width),
                                 // height: Some(25),
@@ -656,10 +680,10 @@ fn queue_third_column(
                             None => (),
                             Some(highlight) => {
                                 // TODO(Chris): Actually show that something went wrong
-                                // TODO(Chris): Avoid loading entire file into RAM
                                 let output = Command::new(highlight)
                                     .arg("-O")
                                     .arg("ansi")
+                                    .arg("--max-size=500K")
                                     .arg(&third_file)
                                     .output()
                                     .unwrap();

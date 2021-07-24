@@ -5,4 +5,11 @@
 link_dir
 link_txt
 stderr.txt
+
 bash_icon_small.png
+passport.jpg
+skrollok.jpg
+
+flamegraph.svg*
+perf.data*
+two_images_loaded.svg
