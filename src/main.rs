@@ -447,7 +447,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
     Ok(())
 }
 
-// A Linux-specifc, possibly-safe wrapper around an ioctl call with TIOCGWINSZ.
+// A Linux-specific, possibly-safe wrapper around an ioctl call with TIOCGWINSZ.
 // Gets the width and height of the terminal in pixels.
 fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
     let win_pixels = unsafe {
