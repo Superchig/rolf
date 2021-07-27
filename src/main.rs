@@ -176,7 +176,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                 if selected_file_type.is_dir() {
                     let selected_dir_path = selected_entry.path();
 
-                    // FIXME(Chris): Avoid substituting apparent path with symlink target when
+                    // TODO(Chris): Avoid substituting apparent path with symlink target when
                     // entering symlinked directories
                     dir_states.set_current_dir(&selected_dir_path)?;
 
@@ -265,6 +265,8 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                             );
                             second_display_offset = display_offset;
                             second_starting_index = starting_index;
+
+                            w.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
 
                             queue_all_columns(
                                 &mut w,
@@ -625,10 +627,7 @@ fn queue_third_column(
         let file_type = display_entry.file_type().unwrap();
 
         if file_type.is_dir() {
-            // It's a bit wasteful to clear this whole column when queue_entries_column will clear
-            // the resulting items anyways, but this at least eliminates any image previews from
-            // previous draws.
-            queue_blank_column(&mut w, left_x, right_x, column_height)?;
+            w.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
 
             let third_dir = display_entry.path();
             let third_entries = get_sorted_entries(&third_dir);
@@ -649,6 +648,7 @@ fn queue_third_column(
             )?;
         } else if file_type.is_file() {
             // FIXME(Chris): Fix the slight flickering when changing file or directory previews
+            // This fix may come with loading and displaying images asynchronously
             queue_blank_column(&mut w, left_x, right_x, column_height)?;
 
             let third_file = display_entry.path();
@@ -665,6 +665,8 @@ fn queue_third_column(
                                 // TODO(Chris): Load and display images asynchronously to allow more
                                 // input while scrolling through images
                                 // TODO(Chris): Improve the image quality of previews
+                                // TODO(Chris): Eliminate resizing artifacts when images fit within
+                                // the third column
 
                                 let win_px_width = win_pixels.width;
                                 let win_px_height = win_pixels.height;
@@ -740,9 +742,6 @@ fn queue_third_column(
                                             None => break,
                                         };
 
-                                        // FIXME(Chris): Actually rotate the image according to the
-                                        // orientation value
-
                                         match orientation_value.value_offset {
                                             1 => (),
                                             2 => img = img.fliph(),
@@ -773,7 +772,7 @@ fn queue_third_column(
                                 // let third_column_width = width - left_x - 2;
 
                                 // Subtract 1 because columns start at y = 1, subtract 1 again
-                                // // because columns stop at the penultimate row
+                                // because columns stop at the penultimate row
                                 let third_column_height = (height - 2) as u32;
 
                                 // Scale the image down to fit the width, if necessary
