@@ -1,6 +1,10 @@
 mod natural_sort; // This declares the existence of the natural_sort module, which searches by
                   // default for natural_sort.rs or natural_sort/mod.rs
 
+mod tiff;
+
+use tiff::{usizeify, Endian, EntryTag, EntryType, IFDEntry};
+
 use open;
 use which::which;
 
@@ -140,6 +144,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                 &left_paths,
                 &available_execs,
                 width,
+                height,
                 column_height,
                 column_bot_y,
                 second_column,
@@ -215,6 +220,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                         &left_paths,
                         &available_execs,
                         width,
+                        height,
                         column_height,
                         column_bot_y,
                         second_column,
@@ -267,6 +273,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                 &left_paths,
                                 &available_execs,
                                 width,
+                                height,
                                 column_height,
                                 column_bot_y,
                                 second_column,
@@ -313,6 +320,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                     &left_paths,
                                     &available_execs,
                                     width,
+                                    height,
                                     column_height,
                                     column_bot_y,
                                     (second_starting_index + second_display_offset) as usize,
@@ -351,6 +359,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                     &left_paths,
                                     &available_execs,
                                     width,
+                                    height,
                                     column_height,
                                     column_bot_y,
                                     (second_starting_index + second_display_offset) as usize,
@@ -403,6 +412,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                     &left_paths,
                                     &available_execs,
                                     width,
+                                    height,
                                     column_height,
                                     column_bot_y,
                                     second_column,
@@ -434,6 +444,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                     &left_paths,
                     &available_execs,
                     width,
+                    height,
                     column_height,
                     column_bot_y,
                     second_column,
@@ -498,6 +509,7 @@ fn queue_all_columns(
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
     width: u16,
+    height: u16,
     column_height: u16,
     column_bot_y: u16,
     second_column: u16,
@@ -528,6 +540,7 @@ fn queue_all_columns(
         &left_paths,
         &available_execs,
         width,
+        height,
         column_height,
         column_bot_y,
         (second_starting_index + second_display_offset) as usize,
@@ -596,6 +609,7 @@ fn queue_third_column(
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
     width: u16,
+    height: u16,
     column_height: u16,
     column_bot_y: u16,
     change_index: usize,
@@ -634,104 +648,218 @@ fn queue_third_column(
                 starting_index,
             )?;
         } else if file_type.is_file() {
+            // FIXME(Chris): Fix the slight flickering when changing file or directory previews
             queue_blank_column(&mut w, left_x, right_x, column_height)?;
 
             let third_file = display_entry.path();
 
             match third_file.extension() {
                 Some(os_str_ext) => match os_str_ext.to_str() {
-                    Some(ext) => match ext {
-                        "png" | "jpg" => {
-                            // FIXME(Chris): Implement image previews
-                            // TODO(Chris): Load and display images asynchronously to allow more
-                            // input while scrolling through images
+                    Some(ext) => {
+                        let ext = ext.to_lowercase();
+                        let ext = ext.as_str();
 
-                            let win_px_width = win_pixels.width;
+                        match ext {
+                            "png" | "jpg" | "jpeg" => {
+                                // FIXME(Chris): Implement image previews
+                                // TODO(Chris): Load and display images asynchronously to allow more
+                                // input while scrolling through images
+                                // TODO(Chris): Improve the image quality of previews
 
-                            let img = image::io::Reader::open(&third_file)?.decode().unwrap();
+                                let win_px_width = win_pixels.width;
+                                let win_px_height = win_pixels.height;
 
-                            let (img_width, _img_height) = img.dimensions();
+                                let mut img =
+                                    image::io::Reader::open(&third_file)?.decode().unwrap();
 
-                            // TODO(Chris): Check if this crashes on sufficiently large images
-                            let mut img_cells_width =
-                                img_width * (width as u32) / (win_px_width as u32);
+                                // NOTE(Chris): sxiv only rotates jpgs somewhat-correctly, but Eye of
+                                // Gnome (eog) rotates them correctly
 
-                            if (left_x as u32) + img_cells_width >= (width as u32) {
-                                img_cells_width = (width - left_x - 2) as u32;
-                            }
+                                // Rotate jpgs according to their orientation value
+                                // One-iteration loop for early break
+                                loop {
+                                    if ext == "jpg" || ext == "jpeg" {
+                                        let bytes = std::fs::read(&third_file)?;
 
-                            // FIXME(Chris): Rotate jpgs properly, since image-rs seems to just
-                            // ignore the orientation tag set by jpgs
-                            // https://magnushoff.com/articles/jpeg-orientation/
+                                        // Find the location of the Exif header
+                                        let exif_header = b"Exif\x00\x00";
+                                        let exif_header_index =
+                                            match tiff::find_bytes(&bytes, exif_header) {
+                                                Some(value) => value,
+                                                None => break,
+                                            };
 
-                            let conf = viuer::Config {
-                                // set offset
-                                x: left_x,
-                                y: 1,
-                                // set dimensions
-                                width: Some(img_cells_width),
-                                // height: Some(25),
-                                ..Default::default()
-                            };
+                                        // This assumes that the beginning of the TIFF section
+                                        // comes right after the Exif header
+                                        let tiff_index = exif_header_index + exif_header.len();
+                                        let tiff_bytes = &bytes[tiff_index..];
 
-                            viuer::print(&img, &conf).expect("Image printing failed.");
-                        }
-                        _ => match available_execs.get("highlight") {
-                            None => (),
-                            Some(highlight) => {
-                                // TODO(Chris): Actually show that something went wrong
-                                let output = Command::new(highlight)
-                                    .arg("-O")
-                                    .arg("ansi")
-                                    .arg("--max-size=500K")
-                                    .arg(&third_file)
-                                    .output()
-                                    .unwrap();
+                                        let byte_order = match &tiff_bytes[0..=1] {
+                                            b"II" => Endian::LittleEndian,
+                                            b"MM" => Endian::BigEndian,
+                                            _ => panic!(
+                                                "Unable to determine endianness of TIFF section!"
+                                            ),
+                                        };
 
-                                // TODO(Chris): Handle case when file is not valid utf8
-                                if let Ok(text) = std::str::from_utf8(&output.stdout) {
-                                    let mut curr_y = 1; // Columns start at y = 1
-                                    queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
-
-                                    queue!(&mut w, terminal::DisableLineWrap)?;
-
-                                    for ch in text.as_bytes() {
-                                        if curr_y > column_bot_y {
-                                            break;
+                                        if tiff_bytes[2] != 42 && tiff_bytes[3] != 42 {
+                                            panic!("Could not confirm existence of TIFF section with 42!");
                                         }
 
-                                        if *ch == b'\n' {
-                                            curr_y += 1;
+                                        // From the beginning of the TIFF section
+                                        let first_ifd_offset =
+                                            usizeify(&tiff_bytes[4..=7], byte_order);
 
-                                            queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
-                                        } else {
-                                            // NOTE(Chris): We write directly to stdout so as to
-                                            // allow the ANSI escape codes to match the end of a
-                                            // line
-                                            w.write(&[*ch])?;
+                                        let num_ifd_entries = usizeify(
+                                            &tiff_bytes[first_ifd_offset..first_ifd_offset + 2],
+                                            byte_order,
+                                        );
+
+                                        let first_ifd_entry_offset = first_ifd_offset + 2;
+
+                                        // NOTE(Chris): We don't actually need info on all of the
+                                        // IFD entries, but I'm too lazy to break early from the
+                                        // for loop
+                                        let mut ifd_entries = vec![];
+                                        for entry_index in 0..num_ifd_entries {
+                                            let entry_bytes = &tiff_bytes
+                                                [first_ifd_entry_offset + (12 * entry_index)..];
+                                            let entry =
+                                                IFDEntry::from_slice(entry_bytes, byte_order);
+                                            ifd_entries.push(entry);
                                         }
+
+                                        let orientation_ifd = ifd_entries.iter().find(|entry| {
+                                            entry.tag == EntryTag::Orientation
+                                                && entry.field_type == EntryType::Short
+                                                && entry.count == 1
+                                        });
+
+                                        let orientation_value = match orientation_ifd {
+                                            Some(value) => value,
+                                            None => break,
+                                        };
+
+                                        // FIXME(Chris): Actually rotate the image according to the
+                                        // orientation value
+
+                                        match orientation_value.value_offset {
+                                            1 => (),
+                                            2 => img = img.fliph(),
+                                            3 => img = img.rotate180(),
+                                            4 => img = img.flipv(),
+                                            5 => img = img.rotate90().fliph(),
+                                            6 => img = img.rotate90(),
+                                            7 => img = img.rotate270().fliph(),
+                                            8 => img = img.rotate270(),
+                                            _ => (),
+                                        }
+
+                                        tiff::IFDEntry::from_slice(&bytes, byte_order);
                                     }
 
-                                    queue!(&mut w, terminal::EnableLineWrap)?;
+                                    break;
+                                }
 
-                                    // TODO(Chris): Figure out why the right-most edge of the
-                                    // terminal sometimes has a character that should be one beyond
-                                    // that right-most edge. This bug occurs when right-most edge
-                                    // isn't blanked out (as is currently done below).
+                                let (img_width, img_height) = img.dimensions();
 
-                                    // Clear the right-most edge of the terminal, since it might
-                                    // have been drawn over when printing file contents
-                                    for curr_y in 1..=column_bot_y {
-                                        queue!(
-                                            &mut w,
-                                            cursor::MoveTo(width, curr_y),
-                                            style::Print(' ')
-                                        )?;
+                                let mut img_cells_width =
+                                    img_width * (width as u32) / (win_px_width as u32);
+                                let img_cells_height =
+                                    img_height * (height as u32) / (win_px_height as u32);
+
+                                let orig_img_cells_width = img_cells_width;
+
+                                // let third_column_width = width - left_x - 2;
+
+                                // Subtract 1 because columns start at y = 1, subtract 1 again
+                                // // because columns stop at the penultimate row
+                                let third_column_height = (height - 2) as u32;
+
+                                // Scale the image down to fit the width, if necessary
+                                if (left_x as u32) + img_cells_width >= (width as u32) {
+                                    img_cells_width = (width - left_x - 2) as u32;
+                                }
+
+                                // Scale the image even further down to fit the height, if
+                                // necessary
+                                let new_cells_height =
+                                    img_cells_height / (orig_img_cells_width / img_cells_width);
+                                if new_cells_height > third_column_height {
+                                    let display_cells_height = new_cells_height / 2;
+                                    img_cells_width = orig_img_cells_width
+                                        / (img_cells_height / display_cells_height);
+                                }
+
+                                let conf = viuer::Config {
+                                    // set offset
+                                    x: left_x,
+                                    y: 1,
+                                    // set dimensions
+                                    width: Some(img_cells_width),
+                                    // height: Some(img_cells_height),
+                                    ..Default::default()
+                                };
+
+                                viuer::print(&img, &conf).expect("Image printing failed.");
+                            }
+                            _ => match available_execs.get("highlight") {
+                                None => (),
+                                Some(highlight) => {
+                                    // TODO(Chris): Actually show that something went wrong
+                                    let output = Command::new(highlight)
+                                        .arg("-O")
+                                        .arg("ansi")
+                                        .arg("--max-size=500K")
+                                        .arg(&third_file)
+                                        .output()
+                                        .unwrap();
+
+                                    // TODO(Chris): Handle case when file is not valid utf8
+                                    if let Ok(text) = std::str::from_utf8(&output.stdout) {
+                                        let mut curr_y = 1; // Columns start at y = 1
+                                        queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
+
+                                        queue!(&mut w, terminal::DisableLineWrap)?;
+
+                                        for ch in text.as_bytes() {
+                                            if curr_y > column_bot_y {
+                                                break;
+                                            }
+
+                                            if *ch == b'\n' {
+                                                curr_y += 1;
+
+                                                queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
+                                            } else {
+                                                // NOTE(Chris): We write directly to stdout so as to
+                                                // allow the ANSI escape codes to match the end of a
+                                                // line
+                                                w.write(&[*ch])?;
+                                            }
+                                        }
+
+                                        queue!(&mut w, terminal::EnableLineWrap)?;
+
+                                        // TODO(Chris): Figure out why the right-most edge of the
+                                        // terminal sometimes has a character that should be one beyond
+                                        // that right-most edge. This bug occurs when right-most edge
+                                        // isn't blanked out (as is currently done below).
+
+                                        // Clear the right-most edge of the terminal, since it might
+                                        // have been drawn over when printing file contents
+                                        for curr_y in 1..=column_bot_y {
+                                            queue!(
+                                                &mut w,
+                                                cursor::MoveTo(width, curr_y),
+                                                style::Print(' ')
+                                            )?;
+                                        }
                                     }
                                 }
-                            }
-                        },
-                    },
+                            },
+                        }
+                    }
                     None => (),
                 },
                 None => (),
