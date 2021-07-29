@@ -92,7 +92,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
         .build()
         .unwrap();
 
-    let mut handles = vec![];
+    let mut image_handles = vec![];
 
     let mut dir_states = DirStates::new()?;
 
@@ -161,7 +161,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                 queue_all_columns(
                     &mut stdout_lock,
                     &runtime,
-                    &mut handles,
+                    &mut image_handles,
                     &win_pixels,
                     &dir_states,
                     &left_paths,
@@ -182,6 +182,11 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
         }
 
         let mut enter_entry = |mut stdout_lock: &mut StdoutLock| -> crossterm::Result<()> {
+            // NOTE(Chris): We don't need to abort image handles here. If we are entering a
+            // directory, then the previous current entry was a directory, and we were never
+            // displaying an image. If we are entering a file, then we aren't changing the current
+            // file, so there's no need to abort the image display.
+
             if dir_states.current_entries.len() > 0 {
                 save_location(
                     &mut left_paths,
@@ -238,7 +243,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                     queue_all_columns(
                         &mut stdout_lock,
                         &runtime,
-                        &mut handles,
+                        &mut image_handles,
                         &win_pixels,
                         &dir_states,
                         &left_paths,
@@ -272,14 +277,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                             // TODO(Chris): Account for possibility of no .parent() AKA when
                             // current_dir is '/'
                             'h' => {
-                                // FIXME(Chris): Refactor this into a function/remove it when necessary
-                                while handles.len() > 0 {
-                                    let image_handle = handles.pop().unwrap();
-                                    let mut can_display_image =
-                                        image_handle.can_display_image.lock().unwrap();
-                                    *can_display_image = false;
-                                    image_handle.handle.abort();
-                                }
+                                abort_image_handles(&mut image_handles);
 
                                 let old_current_dir = dir_states.current_dir.clone();
                                 if dir_states.current_entries.len() > 0 {
@@ -309,7 +307,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                 queue_all_columns(
                                     &mut stdout_lock,
                                     &runtime,
-                                    &mut handles,
+                                    &mut image_handles,
                                     &win_pixels,
                                     &dir_states,
                                     &left_paths,
@@ -331,6 +329,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                     && (second_entry_index as usize)
                                         < dir_states.current_entries.len() - 1
                                 {
+                                    abort_image_handles(&mut image_handles);
+
                                     let old_starting_index = second_starting_index;
                                     let old_display_offset = second_display_offset;
 
@@ -358,7 +358,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                     queue_third_column(
                                         &mut stdout_lock,
                                         &runtime,
-                                        &mut handles,
+                                        &mut image_handles,
                                         &win_pixels,
                                         &dir_states,
                                         &left_paths,
@@ -373,6 +373,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                             }
                             'k' => {
                                 if dir_states.current_entries.len() > 0 {
+                                    abort_image_handles(&mut image_handles);
+
                                     let old_starting_index = second_starting_index;
                                     let old_display_offset = second_display_offset;
 
@@ -399,7 +401,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                     queue_third_column(
                                         &mut stdout_lock,
                                         &runtime,
-                                        &mut handles,
+                                        &mut image_handles,
                                         &win_pixels,
                                         &dir_states,
                                         &left_paths,
@@ -458,7 +460,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                     queue_all_columns(
                                         &mut stdout_lock,
                                         &runtime,
-                                        &mut handles,
+                                        &mut image_handles,
                                         &win_pixels,
                                         &dir_states,
                                         &left_paths,
@@ -492,7 +494,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                     queue_all_columns(
                         &mut stdout_lock,
                         &runtime,
-                        &mut handles,
+                        &mut image_handles,
                         &win_pixels,
                         &dir_states,
                         &left_paths,
@@ -969,22 +971,26 @@ async fn preview_image(
 
     let rgba = img.to_rgba8();
     let raw_img = rgba.as_raw();
-    let path = store_in_tmp_file(raw_img)?;
+
+    // FIXME(Chris): Fix bug in which the "Loading..." message gets overridden by a previous task
 
     // This scope exists to eventually unlock the mutex
     {
         let can_display_image = can_display_image.lock().unwrap();
 
         if *can_display_image {
-            execute!(
-                w,
-                cursor::MoveTo(left_x, 1),
-                style::Print("Should display!")
-            )?;
+            let path = store_in_tmp_file(raw_img)?;
+
+            // execute!(
+            //     w,
+            //     cursor::MoveTo(left_x, 1),
+            //     style::Print("Should display!")
+            // )?;
 
             queue!(
                 w,
                 cursor::MoveTo(left_x, 1),
+                // Hide the "Should display!" / "Loading..." message
                 style::Print("               "),
                 cursor::MoveTo(left_x, 1),
             )?;
@@ -1010,6 +1016,15 @@ async fn preview_image(
     w.flush()?;
 
     Ok(())
+}
+
+fn abort_image_handles(image_handles: &mut Vec<ImageHandle>) {
+    while image_handles.len() > 0 {
+        let image_handle = image_handles.pop().unwrap();
+        let mut can_display_image = image_handle.can_display_image.lock().unwrap();
+        *can_display_image = false;
+        image_handle.handle.abort();
+    }
 }
 
 fn store_in_tmp_file(buf: &[u8]) -> std::result::Result<std::path::PathBuf, io::Error> {
