@@ -22,6 +22,7 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
       an optional dependency.
 - [ ] Implement command-line
 - [x] EXPERIMENTAL: Display image previews on kitty
+  - [x] Display images asynchronously
   - [ ] Fix broken parts of image previews
 - [ ] Make symlinks actually usable
 - [x] Fix compiler warnings on latest version of Rust stable
@@ -29,5 +30,6 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 # Long-term TODO (May Never Happen)
 - [ ] Add Windows support
 - [ ] Implement our own png and jpeg decoders
-- [ ] Use the kitty protocol (and possibly other terminal image protocols)
+- [x] Use the kitty protocol (and possibly other terminal image protocols)
       directly for image previews
+- [ ] Make the file manager way faster
