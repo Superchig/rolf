@@ -513,7 +513,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
     Ok(())
 }
 
-// Handle for a task which does displays an image
+// Handle for a task which displays an image
 struct ImageHandle {
     handle: JoinHandle<crossterm::Result<()>>,
     can_display_image: Arc<Mutex<bool>>,
