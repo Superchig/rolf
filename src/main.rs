@@ -3,21 +3,25 @@ mod natural_sort; // This declares the existence of the natural_sort module, whi
 
 mod tiff;
 
+use natural_sort::cmp_natural;
 use tiff::{usizeify, Endian, EntryTag, EntryType, IFDEntry};
 
 use open;
 use which::which;
 
-use natural_sort::cmp_natural;
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
 use std::fs::DirEntry;
-use std::io::{self, Stdout, Write};
-use std::path::Path;
+use std::io::{self, StdoutLock, Write};
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
 use image::GenericImageView;
+
+use tokio::runtime::{Builder, Runtime};
+use tokio::task::JoinHandle;
 
 use crossterm::{
     cursor,
@@ -26,6 +30,8 @@ use crossterm::{
     style::{self, Attribute, Color},
     terminal::{self, ClearType},
 };
+
+type HandlesVec = Vec<ImageHandle>;
 
 fn main() -> crossterm::Result<()> {
     let mut w = io::stdout();
@@ -54,7 +60,7 @@ fn main() -> crossterm::Result<()> {
     Ok(())
 }
 
-fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
+fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
     let user_name = match std::env::var("USER") {
         Ok(val) => val,
         Err(e) => panic!("Could not read $USER environment variable: {}", e),
@@ -80,6 +86,14 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
     // NOTE(Chris): The default column ratio is 1:2:3
 
+    let runtime = Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let mut handles = vec![];
+
     let mut dir_states = DirStates::new()?;
 
     dir_states.set_current_dir(".")?;
@@ -92,6 +106,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
 
     let mut left_paths: HashMap<std::path::PathBuf, DirLocation> = HashMap::new();
 
+    // TODO(Chris): Move these queue! calls into the main function
     queue!(
         w,
         style::ResetColor,
@@ -102,6 +117,7 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
     let mut win_pixels = get_win_pixels()?;
     // Main input loop
     loop {
+        // Gather all the data before rendering things with stdout_lock
         let current_dir_display = format_current_dir(&dir_states, home_path);
 
         let second_entry_index = second_starting_index + second_display_offset;
@@ -114,21 +130,6 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             curr_entry.to_str().unwrap()
         };
 
-        queue!(
-            w,
-            cursor::MoveTo(0, 0),
-            terminal::Clear(ClearType::CurrentLine),
-            style::SetForegroundColor(Color::DarkGreen),
-            style::SetAttribute(Attribute::Bold),
-            style::Print(format!("{}@{}", user_name, host_name)),
-            style::SetForegroundColor(Color::White),
-            style::Print(":"),
-            style::SetForegroundColor(Color::DarkBlue),
-            style::Print(format!("{}/", current_dir_display)),
-            style::SetForegroundColor(Color::White),
-            style::Print(file_stem),
-        )?;
-
         // TODO(Chris): Check if we're currently using the kitty terminal (or anything which
         // supports its image protocol)
 
@@ -136,30 +137,51 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
         let (width, height) = terminal::size()?;
         let (second_column, column_bot_y, column_height) = calc_second_column_info(width, height);
 
-        if is_first_iteration {
-            queue_all_columns(
-                &mut w,
-                &win_pixels,
-                &dir_states,
-                &left_paths,
-                &available_execs,
-                width,
-                height,
-                column_height,
-                column_bot_y,
-                second_column,
-                second_display_offset,
-                second_starting_index,
-            )?;
-
-            is_first_iteration = false;
-        }
-
-        w.flush()?;
-
         let second_bottom_index = second_starting_index + column_height;
 
-        let mut enter_entry = || -> crossterm::Result<()> {
+        {
+            let mut stdout_lock = w.lock();
+
+            queue!(
+                stdout_lock,
+                cursor::MoveTo(0, 0),
+                terminal::Clear(ClearType::CurrentLine),
+                style::SetForegroundColor(Color::DarkGreen),
+                style::SetAttribute(Attribute::Bold),
+                style::Print(format!("{}@{}", user_name, host_name)),
+                style::SetForegroundColor(Color::White),
+                style::Print(":"),
+                style::SetForegroundColor(Color::DarkBlue),
+                style::Print(format!("{}/", current_dir_display)),
+                style::SetForegroundColor(Color::White),
+                style::Print(file_stem),
+            )?;
+
+            if is_first_iteration {
+                queue_all_columns(
+                    &mut stdout_lock,
+                    &runtime,
+                    &mut handles,
+                    &win_pixels,
+                    &dir_states,
+                    &left_paths,
+                    &available_execs,
+                    width,
+                    height,
+                    column_height,
+                    column_bot_y,
+                    second_column,
+                    second_display_offset,
+                    second_starting_index,
+                )?;
+
+                is_first_iteration = false;
+            }
+
+            stdout_lock.flush()?;
+        }
+
+        let mut enter_entry = |mut stdout_lock: &mut StdoutLock| -> crossterm::Result<()> {
             if dir_states.current_entries.len() > 0 {
                 save_location(
                     &mut left_paths,
@@ -214,7 +236,9 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                     };
 
                     queue_all_columns(
-                        &mut w,
+                        &mut stdout_lock,
+                        &runtime,
+                        &mut handles,
                         &win_pixels,
                         &dir_states,
                         &left_paths,
@@ -235,180 +259,57 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
             Ok(())
         };
 
-        match event::read()? {
-            Event::Key(event) => match event.code {
-                KeyCode::Char(ch) => {
-                    match ch {
-                        'q' => break,
-                        // TODO(Chris): Account for possibility of no .parent() AKA when
-                        // current_dir is '/'
-                        'h' => {
-                            let old_current_dir = dir_states.current_dir.clone();
-                            if dir_states.current_entries.len() > 0 {
-                                save_location(
-                                    &mut left_paths,
-                                    &dir_states,
-                                    second_entry_index,
-                                    second_starting_index,
-                                    second_display_offset,
-                                );
-                            }
+        {
+            let event = event::read()?;
 
-                            dir_states.set_current_dir("..")?;
+            let mut stdout_lock = w.lock();
 
-                            let (display_offset, starting_index) = find_correct_location(
-                                &left_paths,
-                                column_height,
-                                &dir_states.current_dir,
-                                &dir_states.current_entries,
-                                &old_current_dir,
-                            );
-                            second_display_offset = display_offset;
-                            second_starting_index = starting_index;
-
-                            w.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
-
-                            queue_all_columns(
-                                &mut w,
-                                &win_pixels,
-                                &dir_states,
-                                &left_paths,
-                                &available_execs,
-                                width,
-                                height,
-                                column_height,
-                                column_bot_y,
-                                second_column,
-                                second_display_offset,
-                                second_starting_index,
-                            )?;
-                        }
-                        'l' => {
-                            enter_entry()?;
-                        }
-                        'j' => {
-                            if dir_states.current_entries.len() > 0
-                                && (second_entry_index as usize)
-                                    < dir_states.current_entries.len() - 1
-                            {
-                                let old_starting_index = second_starting_index;
-                                let old_display_offset = second_display_offset;
-
-                                if second_display_offset >= (column_bot_y * 2 / 3)
-                                    && (second_bottom_index as usize)
-                                        < dir_states.current_entries.len()
-                                {
-                                    second_starting_index += 1;
-                                } else if second_entry_index < second_bottom_index {
-                                    second_display_offset += 1;
+            match event {
+                Event::Key(event) => match event.code {
+                    KeyCode::Char(ch) => {
+                        match ch {
+                            'q' => break,
+                            // TODO(Chris): Account for possibility of no .parent() AKA when
+                            // current_dir is '/'
+                            'h' => {
+                                // FIXME(Chris): Refactor this into a function/remove it when necessary
+                                while handles.len() > 0 {
+                                    let image_handle = handles.pop().unwrap();
+                                    let mut can_display_image =
+                                        image_handle.can_display_image.lock().unwrap();
+                                    *can_display_image = false;
+                                    image_handle.handle.abort();
                                 }
 
-                                update_entries_column(
-                                    w,
-                                    second_column,
-                                    width / 2 - 2,
-                                    column_bot_y,
-                                    &dir_states.current_entries,
-                                    old_display_offset,
-                                    old_starting_index,
-                                    second_display_offset,
-                                    second_starting_index,
-                                )?;
+                                let old_current_dir = dir_states.current_dir.clone();
+                                if dir_states.current_entries.len() > 0 {
+                                    save_location(
+                                        &mut left_paths,
+                                        &dir_states,
+                                        second_entry_index,
+                                        second_starting_index,
+                                        second_display_offset,
+                                    );
+                                }
 
-                                queue_third_column(
-                                    w,
-                                    &win_pixels,
-                                    &dir_states,
+                                dir_states.set_current_dir("..")?;
+
+                                let (display_offset, starting_index) = find_correct_location(
                                     &left_paths,
-                                    &available_execs,
-                                    width,
-                                    height,
                                     column_height,
-                                    column_bot_y,
-                                    (second_starting_index + second_display_offset) as usize,
-                                )?;
-                            }
-                        }
-                        'k' => {
-                            if dir_states.current_entries.len() > 0 {
-                                let old_starting_index = second_starting_index;
-                                let old_display_offset = second_display_offset;
-
-                                if second_display_offset <= (column_bot_y * 1 / 3)
-                                    && second_starting_index > 0
-                                {
-                                    second_starting_index -= 1;
-                                } else if second_entry_index > 0 {
-                                    second_display_offset -= 1;
-                                }
-
-                                update_entries_column(
-                                    w,
-                                    second_column,
-                                    width / 2 - 2,
-                                    column_bot_y,
+                                    &dir_states.current_dir,
                                     &dir_states.current_entries,
-                                    old_display_offset,
-                                    old_starting_index,
-                                    second_display_offset,
-                                    second_starting_index,
-                                )?;
-
-                                queue_third_column(
-                                    w,
-                                    &win_pixels,
-                                    &dir_states,
-                                    &left_paths,
-                                    &available_execs,
-                                    width,
-                                    height,
-                                    column_height,
-                                    column_bot_y,
-                                    (second_starting_index + second_display_offset) as usize,
-                                )?;
-                            }
-                        }
-                        'e' => {
-                            let editor = match std::env::var("VISUAL") {
-                                Err(std::env::VarError::NotPresent) => {
-                                    match std::env::var("EDITOR") {
-                                        Err(std::env::VarError::NotPresent) => String::from(""),
-                                        Err(err) => panic!("{}", err),
-                                        Ok(editor) => editor,
-                                    }
-                                }
-                                Err(err) => panic!("{}", err),
-                                Ok(visual) => visual,
-                            };
-
-                            // It'd be nice if we could do breaking on blocks to exit this whole
-                            // match statement early, but labeling blocks is still in unstable,
-                            // as seen in https://github.com/rust-lang/rust/issues/48594
-                            if editor != "" {
-                                let selected_entry =
-                                    &dir_states.current_entries[second_entry_index as usize];
-
-                                let shell_command = format!(
-                                    "{} {}",
-                                    editor,
-                                    selected_entry
-                                        .path()
-                                        .to_str()
-                                        .expect("Failed to convert path to string")
+                                    &old_current_dir,
                                 );
+                                second_display_offset = display_offset;
+                                second_starting_index = starting_index;
 
-                                queue!(w, terminal::LeaveAlternateScreen)?;
-
-                                Command::new("sh")
-                                    .arg("-c")
-                                    .arg(shell_command)
-                                    .status()
-                                    .expect("failed to execute editor command");
-
-                                queue!(w, terminal::EnterAlternateScreen, cursor::Hide)?;
+                                stdout_lock.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
 
                                 queue_all_columns(
-                                    &mut w,
+                                    &mut stdout_lock,
+                                    &runtime,
+                                    &mut handles,
                                     &win_pixels,
                                     &dir_states,
                                     &left_paths,
@@ -422,42 +323,200 @@ fn run(mut w: &mut io::Stdout) -> crossterm::Result<()> {
                                     second_starting_index,
                                 )?;
                             }
+                            'l' => {
+                                enter_entry(&mut stdout_lock)?;
+                            }
+                            'j' => {
+                                if dir_states.current_entries.len() > 0
+                                    && (second_entry_index as usize)
+                                        < dir_states.current_entries.len() - 1
+                                {
+                                    let old_starting_index = second_starting_index;
+                                    let old_display_offset = second_display_offset;
+
+                                    if second_display_offset >= (column_bot_y * 2 / 3)
+                                        && (second_bottom_index as usize)
+                                            < dir_states.current_entries.len()
+                                    {
+                                        second_starting_index += 1;
+                                    } else if second_entry_index < second_bottom_index {
+                                        second_display_offset += 1;
+                                    }
+
+                                    update_entries_column(
+                                        &mut stdout_lock,
+                                        second_column,
+                                        width / 2 - 2,
+                                        column_bot_y,
+                                        &dir_states.current_entries,
+                                        old_display_offset,
+                                        old_starting_index,
+                                        second_display_offset,
+                                        second_starting_index,
+                                    )?;
+
+                                    queue_third_column(
+                                        &mut stdout_lock,
+                                        &runtime,
+                                        &mut handles,
+                                        &win_pixels,
+                                        &dir_states,
+                                        &left_paths,
+                                        &available_execs,
+                                        width,
+                                        height,
+                                        column_height,
+                                        column_bot_y,
+                                        (second_starting_index + second_display_offset) as usize,
+                                    )?;
+                                }
+                            }
+                            'k' => {
+                                if dir_states.current_entries.len() > 0 {
+                                    let old_starting_index = second_starting_index;
+                                    let old_display_offset = second_display_offset;
+
+                                    if second_display_offset <= (column_bot_y * 1 / 3)
+                                        && second_starting_index > 0
+                                    {
+                                        second_starting_index -= 1;
+                                    } else if second_entry_index > 0 {
+                                        second_display_offset -= 1;
+                                    }
+
+                                    update_entries_column(
+                                        &mut stdout_lock,
+                                        second_column,
+                                        width / 2 - 2,
+                                        column_bot_y,
+                                        &dir_states.current_entries,
+                                        old_display_offset,
+                                        old_starting_index,
+                                        second_display_offset,
+                                        second_starting_index,
+                                    )?;
+
+                                    queue_third_column(
+                                        &mut stdout_lock,
+                                        &runtime,
+                                        &mut handles,
+                                        &win_pixels,
+                                        &dir_states,
+                                        &left_paths,
+                                        &available_execs,
+                                        width,
+                                        height,
+                                        column_height,
+                                        column_bot_y,
+                                        (second_starting_index + second_display_offset) as usize,
+                                    )?;
+                                }
+                            }
+                            'e' => {
+                                let editor = match std::env::var("VISUAL") {
+                                    Err(std::env::VarError::NotPresent) => {
+                                        match std::env::var("EDITOR") {
+                                            Err(std::env::VarError::NotPresent) => String::from(""),
+                                            Err(err) => panic!("{}", err),
+                                            Ok(editor) => editor,
+                                        }
+                                    }
+                                    Err(err) => panic!("{}", err),
+                                    Ok(visual) => visual,
+                                };
+
+                                // It'd be nice if we could do breaking on blocks to exit this whole
+                                // match statement early, but labeling blocks is still in unstable,
+                                // as seen in https://github.com/rust-lang/rust/issues/48594
+                                if editor != "" {
+                                    let selected_entry =
+                                        &dir_states.current_entries[second_entry_index as usize];
+
+                                    let shell_command = format!(
+                                        "{} {}",
+                                        editor,
+                                        selected_entry
+                                            .path()
+                                            .to_str()
+                                            .expect("Failed to convert path to string")
+                                    );
+
+                                    queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
+
+                                    Command::new("sh")
+                                        .arg("-c")
+                                        .arg(shell_command)
+                                        .status()
+                                        .expect("failed to execute editor command");
+
+                                    queue!(
+                                        stdout_lock,
+                                        terminal::EnterAlternateScreen,
+                                        cursor::Hide
+                                    )?;
+
+                                    queue_all_columns(
+                                        &mut stdout_lock,
+                                        &runtime,
+                                        &mut handles,
+                                        &win_pixels,
+                                        &dir_states,
+                                        &left_paths,
+                                        &available_execs,
+                                        width,
+                                        height,
+                                        column_height,
+                                        column_bot_y,
+                                        second_column,
+                                        second_display_offset,
+                                        second_starting_index,
+                                    )?;
+                                }
+                            }
+                            _ => (),
                         }
-                        _ => (),
                     }
+                    KeyCode::Enter => enter_entry(&mut stdout_lock)?,
+                    _ => (),
+                },
+                Event::Mouse(_) => (),
+                Event::Resize(_, _) => {
+                    queue!(stdout_lock, terminal::Clear(ClearType::All))?;
+
+                    let (width, height) = terminal::size()?;
+                    let (second_column, column_bot_y, column_height) =
+                        calc_second_column_info(width, height);
+
+                    win_pixels = get_win_pixels()?;
+
+                    queue_all_columns(
+                        &mut stdout_lock,
+                        &runtime,
+                        &mut handles,
+                        &win_pixels,
+                        &dir_states,
+                        &left_paths,
+                        &available_execs,
+                        width,
+                        height,
+                        column_height,
+                        column_bot_y,
+                        second_column,
+                        second_display_offset,
+                        second_starting_index,
+                    )?;
                 }
-                KeyCode::Enter => enter_entry()?,
-                _ => (),
-            },
-            Event::Mouse(_) => (),
-            Event::Resize(_, _) => {
-                queue!(w, terminal::Clear(ClearType::All))?;
-
-                let (width, height) = terminal::size()?;
-                let (second_column, column_bot_y, column_height) =
-                    calc_second_column_info(width, height);
-
-                win_pixels = get_win_pixels()?;
-
-                queue_all_columns(
-                    &mut w,
-                    &win_pixels,
-                    &dir_states,
-                    &left_paths,
-                    &available_execs,
-                    width,
-                    height,
-                    column_height,
-                    column_bot_y,
-                    second_column,
-                    second_display_offset,
-                    second_starting_index,
-                )?;
             }
         }
     }
 
     Ok(())
+}
+
+// Handle for a task which does displays an image
+struct ImageHandle {
+    handle: JoinHandle<crossterm::Result<()>>,
+    can_display_image: Arc<Mutex<bool>>,
 }
 
 // A Linux-specific, possibly-safe wrapper around an ioctl call with TIOCGWINSZ.
@@ -505,7 +564,9 @@ fn calc_second_column_info(width: u16, height: u16) -> (u16, u16, u16) {
 }
 
 fn queue_all_columns(
-    mut w: &mut Stdout,
+    mut w: &mut StdoutLock,
+    runtime: &Runtime,
+    mut handles: &mut HandlesVec,
     win_pixels: &WindowPixels,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
@@ -537,6 +598,8 @@ fn queue_all_columns(
     )?;
     queue_third_column(
         w,
+        &runtime,
+        &mut handles,
         &win_pixels,
         &dir_states,
         &left_paths,
@@ -552,7 +615,7 @@ fn queue_all_columns(
 }
 
 fn queue_first_column(
-    mut w: &mut Stdout,
+    mut w: &mut StdoutLock,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     width: u16,
@@ -582,7 +645,7 @@ fn queue_first_column(
 // All this function actually does is call queue_entries_column, but it's here to match the naming
 // scheme of queue_first_column and queue_third_column
 fn queue_second_column(
-    mut w: &mut Stdout,
+    mut w: &mut StdoutLock,
     second_column: u16,
     width: u16,
     column_bot_y: u16,
@@ -605,7 +668,9 @@ fn queue_second_column(
 }
 
 fn queue_third_column(
-    mut w: &mut Stdout,
+    mut w: &mut StdoutLock,
+    runtime: &Runtime,
+    handles: &mut HandlesVec,
     win_pixels: &WindowPixels,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
@@ -647,11 +712,11 @@ fn queue_third_column(
                 starting_index,
             )?;
         } else if file_type.is_file() {
-            // FIXME(Chris): Fix the slight flickering when changing file or directory previews
-            // This fix may come with loading and displaying images asynchronously
             queue_blank_column(&mut w, left_x, right_x, column_height)?;
 
             let third_file = display_entry.path();
+
+            // FIXME(Chris): Reduce at least the incremental debug build times
 
             match third_file.extension() {
                 Some(os_str_ext) => match os_str_ext.to_str() {
@@ -661,146 +726,22 @@ fn queue_third_column(
 
                         match ext {
                             "png" | "jpg" | "jpeg" => {
-                                // FIXME(Chris): Implement image previews
-                                // TODO(Chris): Load and display images asynchronously to allow more
-                                // input while scrolling through images
-                                // TODO(Chris): Improve the image quality of previews
-                                // TODO(Chris): Eliminate resizing artifacts when images fit within
-                                // the third column
+                                let can_display_image = Arc::new(Mutex::new(true));
 
-                                let win_px_width = win_pixels.width;
-                                let win_px_height = win_pixels.height;
+                                let preview_image_handle = runtime.spawn(preview_image(
+                                    win_pixels.clone(),
+                                    third_file.clone(),
+                                    ext.to_string(),
+                                    width,
+                                    height,
+                                    left_x,
+                                    Arc::clone(&can_display_image),
+                                ));
 
-                                let mut img =
-                                    image::io::Reader::open(&third_file)?.decode().unwrap();
-
-                                // NOTE(Chris): sxiv only rotates jpgs somewhat-correctly, but Eye of
-                                // Gnome (eog) rotates them correctly
-
-                                // Rotate jpgs according to their orientation value
-                                // One-iteration loop for early break
-                                loop {
-                                    if ext == "jpg" || ext == "jpeg" {
-                                        let bytes = std::fs::read(&third_file)?;
-
-                                        // Find the location of the Exif header
-                                        let exif_header = b"Exif\x00\x00";
-                                        let exif_header_index =
-                                            match tiff::find_bytes(&bytes, exif_header) {
-                                                Some(value) => value,
-                                                None => break,
-                                            };
-
-                                        // This assumes that the beginning of the TIFF section
-                                        // comes right after the Exif header
-                                        let tiff_index = exif_header_index + exif_header.len();
-                                        let tiff_bytes = &bytes[tiff_index..];
-
-                                        let byte_order = match &tiff_bytes[0..=1] {
-                                            b"II" => Endian::LittleEndian,
-                                            b"MM" => Endian::BigEndian,
-                                            _ => panic!(
-                                                "Unable to determine endianness of TIFF section!"
-                                            ),
-                                        };
-
-                                        if tiff_bytes[2] != 42 && tiff_bytes[3] != 42 {
-                                            panic!("Could not confirm existence of TIFF section with 42!");
-                                        }
-
-                                        // From the beginning of the TIFF section
-                                        let first_ifd_offset =
-                                            usizeify(&tiff_bytes[4..=7], byte_order);
-
-                                        let num_ifd_entries = usizeify(
-                                            &tiff_bytes[first_ifd_offset..first_ifd_offset + 2],
-                                            byte_order,
-                                        );
-
-                                        let first_ifd_entry_offset = first_ifd_offset + 2;
-
-                                        // NOTE(Chris): We don't actually need info on all of the
-                                        // IFD entries, but I'm too lazy to break early from the
-                                        // for loop
-                                        let mut ifd_entries = vec![];
-                                        for entry_index in 0..num_ifd_entries {
-                                            let entry_bytes = &tiff_bytes
-                                                [first_ifd_entry_offset + (12 * entry_index)..];
-                                            let entry =
-                                                IFDEntry::from_slice(entry_bytes, byte_order);
-                                            ifd_entries.push(entry);
-                                        }
-
-                                        let orientation_ifd = ifd_entries.iter().find(|entry| {
-                                            entry.tag == EntryTag::Orientation
-                                                && entry.field_type == EntryType::Short
-                                                && entry.count == 1
-                                        });
-
-                                        let orientation_value = match orientation_ifd {
-                                            Some(value) => value,
-                                            None => break,
-                                        };
-
-                                        match orientation_value.value_offset {
-                                            1 => (),
-                                            2 => img = img.fliph(),
-                                            3 => img = img.rotate180(),
-                                            4 => img = img.flipv(),
-                                            5 => img = img.rotate90().fliph(),
-                                            6 => img = img.rotate90(),
-                                            7 => img = img.rotate270().fliph(),
-                                            8 => img = img.rotate270(),
-                                            _ => (),
-                                        }
-
-                                        tiff::IFDEntry::from_slice(&bytes, byte_order);
-                                    }
-
-                                    break;
-                                }
-
-                                let (img_width, img_height) = img.dimensions();
-
-                                let mut img_cells_width =
-                                    img_width * (width as u32) / (win_px_width as u32);
-                                let img_cells_height =
-                                    img_height * (height as u32) / (win_px_height as u32);
-
-                                let orig_img_cells_width = img_cells_width;
-
-                                // let third_column_width = width - left_x - 2;
-
-                                // Subtract 1 because columns start at y = 1, subtract 1 again
-                                // because columns stop at the penultimate row
-                                let third_column_height = (height - 2) as u32;
-
-                                // Scale the image down to fit the width, if necessary
-                                if (left_x as u32) + img_cells_width >= (width as u32) {
-                                    img_cells_width = (width - left_x - 2) as u32;
-                                }
-
-                                // Scale the image even further down to fit the height, if
-                                // necessary
-                                let new_cells_height =
-                                    img_cells_height / (orig_img_cells_width / img_cells_width);
-                                if new_cells_height > third_column_height {
-                                    let display_cells_height = new_cells_height / 2;
-                                    img_cells_width = orig_img_cells_width
-                                        / (img_cells_height / display_cells_height);
-                                }
-
-                                let conf = viuer::Config {
-                                    // set offset
-                                    x: left_x,
-                                    y: 1,
-                                    // set dimensions
-                                    width: Some(img_cells_width),
-                                    // height: Some(img_cells_height),
-                                    ..Default::default()
-                                };
-
-                                viuer::print(&img, &conf).expect("Image printing failed.");
+                                handles.push(ImageHandle {
+                                    handle: preview_image_handle,
+                                    can_display_image,
+                                });
                             }
                             _ => match available_execs.get("highlight") {
                                 None => (),
@@ -871,7 +812,221 @@ fn queue_third_column(
     Ok(())
 }
 
-#[derive(Debug)]
+async fn preview_image(
+    win_pixels: WindowPixels,
+    third_file: PathBuf,
+    ext: String,
+    width: u16,
+    height: u16,
+    left_x: u16,
+    can_display_image: Arc<Mutex<bool>>,
+) -> crossterm::Result<()> {
+    // TODO(Chris): Load and display images asynchronously to allow more
+    // input while scrolling through images
+    // TODO(Chris): Improve the image quality of previews
+    // TODO(Chris): Eliminate resizing artifacts when images fit within
+    // the third column
+
+    {
+        let stdout = io::stdout();
+        let mut w = stdout.lock();
+
+        queue!(
+            w,
+            style::SetAttribute(Attribute::Reset),
+            style::SetAttribute(Attribute::Reverse),
+            cursor::MoveTo(left_x, 1),
+            style::Print("Loading..."),
+            style::SetAttribute(Attribute::Reset),
+        )?;
+
+        w.flush()?;
+    }
+
+    let win_px_width = win_pixels.width;
+    let win_px_height = win_pixels.height;
+
+    // TODO(Chris): Look into using libjpeg-turbo (https://github.com/ImageOptim/mozjpeg-rust)
+    // to decode large jpegs faster
+    let mut img = image::io::Reader::open(&third_file)?.decode().unwrap();
+
+    // NOTE(Chris): sxiv only rotates jpgs somewhat-correctly, but Eye of
+    // Gnome (eog) rotates them correctly
+
+    // Rotate jpgs according to their orientation value
+    // One-iteration loop for early break
+    loop {
+        if ext == "jpg" || ext == "jpeg" {
+            let bytes = std::fs::read(&third_file)?;
+
+            // Find the location of the Exif header
+            let exif_header = b"Exif\x00\x00";
+            let exif_header_index = match tiff::find_bytes(&bytes, exif_header) {
+                Some(value) => value,
+                None => break,
+            };
+
+            // This assumes that the beginning of the TIFF section
+            // comes right after the Exif header
+            let tiff_index = exif_header_index + exif_header.len();
+            let tiff_bytes = &bytes[tiff_index..];
+
+            let byte_order = match &tiff_bytes[0..=1] {
+                b"II" => Endian::LittleEndian,
+                b"MM" => Endian::BigEndian,
+                _ => panic!("Unable to determine endianness of TIFF section!"),
+            };
+
+            if tiff_bytes[2] != 42 && tiff_bytes[3] != 42 {
+                panic!("Could not confirm existence of TIFF section with 42!");
+            }
+
+            // From the beginning of the TIFF section
+            let first_ifd_offset = usizeify(&tiff_bytes[4..=7], byte_order);
+
+            let num_ifd_entries = usizeify(
+                &tiff_bytes[first_ifd_offset..first_ifd_offset + 2],
+                byte_order,
+            );
+
+            let first_ifd_entry_offset = first_ifd_offset + 2;
+
+            // NOTE(Chris): We don't actually need info on all of the
+            // IFD entries, but I'm too lazy to break early from the
+            // for loop
+            let mut ifd_entries = vec![];
+            for entry_index in 0..num_ifd_entries {
+                let entry_bytes = &tiff_bytes[first_ifd_entry_offset + (12 * entry_index)..];
+                let entry = IFDEntry::from_slice(entry_bytes, byte_order);
+                ifd_entries.push(entry);
+            }
+
+            let orientation_ifd = ifd_entries.iter().find(|entry| {
+                entry.tag == EntryTag::Orientation
+                    && entry.field_type == EntryType::Short
+                    && entry.count == 1
+            });
+
+            let orientation_value = match orientation_ifd {
+                Some(value) => value,
+                None => break,
+            };
+
+            match orientation_value.value_offset {
+                1 => (),
+                2 => img = img.fliph(),
+                3 => img = img.rotate180(),
+                4 => img = img.flipv(),
+                5 => img = img.rotate90().fliph(),
+                6 => img = img.rotate90(),
+                7 => img = img.rotate270().fliph(),
+                8 => img = img.rotate270(),
+                _ => (),
+            }
+
+            tiff::IFDEntry::from_slice(&bytes, byte_order);
+        }
+
+        break;
+    }
+
+    let (img_width, img_height) = img.dimensions();
+
+    let mut img_cells_width = img_width * (width as u32) / (win_px_width as u32);
+    let mut img_cells_height = img_height * (height as u32) / (win_px_height as u32);
+
+    let orig_img_cells_width = img_cells_width;
+
+    // let third_column_width = width - left_x - 2;
+
+    // Subtract 1 because columns start at y = 1, subtract 1 again
+    // because columns stop at the penultimate row
+    let third_column_height = (height - 2) as u32;
+
+    // Scale the image down to fit the width, if necessary
+    if (left_x as u32) + img_cells_width >= (width as u32) {
+        img_cells_width = (width - left_x - 2) as u32;
+    }
+
+    // Scale the image even further down to fit the height, if
+    // necessary
+    let new_cells_height = img_cells_height / (orig_img_cells_width / img_cells_width);
+    if new_cells_height > third_column_height {
+        let display_cells_height = new_cells_height / 2;
+        img_cells_width = orig_img_cells_width / (img_cells_height / display_cells_height);
+        img_cells_height = display_cells_height;
+    }
+
+    if orig_img_cells_width != img_cells_width {
+        let display_width_px = img_cells_width * (win_px_width as u32) / (width as u32);
+        let display_height_px = img_cells_height * (win_px_height as u32) / (height as u32);
+
+        img = img.thumbnail(display_width_px, display_height_px);
+    }
+
+    let stdout = io::stdout();
+    let mut w = stdout.lock();
+
+    let rgba = img.to_rgba8();
+    let raw_img = rgba.as_raw();
+    let path = store_in_tmp_file(raw_img)?;
+
+    // This scope exists to eventually unlock the mutex
+    {
+        let can_display_image = can_display_image.lock().unwrap();
+
+        if *can_display_image {
+            execute!(
+                w,
+                cursor::MoveTo(left_x, 1),
+                style::Print("Should display!")
+            )?;
+
+            queue!(
+                w,
+                cursor::MoveTo(left_x, 1),
+                style::Print("               "),
+                cursor::MoveTo(left_x, 1),
+            )?;
+
+            write!(
+                w,
+                "\x1b_Gf=32,s={},v={},a=T,t=t;{}\x1b\\",
+                img.width(),
+                img.height(),
+                base64::encode(path.to_str().unwrap())
+            )?;
+        }
+    }
+
+    w.flush()?;
+
+    // queue!(
+    //     w,
+    //     cursor::MoveTo(left_x, 21),
+    //     style::Print("preview_image has finished.")
+    // )?;
+
+    w.flush()?;
+
+    Ok(())
+}
+
+fn store_in_tmp_file(buf: &[u8]) -> std::result::Result<std::path::PathBuf, io::Error> {
+    let (mut tmpfile, path) = tempfile::Builder::new()
+        .prefix(".tmp.rolf")
+        .rand_bytes(1)
+        .tempfile()?
+        // Since the file is persisted, the user is responsible for deleting it afterwards. However,
+        // Kitty does this automatically after printing from a temp file.
+        .keep()?;
+
+    tmpfile.write_all(buf)?;
+    tmpfile.flush()?;
+    Ok(path)
+}
+
+#[derive(Debug, Clone, Copy)]
 struct WindowPixels {
     width: u16,
     height: u16,
@@ -1040,7 +1195,7 @@ fn save_location(
 }
 
 fn update_entries_column(
-    w: &mut io::Stdout,
+    w: &mut io::StdoutLock,
     left_x: u16,
     right_x: u16,
     column_bot_y: u16,
@@ -1079,7 +1234,7 @@ fn update_entries_column(
 }
 
 fn queue_full_entry(
-    w: &mut io::Stdout,
+    w: &mut io::StdoutLock,
     entries: &Vec<DirEntry>,
     left_x: u16,
     right_x: u16,
@@ -1123,7 +1278,7 @@ fn queue_full_entry(
 }
 
 fn queue_entries_column(
-    w: &mut io::Stdout,
+    w: &mut io::StdoutLock,
     left_x: u16,
     right_x: u16,
     bottom_y: u16,
@@ -1196,7 +1351,7 @@ fn queue_entries_column(
 
 // This inherits the cursor's current y
 fn queue_entry(
-    w: &mut io::Stdout,
+    w: &mut io::StdoutLock,
     left_x: u16,
     right_x: u16,
     display_offset: u16,
@@ -1267,7 +1422,7 @@ fn queue_entry(
 }
 
 fn queue_blank_column(
-    w: &mut io::Stdout,
+    w: &mut StdoutLock,
     left_x: u16,
     right_x: u16,
     column_height: u16,

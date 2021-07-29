@@ -10,9 +10,11 @@ edition = "2018"
 crossterm = "0.20" # Cross-platform terminal drawing
 open = "1.7.0" # Cross-platform file opener
 which = "4.1.0" # Cross-platform equivalent of Unix 'which'
-viuer = "0.5.1" # For viewing images across different terminal protocols
 image = "0.23.14" # For decoding images
-libc = "0.2"
+libc = "0.2" # Obtain terminal width and height in pixels (on Linux)
+tokio = { version = "1", features = ["full"] } # To asynchronously load large images
+base64 = "0.13" # To encode file names for the kitty graphics protocol
+tempfile = "3.2" # To store image data in temporary files for kitty
 
 # All dependencies (but not this crate itself or any workspace member)
 # will be compiled with -Copt-level=3 . This includes build dependencies.
