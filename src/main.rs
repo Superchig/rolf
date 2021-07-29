@@ -257,7 +257,9 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                         second_starting_index,
                     )?;
                 } else if selected_file_type.is_file() {
-                    open::that(selected_entry.path())?;
+                    // Should we display some sort of error message according to the exit status
+                    // here?
+                    open::that_in_background(selected_entry.path());
                 }
             }
 
