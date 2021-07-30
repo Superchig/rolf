@@ -965,8 +965,6 @@ async fn preview_image(
     let rgba = img.to_rgba8();
     let raw_img = rgba.as_raw();
 
-    // FIXME(Chris): Fix bug in which the "Loading..." message gets overridden by a previous task
-
     // This scope exists to eventually unlock the mutex
     {
         let can_display_image = can_display_image.lock().unwrap();
