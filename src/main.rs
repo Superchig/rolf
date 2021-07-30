@@ -732,6 +732,17 @@ fn queue_third_column(
                             "png" | "jpg" | "jpeg" => {
                                 let can_display_image = Arc::new(Mutex::new(true));
 
+                                queue!(
+                                    w,
+                                    style::SetAttribute(Attribute::Reset),
+                                    style::SetAttribute(Attribute::Reverse),
+                                    cursor::MoveTo(left_x, 1),
+                                    style::Print("Loading..."),
+                                    style::SetAttribute(Attribute::Reset),
+                                )?;
+
+                                w.flush()?;
+
                                 let preview_image_handle = runtime.spawn(preview_image(
                                     win_pixels.clone(),
                                     third_file.clone(),
@@ -825,22 +836,6 @@ async fn preview_image(
     left_x: u16,
     can_display_image: Arc<Mutex<bool>>,
 ) -> crossterm::Result<()> {
-    {
-        let stdout = io::stdout();
-        let mut w = stdout.lock();
-
-        queue!(
-            w,
-            style::SetAttribute(Attribute::Reset),
-            style::SetAttribute(Attribute::Reverse),
-            cursor::MoveTo(left_x, 1),
-            style::Print("Loading..."),
-            style::SetAttribute(Attribute::Reset),
-        )?;
-
-        w.flush()?;
-    }
-
     let win_px_width = win_pixels.width;
     let win_px_height = win_pixels.height;
 
