@@ -12,7 +12,7 @@ open = "1.7.0" # Cross-platform file opener
 which = "4.1.0" # Cross-platform equivalent of Unix 'which'
 image = "0.23.14" # For decoding images
 libc = "0.2" # Obtain terminal width and height in pixels (on Linux)
-tokio = { version = "1", features = ["full"] } # To asynchronously load large images
+tokio = { version = "1", features = ["rt-multi-thread"] } # To asynchronously load large images
 base64 = "0.13" # To encode file names for the kitty graphics protocol
 tempfile = "3.2" # To store image data in temporary files for kitty
 
