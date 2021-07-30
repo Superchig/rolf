@@ -38,7 +38,13 @@ fn main() -> crossterm::Result<()> {
 
     terminal::enable_raw_mode()?;
 
-    queue!(w, terminal::EnterAlternateScreen)?;
+    queue!(
+        w,
+        terminal::EnterAlternateScreen,
+        style::ResetColor,
+        terminal::Clear(ClearType::All),
+        cursor::Hide,
+    )?;
 
     let result = run(&mut w);
 
@@ -105,14 +111,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
     let mut second_starting_index = 0;
 
     let mut left_paths: HashMap<std::path::PathBuf, DirLocation> = HashMap::new();
-
-    // TODO(Chris): Move these queue! calls into the main function
-    queue!(
-        w,
-        style::ResetColor,
-        terminal::Clear(ClearType::All),
-        cursor::Hide,
-    )?;
 
     let mut win_pixels = get_win_pixels()?;
     // Main input loop
