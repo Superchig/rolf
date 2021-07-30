@@ -825,12 +825,6 @@ async fn preview_image(
     left_x: u16,
     can_display_image: Arc<Mutex<bool>>,
 ) -> crossterm::Result<()> {
-    // TODO(Chris): Load and display images asynchronously to allow more
-    // input while scrolling through images
-    // TODO(Chris): Improve the image quality of previews
-    // TODO(Chris): Eliminate resizing artifacts when images fit within
-    // the third column
-
     {
         let stdout = io::stdout();
         let mut w = stdout.lock();
