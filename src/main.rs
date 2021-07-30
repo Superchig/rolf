@@ -947,6 +947,8 @@ async fn preview_image(
     // because columns stop at the penultimate row
     let third_column_height = (height - 2) as u32;
 
+    // TODO(Chris): Use a less zany algorithm to scale the images
+
     // Scale the image down to fit the width, if necessary
     if (left_x as u32) + img_cells_width >= (width as u32) {
         img_cells_width = (width - left_x - 2) as u32;
