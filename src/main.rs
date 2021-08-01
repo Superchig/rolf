@@ -20,6 +20,12 @@ use std::vec::Vec;
 
 use image::GenericImageView;
 
+use ffmpeg::format::{input, Pixel};
+use ffmpeg::media::Type;
+use ffmpeg::software::scaling::{context::Context, flag::Flags};
+use ffmpeg::util::frame::video::Video;
+use ffmpeg_next as ffmpeg;
+
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
@@ -727,7 +733,7 @@ fn queue_third_column(
                         let ext = ext.as_str();
 
                         match ext {
-                            "png" | "jpg" | "jpeg" => {
+                            "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
                                 let can_display_image = Arc::new(Mutex::new(true));
 
                                 queue!(
@@ -837,9 +843,70 @@ async fn preview_image(
     let win_px_width = win_pixels.width;
     let win_px_height = win_pixels.height;
 
-    // TODO(Chris): Look into using libjpeg-turbo (https://github.com/ImageOptim/mozjpeg-rust)
-    // to decode large jpegs faster
-    let mut img = image::io::Reader::open(&third_file)?.decode().unwrap();
+    let mut img = match ext.as_str() {
+        "mp4" | "webm" | "mkv" => {
+            // Use ffmpeg to get a video thumbnail
+            ffmpeg::init().unwrap();
+
+            let mut img = None;
+
+            if let Ok(mut ictx) = input(&third_file) {
+                let input = ictx
+                    .streams()
+                    .best(Type::Video)
+                    .ok_or(ffmpeg::Error::StreamNotFound)?;
+                let video_stream_index = input.index();
+
+                let mut decoder = input.codec().decoder().video()?;
+
+                let mut scaler = Context::get(
+                    decoder.format(),
+                    decoder.width(),
+                    decoder.height(),
+                    Pixel::RGB24,
+                    decoder.width(),
+                    decoder.height(),
+                    Flags::BILINEAR,
+                )?;
+
+                let mut frame_index = 0;
+
+                let target_frame_index = input.frames() / 100;
+
+                for (stream, packet) in ictx.packets() {
+                    if stream.index() == video_stream_index {
+                        decoder.send_packet(&packet)?;
+
+                        if let Some(frame) = receive_and_extract_decoded_frame(
+                            &mut decoder,
+                            &mut frame_index,
+                            &mut scaler,
+                        )? {
+                            // Break on the given frame. Without this, we would decode all frames
+                            if frame_index >= target_frame_index {
+                                let mut ppm_data = vec![];
+                                write!(ppm_data, "P6\n{} {}\n255\n", frame.width(), frame.height())
+                                    .unwrap();
+                                ppm_data.write_all(frame.data(0)).unwrap();
+
+                                let pnm_decoder =
+                                    image::pnm::PnmDecoder::new(&ppm_data[..]).unwrap();
+
+                                img = Some(image::DynamicImage::from_decoder(pnm_decoder).unwrap());
+
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            img.unwrap()
+        }
+        // TODO(Chris): Look into using libjpeg-turbo (https://github.com/ImageOptim/mozjpeg-rust)
+        // to decode large jpegs faster
+        _ => image::io::Reader::open(&third_file)?.decode().unwrap(),
+    };
 
     // NOTE(Chris): sxiv only rotates jpgs somewhat-correctly, but Eye of
     // Gnome (eog) rotates them correctly
@@ -1004,6 +1071,23 @@ async fn preview_image(
     w.flush()?;
 
     Ok(())
+}
+
+fn receive_and_extract_decoded_frame(
+    decoder: &mut ffmpeg::decoder::Video,
+    frame_index: &mut i64,
+    scaler: &mut Context,
+) -> Result<Option<Video>, ffmpeg::Error> {
+    let mut decoded = Video::empty();
+    let mut output_frame = None;
+    while decoder.receive_frame(&mut decoded).is_ok() {
+        let mut rgb_frame = Video::empty();
+        scaler.run(&decoded, &mut rgb_frame)?;
+        *frame_index += 1;
+
+        output_frame = Some(rgb_frame);
+    }
+    Ok(output_frame)
 }
 
 fn abort_image_handles(image_handles: &mut Vec<ImageHandle>) {
