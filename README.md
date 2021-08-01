@@ -23,7 +23,8 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 - [ ] Implement command-line
 - [x] EXPERIMENTAL: Display image previews on kitty
   - [x] Display images asynchronously
-  - [ ] Show image thumbnail for videos
+  - [x] Show image thumbnail for videos
+  - [ ] Make ffmpeg an optional dependency
 - [ ] Make symlinks actually usable
 - [x] Fix compiler warnings on latest version of Rust stable
 
@@ -33,4 +34,3 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 - [x] Use the kitty protocol (and possibly other terminal image protocols)
       directly for image previews
 - [ ] Make the file manager way faster
-- [ ] Ignore obsolete image preview tasks rather than wait for them to end
