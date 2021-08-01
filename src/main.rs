@@ -934,8 +934,6 @@ async fn preview_image(
     // because columns stop at the penultimate row
     let third_column_height = (height - 2) as u32;
 
-    // TODO(Chris): Use a less zany algorithm to scale the images
-
     // Scale the image down to fit the width, if necessary
     if (left_x as u32) + img_cells_width >= (width as u32) {
         img_cells_width = (width - left_x - 2) as u32;
@@ -945,7 +943,8 @@ async fn preview_image(
     // necessary
     let new_cells_height = img_cells_height / (orig_img_cells_width / img_cells_width);
     if new_cells_height > third_column_height {
-        let display_cells_height = new_cells_height / 2;
+        // Subtract 1 for top info line and another 1 for bottom info line
+        let display_cells_height = (height - 2) as u32;
         img_cells_width = orig_img_cells_width / (img_cells_height / display_cells_height);
         img_cells_height = display_cells_height;
     }
