@@ -88,6 +88,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
 
     available_execs.insert("highlight", which("highlight").unwrap());
 
+    available_execs.insert("ffmpeg", which("ffmpeg").unwrap());
+
     let home_path = Path::new(&home_name[..]);
 
     // NOTE(Chris): The default column ratio is 1:2:3
