@@ -20,12 +20,6 @@ use std::vec::Vec;
 
 use image::GenericImageView;
 
-use ffmpeg::format::{input, Pixel};
-use ffmpeg::media::Type;
-use ffmpeg::software::scaling::{context::Context, flag::Flags};
-use ffmpeg::util::frame::video::Video;
-use ffmpeg_next as ffmpeg;
-
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
@@ -845,63 +839,45 @@ async fn preview_image(
 
     let mut img = match ext.as_str() {
         "mp4" | "webm" | "mkv" => {
-            // Use ffmpeg to get a video thumbnail
-            ffmpeg::init().unwrap();
+            let input = third_file.to_str().unwrap();
 
-            let mut img = None;
+            let ffprobe_output = Command::new("ffprobe")
+                .args(&[
+                    "-loglevel",
+                    "error",
+                    "-of",
+                    "csv=p=0",
+                    "-show_entries",
+                    "format=duration",
+                    &input,
+                ])
+                .output()
+                .unwrap();
 
-            if let Ok(mut ictx) = input(&third_file) {
-                let input = ictx
-                    .streams()
-                    .best(Type::Video)
-                    .ok_or(ffmpeg::Error::StreamNotFound)?;
-                let video_stream_index = input.index();
+            let ffprobe_stdout = std::str::from_utf8(&ffprobe_output.stdout).unwrap().trim();
 
-                let mut decoder = input.codec().decoder().video()?;
+            // Truncate the decimal portion
+            let video_duration = ffprobe_stdout.parse::<f64>().unwrap() as i64;
 
-                let mut scaler = Context::get(
-                    decoder.format(),
-                    decoder.width(),
-                    decoder.height(),
-                    Pixel::RGB24,
-                    decoder.width(),
-                    decoder.height(),
-                    Flags::BILINEAR,
-                )?;
+            let ffmpeg_output = Command::new("ffmpeg")
+                .args(&[
+                    "-ss",
+                    &format!("{}", video_duration / 2),
+                    "-i",
+                    &input,
+                    "-frames:v",
+                    "1",
+                    "-c:v",
+                    "ppm",
+                    "-f",
+                    "image2pipe",
+                    "pipe:1",
+                ])
+                .output()
+                .unwrap();
 
-                let mut frame_index = 0;
-
-                let target_frame_index = input.frames() / 100;
-
-                for (stream, packet) in ictx.packets() {
-                    if stream.index() == video_stream_index {
-                        decoder.send_packet(&packet)?;
-
-                        if let Some(frame) = receive_and_extract_decoded_frame(
-                            &mut decoder,
-                            &mut frame_index,
-                            &mut scaler,
-                        )? {
-                            // Break on the given frame. Without this, we would decode all frames
-                            if frame_index >= target_frame_index {
-                                let mut ppm_data = vec![];
-                                write!(ppm_data, "P6\n{} {}\n255\n", frame.width(), frame.height())
-                                    .unwrap();
-                                ppm_data.write_all(frame.data(0)).unwrap();
-
-                                let pnm_decoder =
-                                    image::pnm::PnmDecoder::new(&ppm_data[..]).unwrap();
-
-                                img = Some(image::DynamicImage::from_decoder(pnm_decoder).unwrap());
-
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            img.unwrap()
+            let decoder = image::pnm::PnmDecoder::new(&ffmpeg_output.stdout[..]).unwrap();
+            image::DynamicImage::from_decoder(decoder).unwrap()
         }
         // TODO(Chris): Look into using libjpeg-turbo (https://github.com/ImageOptim/mozjpeg-rust)
         // to decode large jpegs faster
@@ -1071,23 +1047,6 @@ async fn preview_image(
     w.flush()?;
 
     Ok(())
-}
-
-fn receive_and_extract_decoded_frame(
-    decoder: &mut ffmpeg::decoder::Video,
-    frame_index: &mut i64,
-    scaler: &mut Context,
-) -> Result<Option<Video>, ffmpeg::Error> {
-    let mut decoded = Video::empty();
-    let mut output_frame = None;
-    while decoder.receive_frame(&mut decoded).is_ok() {
-        let mut rgb_frame = Video::empty();
-        scaler.run(&decoded, &mut rgb_frame)?;
-        *frame_index += 1;
-
-        output_frame = Some(rgb_frame);
-    }
-    Ok(output_frame)
 }
 
 fn abort_image_handles(image_handles: &mut Vec<ImageHandle>) {

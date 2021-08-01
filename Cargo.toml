@@ -15,7 +15,6 @@ libc = "0.2" # Obtain terminal width and height in pixels (on Linux)
 tokio = { version = "1", features = ["rt-multi-thread"] } # To asynchronously load large images
 base64 = "0.13" # To encode file names for the kitty graphics protocol
 tempfile = "3.2" # To store image data in temporary files for kitty
-ffmpeg-next = "4.4" # To obtain video thumbnails for previews
 
 # All dependencies (but not this crate itself or any workspace member)
 # will be compiled with -Copt-level=3 . This includes build dependencies.
