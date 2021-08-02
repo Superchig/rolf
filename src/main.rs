@@ -743,7 +743,7 @@ fn queue_third_column(
 
                                 w.flush()?;
 
-                                let preview_image_handle = runtime.spawn(preview_image(
+                                let preview_image_handle = runtime.spawn(preview_image_or_video(
                                     win_pixels.clone(),
                                     third_file.clone(),
                                     ext.to_string(),
@@ -827,7 +827,7 @@ fn queue_third_column(
     Ok(())
 }
 
-async fn preview_image(
+async fn preview_image_or_video(
     win_pixels: WindowPixels,
     third_file: PathBuf,
     ext: String,
