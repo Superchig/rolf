@@ -11,7 +11,7 @@ use which::which;
 
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
-use std::fs::DirEntry;
+use std::fs::{DirEntry, Metadata};
 use std::io::{self, StdoutLock, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -126,7 +126,9 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
         let file_stem = if dir_states.current_entries.len() <= 0 {
             ""
         } else {
-            curr_entry = dir_states.current_entries[second_entry_index as usize].file_name();
+            curr_entry = dir_states.current_entries[second_entry_index as usize]
+                .dir_entry
+                .file_name();
             curr_entry.to_str().unwrap()
         };
 
@@ -196,7 +198,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                     second_display_offset,
                 );
 
-                let selected_entry = &dir_states.current_entries[second_entry_index as usize];
+                let selected_entry =
+                    &dir_states.current_entries[second_entry_index as usize].dir_entry;
 
                 let selected_file_type = selected_entry.file_type().unwrap();
 
@@ -212,7 +215,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                             let curr_entry_index = dir_states
                                 .current_entries
                                 .iter()
-                                .position(|entry| entry.path() == *dir_location.dir_path);
+                                .position(|entry| entry.dir_entry.path() == *dir_location.dir_path);
 
                             match curr_entry_index {
                                 Some(curr_entry_index) => {
@@ -440,6 +443,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                         "{} {}",
                                         editor,
                                         selected_entry
+                                            .dir_entry
                                             .path()
                                             .to_str()
                                             .expect("Failed to convert path to string")
@@ -654,7 +658,7 @@ fn queue_second_column(
     width: u16,
     column_bot_y: u16,
     // dir_states: &DirStates,
-    entries: &Vec<DirEntry>,
+    entries: &Vec<DirEntryInfo>,
     second_display_offset: u16,
     second_starting_index: u16,
 ) -> crossterm::Result<()> {
@@ -693,12 +697,12 @@ fn queue_third_column(
     } else {
         let display_entry = &dir_states.current_entries[change_index];
 
-        let file_type = display_entry.file_type().unwrap();
+        let file_type = display_entry.dir_entry.file_type().unwrap();
 
         if file_type.is_dir() {
             w.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
 
-            let third_dir = display_entry.path();
+            let third_dir = display_entry.dir_entry.path();
             let third_entries = get_sorted_entries(&third_dir);
 
             let (display_offset, starting_index) = match left_paths.get(&third_dir) {
@@ -718,7 +722,7 @@ fn queue_third_column(
         } else if file_type.is_file() {
             queue_blank_column(&mut w, left_x, right_x, column_height)?;
 
-            let third_file = display_entry.path();
+            let third_file = display_entry.dir_entry.path();
 
             // FIXME(Chris): Reduce at least the incremental debug build times
 
@@ -1108,7 +1112,7 @@ fn find_correct_location(
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     column_height: u16,
     parent_dir: &std::path::PathBuf,
-    parent_entries: &Vec<DirEntry>,
+    parent_entries: &Vec<DirEntryInfo>,
     dir: &std::path::PathBuf,
 ) -> (u16, u16) {
     return match left_paths.get(parent_dir) {
@@ -1118,7 +1122,7 @@ fn find_correct_location(
 
             let parent_entry_index = parent_entries
                 .iter()
-                .position(|entry| entry.path() == *dir)
+                .position(|entry| entry.dir_entry.path() == *dir)
                 .unwrap();
 
             if parent_entry_index <= first_bottom_index as usize {
@@ -1143,24 +1147,23 @@ struct DirLocation {
 #[derive(Debug)]
 struct DirStates {
     current_dir: std::path::PathBuf,
-    current_entries: Vec<DirEntry>,
+    current_entries: Vec<DirEntryInfo>,
     prev_dir: std::path::PathBuf,
-    prev_entries: Vec<DirEntry>,
+    prev_entries: Vec<DirEntryInfo>,
 }
 
 impl DirStates {
     fn new() -> crossterm::Result<DirStates> {
         let current_dir = std::env::current_dir()?;
 
-        let entries = get_sorted_entries(&current_dir);
-
+        let entries_info = get_sorted_entries(&current_dir);
         let prev_dir = current_dir.parent().unwrap().to_path_buf();
 
         let prev_entries = get_sorted_entries(&prev_dir);
 
         Ok(DirStates {
             current_dir,
-            current_entries: entries,
+            current_entries: entries_info,
             prev_dir,
             prev_entries,
         })
@@ -1180,6 +1183,16 @@ impl DirStates {
 
         Ok(())
     }
+}
+
+#[derive(Debug)]
+struct DirEntryInfo {
+    dir_entry: DirEntry,
+    metadata: Metadata,
+}
+
+fn cmp_dir_entry_info(entry_info_1: &DirEntryInfo, entry_info_2: &DirEntryInfo) -> Ordering {
+    cmp_dir_entry(&entry_info_1.dir_entry, &entry_info_2.dir_entry)
 }
 
 // Sorts std::fs::DirEntry by file type first (with directory coming before files),
@@ -1235,7 +1248,9 @@ fn save_location(
     left_paths.insert(
         dir_states.current_dir.clone(),
         DirLocation {
-            dir_path: dir_states.current_entries[second_entry_index as usize].path(),
+            dir_path: dir_states.current_entries[second_entry_index as usize]
+                .dir_entry
+                .path(),
             starting_index: second_starting_index,
             display_offset: second_display_offset,
         },
@@ -1247,7 +1262,7 @@ fn update_entries_column(
     left_x: u16,
     right_x: u16,
     column_bot_y: u16,
-    entries: &Vec<DirEntry>,
+    entries: &Vec<DirEntryInfo>,
     old_offset: u16,
     old_start_index: u16,
     new_offset: u16,
@@ -1283,15 +1298,15 @@ fn update_entries_column(
 
 fn queue_full_entry(
     w: &mut io::StdoutLock,
-    entries: &Vec<DirEntry>,
+    entries: &Vec<DirEntryInfo>,
     left_x: u16,
     right_x: u16,
     display_offset: u16,
     starting_index: u16,
 ) -> crossterm::Result<()> {
     let new_entry_index = starting_index + display_offset;
-    let new_entry = &entries[new_entry_index as usize];
-    let new_file_type = std::fs::symlink_metadata(new_entry.path())?.file_type();
+    let new_entry_info = &entries[new_entry_index as usize];
+    let new_file_type = new_entry_info.metadata.file_type();
 
     if new_file_type.is_dir() {
         queue!(
@@ -1315,7 +1330,7 @@ fn queue_full_entry(
         left_x,
         right_x,
         display_offset,
-        new_entry.file_name().to_str().unwrap(),
+        new_entry_info.dir_entry.file_name().to_str().unwrap(),
     )?;
 
     if new_file_type.is_dir() || new_file_type.is_symlink() {
@@ -1330,7 +1345,7 @@ fn queue_entries_column(
     left_x: u16,
     right_x: u16,
     bottom_y: u16,
-    entries: &Vec<DirEntry>,
+    entries: &Vec<DirEntryInfo>,
     offset: u16,
     start_index: u16, // Index to start with in entries
 ) -> crossterm::Result<()> {
@@ -1497,13 +1512,22 @@ fn queue_blank_column(
     Ok(())
 }
 
-fn get_sorted_entries<P: AsRef<Path>>(path: P) -> Vec<DirEntry> {
+// FIXME(Chris): Remove unnecessary symlink_metadata calls some where else
+fn get_sorted_entries<P: AsRef<Path>>(path: P) -> Vec<DirEntryInfo> {
     let mut entries = std::fs::read_dir(path)
         .unwrap()
-        .map(|entry| entry.unwrap())
-        .collect::<std::vec::Vec<std::fs::DirEntry>>();
+        .map(|entry| {
+            let dir_entry = entry.unwrap();
+            let metadata = std::fs::symlink_metadata(dir_entry.path()).unwrap();
 
-    entries.sort_by(cmp_dir_entry);
+            DirEntryInfo {
+                dir_entry,
+                metadata,
+            }
+        })
+        .collect::<Vec<DirEntryInfo>>();
+
+    entries.sort_by(cmp_dir_entry_info);
 
     entries
 }
