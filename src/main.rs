@@ -2,12 +2,14 @@ mod natural_sort; // This declares the existence of the natural_sort module, whi
                   // default for natural_sort.rs or natural_sort/mod.rs
 
 mod tiff;
+mod strmode;
 
 use natural_sort::cmp_natural;
 use tiff::{usizeify, Endian, EntryTag, EntryType, IFDEntry};
 
 use open;
 use which::which;
+use strmode::strmode;
 
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
@@ -17,6 +19,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
+
+use std::os::unix::fs::PermissionsExt;
 
 use image::GenericImageView;
 
@@ -373,6 +377,25 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                         column_height,
                                         column_bot_y,
                                         (second_starting_index + second_display_offset) as usize,
+                                    )?;
+
+                                    let updated_curr_entry = &dir_states.current_entries
+                                        [second_entry_index as usize]
+                                        .dir_entry
+                                        .file_name();
+                                    let updated_curr_entry = updated_curr_entry.to_str().unwrap();
+
+                                    let permissions = &dir_states.current_entries[second_entry_index as usize]
+                                        .metadata.permissions();
+
+                                    queue!(
+                                        stdout_lock,
+                                        style::SetAttribute(Attribute::Reset),
+                                        cursor::MoveTo(0, height - 1),
+                                        terminal::Clear(ClearType::CurrentLine),
+                                        style::Print(updated_curr_entry),
+                                        style::Print(" "),
+                                        style::Print(strmode(permissions.mode())),
                                     )?;
                                 }
                             }
@@ -1185,6 +1208,8 @@ impl DirStates {
     }
 }
 
+// FIXME(Chris): Display unix-specific metadata like number of hard links
+// https://doc.rust-lang.org/std/os/unix/fs/trait.MetadataExt.html
 #[derive(Debug)]
 struct DirEntryInfo {
     dir_entry: DirEntry,
