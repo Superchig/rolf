@@ -1,15 +1,18 @@
 mod natural_sort; // This declares the existence of the natural_sort module, which searches by
                   // default for natural_sort.rs or natural_sort/mod.rs
 
-mod tiff;
+mod human_size;
 mod strmode;
+mod tiff;
+mod unix_users;
 
+use human_size::human_size;
 use natural_sort::cmp_natural;
 use tiff::{usizeify, Endian, EntryTag, EntryType, IFDEntry};
 
 use open;
-use which::which;
 use strmode::strmode;
+use which::which;
 
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
@@ -20,6 +23,7 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 
 use image::GenericImageView;
@@ -379,23 +383,39 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                         (second_starting_index + second_display_offset) as usize,
                                     )?;
 
-                                    let updated_curr_entry = &dir_states.current_entries
-                                        [second_entry_index as usize]
-                                        .dir_entry
-                                        .file_name();
-                                    let updated_curr_entry = updated_curr_entry.to_str().unwrap();
+                                    // let updated_curr_entry = &dir_states.current_entries
+                                    //     [second_entry_index as usize]
+                                    //     .dir_entry
+                                    //     .file_name();
+                                    // let updated_curr_entry = updated_curr_entry.to_str().unwrap();
 
-                                    let permissions = &dir_states.current_entries[second_entry_index as usize]
-                                        .metadata.permissions();
+                                    let updated_curr_entry = &dir_states.current_entries
+                                        [(second_entry_index + 1) as usize];
+
+                                    let permissions = &dir_states.current_entries
+                                        [second_entry_index as usize]
+                                        .metadata
+                                        .permissions();
 
                                     queue!(
                                         stdout_lock,
                                         style::SetAttribute(Attribute::Reset),
                                         cursor::MoveTo(0, height - 1),
                                         terminal::Clear(ClearType::CurrentLine),
-                                        style::Print(updated_curr_entry),
-                                        style::Print(" "),
-                                        style::Print(strmode(permissions.mode())),
+                                        style::Print(format!(
+                                            "{} {} {} {} {:4}",
+                                            strmode(permissions.mode()),
+                                            updated_curr_entry.metadata.nlink(),
+                                            unix_users::get_unix_username(
+                                                updated_curr_entry.metadata.uid()
+                                            )
+                                            .unwrap(),
+                                            unix_users::get_unix_groupname(
+                                                updated_curr_entry.metadata.gid()
+                                            )
+                                            .unwrap(),
+                                            human_size(updated_curr_entry.metadata.size()),
+                                        )),
                                     )?;
                                 }
                             }
