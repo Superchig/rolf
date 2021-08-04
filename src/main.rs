@@ -31,6 +31,9 @@ use image::GenericImageView;
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
+use chrono::offset::TimeZone;
+use chrono::prelude::{DateTime, Local, NaiveDateTime};
+
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode},
@@ -397,13 +400,29 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                         .metadata
                                         .permissions();
 
+                                    // FIXME(Chris): Display a readable time string based off of
+                                    // the seconds from the Unix epoch
+                                    // https://stackoverflow.com/questions/50072055/converting-unix-timestamp-to-readable-time-string-in-rust
+
+                                    let naive = NaiveDateTime::from_timestamp(
+                                        updated_curr_entry.metadata.mtime(),
+                                        27, // Apparently 27 leap seconds have passed since 1972
+                                    );
+
+                                    let date_time: DateTime<Local> = DateTime::from_utc(
+                                        naive,
+                                        Local.offset_from_local_datetime(&naive).unwrap(),
+                                    );
+
+                                    let display_date = date_time.format("%a %b %d %H:%M:%S %Y");
+
                                     queue!(
                                         stdout_lock,
                                         style::SetAttribute(Attribute::Reset),
                                         cursor::MoveTo(0, height - 1),
                                         terminal::Clear(ClearType::CurrentLine),
                                         style::Print(format!(
-                                            "{} {} {} {} {:4}",
+                                            "{} {} {} {} {:4} {}",
                                             strmode(permissions.mode()),
                                             updated_curr_entry.metadata.nlink(),
                                             unix_users::get_unix_username(
@@ -415,6 +434,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                             )
                                             .unwrap(),
                                             human_size(updated_curr_entry.metadata.size()),
+                                            display_date,
                                         )),
                                     )?;
                                 }
@@ -1557,7 +1577,6 @@ fn queue_blank_column(
     Ok(())
 }
 
-// FIXME(Chris): Remove unnecessary symlink_metadata calls some where else
 fn get_sorted_entries<P: AsRef<Path>>(path: P) -> Vec<DirEntryInfo> {
     let mut entries = std::fs::read_dir(path)
         .unwrap()
