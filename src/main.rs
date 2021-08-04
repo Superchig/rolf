@@ -392,8 +392,11 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                     //     .file_name();
                                     // let updated_curr_entry = updated_curr_entry.to_str().unwrap();
 
+                                    let updated_second_entry_index =
+                                        second_starting_index + second_display_offset;
+
                                     let updated_curr_entry = &dir_states.current_entries
-                                        [(second_entry_index + 1) as usize];
+                                        [(updated_second_entry_index + 1) as usize];
 
                                     let permissions = &dir_states.current_entries
                                         [second_entry_index as usize]
@@ -433,6 +436,18 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                             human_size(updated_curr_entry.metadata.size()),
                                             display_date,
                                         )),
+                                    )?;
+
+                                    let display_position = format!(
+                                        "{}/{}",
+                                        updated_second_entry_index + 1,
+                                        dir_states.current_entries.len()
+                                    );
+
+                                    queue!(
+                                        stdout_lock,
+                                        cursor::MoveTo(width - (display_position.len() as u16), height - 1),
+                                        style::Print(display_position),
                                     )?;
                                 }
                             }
