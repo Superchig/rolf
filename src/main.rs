@@ -188,6 +188,15 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                     second_starting_index,
                 )?;
 
+                queue_bottom_info_line(
+                    &mut stdout_lock,
+                    width,
+                    height,
+                    second_starting_index,
+                    second_display_offset,
+                    &dir_states,
+                )?;
+
                 is_first_iteration = false;
             }
 
@@ -270,6 +279,15 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                         second_display_offset,
                         second_starting_index,
                     )?;
+
+                    queue_bottom_info_line(
+                        &mut stdout_lock,
+                        width,
+                        height,
+                        second_starting_index,
+                        second_display_offset,
+                        &dir_states,
+                    )?;
                 } else if selected_file_type.is_file() {
                     // Should we display some sort of error message according to the exit status
                     // here?
@@ -336,6 +354,15 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                     second_display_offset,
                                     second_starting_index,
                                 )?;
+
+                                queue_bottom_info_line(
+                                    &mut stdout_lock,
+                                    width,
+                                    height,
+                                    second_starting_index,
+                                    second_display_offset,
+                                    &dir_states,
+                                )?;
                             }
                             'l' => {
                                 enter_entry(&mut stdout_lock)?;
@@ -386,68 +413,13 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                         (second_starting_index + second_display_offset) as usize,
                                     )?;
 
-                                    // let updated_curr_entry = &dir_states.current_entries
-                                    //     [second_entry_index as usize]
-                                    //     .dir_entry
-                                    //     .file_name();
-                                    // let updated_curr_entry = updated_curr_entry.to_str().unwrap();
-
-                                    let updated_second_entry_index =
-                                        second_starting_index + second_display_offset;
-
-                                    let updated_curr_entry = &dir_states.current_entries
-                                        [(updated_second_entry_index + 1) as usize];
-
-                                    let permissions = &dir_states.current_entries
-                                        [second_entry_index as usize]
-                                        .metadata
-                                        .permissions();
-
-                                    let naive = NaiveDateTime::from_timestamp(
-                                        updated_curr_entry.metadata.mtime(),
-                                        27, // Apparently 27 leap seconds have passed since 1972
-                                    );
-
-                                    let date_time: DateTime<Local> = DateTime::from_utc(
-                                        naive,
-                                        Local.offset_from_local_datetime(&naive).unwrap(),
-                                    );
-
-                                    // let display_date = date_time.format("%a %b %d %H:%M:%S %Y");
-                                    let display_date = date_time.format("%c");
-
-                                    queue!(
-                                        stdout_lock,
-                                        style::SetAttribute(Attribute::Reset),
-                                        cursor::MoveTo(0, height - 1),
-                                        terminal::Clear(ClearType::CurrentLine),
-                                        style::Print(format!(
-                                            "{} {} {} {} {:4} {}",
-                                            strmode(permissions.mode()),
-                                            updated_curr_entry.metadata.nlink(),
-                                            unix_users::get_unix_username(
-                                                updated_curr_entry.metadata.uid()
-                                            )
-                                            .unwrap(),
-                                            unix_users::get_unix_groupname(
-                                                updated_curr_entry.metadata.gid()
-                                            )
-                                            .unwrap(),
-                                            human_size(updated_curr_entry.metadata.size()),
-                                            display_date,
-                                        )),
-                                    )?;
-
-                                    let display_position = format!(
-                                        "{}/{}",
-                                        updated_second_entry_index + 1,
-                                        dir_states.current_entries.len()
-                                    );
-
-                                    queue!(
-                                        stdout_lock,
-                                        cursor::MoveTo(width - (display_position.len() as u16), height - 1),
-                                        style::Print(display_position),
+                                    queue_bottom_info_line(
+                                        &mut stdout_lock,
+                                        width,
+                                        height,
+                                        second_starting_index,
+                                        second_display_offset,
+                                        &dir_states,
                                     )?;
                                 }
                             }
@@ -493,6 +465,15 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                         (second_starting_index + second_display_offset) as usize,
                                     )?;
                                 }
+
+                                queue_bottom_info_line(
+                                    &mut stdout_lock,
+                                    width,
+                                    height,
+                                    second_starting_index,
+                                    second_display_offset,
+                                    &dir_states,
+                                )?;
                             }
                             'e' => {
                                 let editor = match std::env::var("VISUAL") {
@@ -592,6 +573,68 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+fn queue_bottom_info_line(
+    stdout_lock: &mut StdoutLock,
+    width: u16,
+    height: u16,
+    second_starting_index: u16,
+    second_display_offset: u16,
+    dir_states: &DirStates,
+) -> crossterm::Result<()> {
+    if dir_states.current_entries.len() <= 0 {
+        return Ok(());
+    }
+
+    let updated_second_entry_index = second_starting_index + second_display_offset;
+
+    let updated_curr_entry = &dir_states.current_entries[(updated_second_entry_index) as usize];
+
+    let permissions = &dir_states.current_entries[updated_second_entry_index as usize]
+        .metadata
+        .permissions();
+
+    let naive = NaiveDateTime::from_timestamp(
+        updated_curr_entry.metadata.mtime(),
+        27, // Apparently 27 leap seconds have passed since 1972
+    );
+
+    let date_time: DateTime<Local> =
+        DateTime::from_utc(naive, Local.offset_from_local_datetime(&naive).unwrap());
+
+    // let display_date = date_time.format("%a %b %d %H:%M:%S %Y");
+    let display_date = date_time.format("%c");
+
+    queue!(
+        stdout_lock,
+        style::SetAttribute(Attribute::Reset),
+        cursor::MoveTo(0, height - 1),
+        terminal::Clear(ClearType::CurrentLine),
+        style::Print(format!(
+            "{} {} {} {} {:4} {}",
+            strmode(permissions.mode()),
+            updated_curr_entry.metadata.nlink(),
+            unix_users::get_unix_username(updated_curr_entry.metadata.uid()).unwrap(),
+            unix_users::get_unix_groupname(updated_curr_entry.metadata.gid()).unwrap(),
+            human_size(updated_curr_entry.metadata.size()),
+            display_date,
+        )),
+    )?;
+
+    let display_position = format!(
+        "{}/{}",
+        updated_second_entry_index + 1,
+        dir_states.current_entries.len()
+    );
+
+    queue!(
+        stdout_lock,
+        cursor::MoveTo(width - (display_position.len() as u16), height - 1),
+        style::Print(display_position),
+    )?;
 
     Ok(())
 }
