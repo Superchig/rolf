@@ -188,15 +188,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                     second_starting_index,
                 )?;
 
-                queue_bottom_info_line(
-                    &mut stdout_lock,
-                    width,
-                    height,
-                    second_starting_index,
-                    second_display_offset,
-                    &dir_states,
-                )?;
-
                 is_first_iteration = false;
             }
 
@@ -279,15 +270,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                         second_display_offset,
                         second_starting_index,
                     )?;
-
-                    queue_bottom_info_line(
-                        &mut stdout_lock,
-                        width,
-                        height,
-                        second_starting_index,
-                        second_display_offset,
-                        &dir_states,
-                    )?;
                 } else if selected_file_type.is_file() {
                     // Should we display some sort of error message according to the exit status
                     // here?
@@ -353,15 +335,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                     second_column,
                                     second_display_offset,
                                     second_starting_index,
-                                )?;
-
-                                queue_bottom_info_line(
-                                    &mut stdout_lock,
-                                    width,
-                                    height,
-                                    second_starting_index,
-                                    second_display_offset,
-                                    &dir_states,
                                 )?;
                             }
                             'l' => {
@@ -464,16 +437,16 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                         column_bot_y,
                                         (second_starting_index + second_display_offset) as usize,
                                     )?;
-                                }
 
-                                queue_bottom_info_line(
-                                    &mut stdout_lock,
-                                    width,
-                                    height,
-                                    second_starting_index,
-                                    second_display_offset,
-                                    &dir_states,
-                                )?;
+                                    queue_bottom_info_line(
+                                        &mut stdout_lock,
+                                        width,
+                                        height,
+                                        second_starting_index,
+                                        second_display_offset,
+                                        &dir_states,
+                                    )?;
+                                }
                             }
                             'e' => {
                                 let editor = match std::env::var("VISUAL") {
@@ -735,6 +708,15 @@ fn queue_all_columns(
         column_height,
         column_bot_y,
         (second_starting_index + second_display_offset) as usize,
+    )?;
+
+    queue_bottom_info_line(
+        &mut w,
+        width,
+        height,
+        second_starting_index,
+        second_display_offset,
+        &dir_states,
     )?;
 
     Ok(())
