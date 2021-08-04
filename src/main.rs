@@ -400,10 +400,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                         .metadata
                                         .permissions();
 
-                                    // FIXME(Chris): Display a readable time string based off of
-                                    // the seconds from the Unix epoch
-                                    // https://stackoverflow.com/questions/50072055/converting-unix-timestamp-to-readable-time-string-in-rust
-
                                     let naive = NaiveDateTime::from_timestamp(
                                         updated_curr_entry.metadata.mtime(),
                                         27, // Apparently 27 leap seconds have passed since 1972
@@ -414,7 +410,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
                                         Local.offset_from_local_datetime(&naive).unwrap(),
                                     );
 
-                                    let display_date = date_time.format("%a %b %d %H:%M:%S %Y");
+                                    // let display_date = date_time.format("%a %b %d %H:%M:%S %Y");
+                                    let display_date = date_time.format("%c");
 
                                     queue!(
                                         stdout_lock,
