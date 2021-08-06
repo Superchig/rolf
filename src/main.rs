@@ -587,7 +587,7 @@ fn queue_bottom_info_line(
         cursor::MoveTo(0, height - 1),
         terminal::Clear(ClearType::CurrentLine),
         style::Print(format!(
-            "{} {} {} {} {:4} {}",
+            "{} {:2} {} {} {:4} {}",
             strmode(permissions.mode()),
             updated_curr_entry.metadata.nlink(),
             unix_users::get_unix_username(updated_curr_entry.metadata.uid()).unwrap(),
@@ -1093,34 +1093,52 @@ async fn preview_image_or_video(
     let mut img_cells_width = img_width * (width as u32) / (win_px_width as u32);
     let mut img_cells_height = img_height * (height as u32) / (win_px_height as u32);
 
+    // eprintln!(
+    //     "beginning - img_cells_width: {:3}, img_cells_height: {:3}",
+    //     img_cells_width, img_cells_height
+    // );
+
     let orig_img_cells_width = img_cells_width;
+    let orig_img_cells_height = img_cells_height;
 
     // let third_column_width = width - left_x - 2;
 
+    let third_column_width = (width - left_x - 2) as u32;
     // Subtract 1 because columns start at y = 1, subtract 1 again
     // because columns stop at the penultimate row
     let third_column_height = (height - 2) as u32;
 
+    // eprintln!(
+    //     "               column_width: {:3},    column_height: {:3}",
+    //     third_column_width, third_column_height
+    // );
+
     // Scale the image down to fit the width, if necessary
-    if (left_x as u32) + img_cells_width >= (width as u32) {
-        img_cells_width = (width - left_x - 2) as u32;
+    if img_cells_width > third_column_width {
+        img_cells_width = third_column_width;
     }
 
     // Scale the image even further down to fit the height, if
     // necessary
-    let new_cells_height = img_cells_height / (orig_img_cells_width / img_cells_width);
-    if new_cells_height > third_column_height {
-        // Subtract 1 for top info line and another 1 for bottom info line
-        let display_cells_height = (height - 2) as u32;
-        img_cells_width = orig_img_cells_width / (img_cells_height / display_cells_height);
-        img_cells_height = display_cells_height;
+    if img_cells_height > third_column_height {
+        img_cells_height = third_column_height;
     }
 
     if orig_img_cells_width != img_cells_width {
         let display_width_px = img_cells_width * (win_px_width as u32) / (width as u32);
         let display_height_px = img_cells_height * (win_px_height as u32) / (height as u32);
 
-        img = img.thumbnail(display_width_px, display_height_px);
+        if orig_img_cells_width > third_column_width * 3
+            || orig_img_cells_height > third_column_height * 3
+        {
+            img = img.thumbnail(display_width_px, display_height_px);
+        } else {
+            img = img.resize(
+                display_width_px,
+                display_height_px,
+                image::imageops::FilterType::Triangle,
+            );
+        }
     }
 
     let stdout = io::stdout();
@@ -1128,6 +1146,11 @@ async fn preview_image_or_video(
 
     let rgba = img.to_rgba8();
     let raw_img = rgba.as_raw();
+
+    // eprintln!(
+    //     "   ending - img_cells_width: {:3}, img_cells_height: {:3}",
+    //     img_cells_width, img_cells_height
+    // );
 
     // This scope exists to eventually unlock the mutex
     {
