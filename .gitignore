@@ -16,3 +16,5 @@ two_images_loaded.svg
 .0_images/
 .0_videos/
 .demo_images/
+
+.cargo/config
