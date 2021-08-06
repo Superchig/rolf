@@ -730,23 +730,26 @@ fn queue_first_column(
     column_height: u16,
     column_bot_y: u16,
 ) -> crossterm::Result<()> {
-    let (display_offset, starting_index) = find_correct_location(
-        &left_paths,
-        column_height,
-        &dir_states.prev_dir,
-        &dir_states.prev_entries,
-        &dir_states.current_dir,
-    );
-    queue_entries_column(
-        &mut w,
-        1,
-        width / 6 - 2,
-        column_bot_y,
-        &dir_states.prev_entries,
-        display_offset,
-        starting_index,
-    )?;
-
+    if let Some(prev_dir) = &dir_states.prev_dir {
+        let (display_offset, starting_index) = find_correct_location(
+            &left_paths,
+            column_height,
+            prev_dir,
+            &dir_states.prev_entries,
+            &dir_states.current_dir,
+        );
+        queue_entries_column(
+            &mut w,
+            1,
+            width / 6 - 2,
+            column_bot_y,
+            &dir_states.prev_entries,
+            display_offset,
+            starting_index,
+        )?;
+    } else {
+        queue_oneline_column(&mut w, 1, width / 6 - 2, column_bot_y, "")?;
+    }
     Ok(())
 }
 
@@ -803,22 +806,37 @@ fn queue_third_column(
             w.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
 
             let third_dir = display_entry.dir_entry.path();
-            let third_entries = get_sorted_entries(&third_dir);
 
-            let (display_offset, starting_index) = match left_paths.get(&third_dir) {
-                Some(dir_location) => (dir_location.display_offset, dir_location.starting_index),
-                None => (0, 0),
-            };
+            match get_sorted_entries(&third_dir) {
+                Ok(third_entries) => {
+                    let (display_offset, starting_index) = match left_paths.get(&third_dir) {
+                        Some(dir_location) => {
+                            (dir_location.display_offset, dir_location.starting_index)
+                        }
+                        None => (0, 0),
+                    };
 
-            queue_entries_column(
-                &mut w,
-                width / 2 + 1,
-                width - 2,
-                column_bot_y,
-                &third_entries,
-                display_offset,
-                starting_index,
-            )?;
+                    queue_entries_column(
+                        &mut w,
+                        width / 2 + 1,
+                        width - 2,
+                        column_bot_y,
+                        &third_entries,
+                        display_offset,
+                        starting_index,
+                    )?;
+                }
+                Err(err) => {
+                    let message = match err.kind() {
+                        io::ErrorKind::PermissionDenied => String::from("permission denied"),
+                        _ => {
+                            format!("error reading: {}", err)
+                        }
+                    };
+
+                    queue_oneline_column(&mut w, left_x, right_x, column_bot_y, &message)?;
+                }
+            }
         } else if file_type.is_file() {
             queue_blank_column(&mut w, left_x, right_x, column_height)?;
 
@@ -1184,10 +1202,51 @@ struct WindowPixels {
     height: u16,
 }
 
+// Queues a third column with a single highlighted line
+fn queue_oneline_column(
+    w: &mut StdoutLock,
+    left_x: u16,
+    right_x: u16,
+    column_bot_y: u16,
+    message: &str,
+) -> crossterm::Result<()> {
+    let mut curr_y = 1; // 1 is the starting y for columns
+    let col_width = right_x - left_x + 1;
+
+    queue!(
+        w,
+        cursor::MoveTo(left_x, curr_y),
+        style::SetAttribute(Attribute::Reverse),
+        style::SetForegroundColor(Color::White),
+        style::Print(message),
+        style::SetAttribute(Attribute::NoReverse),
+    )?;
+    queue!(w, cursor::MoveTo(left_x + (message.len() as u16), curr_y))?;
+    for _ in message.len()..(col_width as usize) {
+        queue!(w, style::Print(' '))?;
+    }
+
+    curr_y += 1;
+
+    // Ensure that the bottom of "short buffers" are properly cleared
+    while curr_y <= column_bot_y {
+        queue!(w, cursor::MoveTo(left_x, curr_y))?;
+
+        for _ in 0..col_width {
+            queue!(w, style::Print(' '))?;
+        }
+
+        curr_y += 1;
+    }
+
+    Ok(())
+}
+
 fn format_current_dir(dir_states: &DirStates, home_path: &Path) -> String {
     // TODO(Chris): Handle case when current_dir is '/'
     // NOTE(Chris): This creates a new String, and it'd be nice to avoid making a heap
     // allocation here, but it's probably not worth trying to figure out how to use only a str
+
     if dir_states.current_dir == *home_path {
         String::from("~")
     } else if dir_states.current_dir.starts_with(home_path) {
@@ -1201,6 +1260,8 @@ fn format_current_dir(dir_states: &DirStates, home_path: &Path) -> String {
                 .to_str()
                 .unwrap()
         )
+    } else if let None = dir_states.prev_dir {
+        String::from("")
     } else {
         dir_states.current_dir.to_str().unwrap().to_string()
     }
@@ -1248,7 +1309,7 @@ struct DirLocation {
 struct DirStates {
     current_dir: std::path::PathBuf,
     current_entries: Vec<DirEntryInfo>,
-    prev_dir: std::path::PathBuf,
+    prev_dir: Option<std::path::PathBuf>,
     prev_entries: Vec<DirEntryInfo>,
 }
 
@@ -1256,15 +1317,15 @@ impl DirStates {
     fn new() -> crossterm::Result<DirStates> {
         let current_dir = std::env::current_dir()?;
 
-        let entries_info = get_sorted_entries(&current_dir);
+        let entries_info = get_sorted_entries(&current_dir).unwrap();
         let prev_dir = current_dir.parent().unwrap().to_path_buf();
 
-        let prev_entries = get_sorted_entries(&prev_dir);
+        let prev_entries = get_sorted_entries(&prev_dir).unwrap();
 
         Ok(DirStates {
             current_dir,
             current_entries: entries_info,
-            prev_dir,
+            prev_dir: Some(prev_dir),
             prev_entries,
         })
     }
@@ -1274,19 +1335,25 @@ impl DirStates {
 
         self.current_dir = std::env::current_dir()?;
 
-        self.current_entries = get_sorted_entries(&self.current_dir);
+        self.current_entries = get_sorted_entries(&self.current_dir).unwrap();
 
-        // TODO(Chris): Handle case where there is no prev_dir (this results in an Option)
-        self.prev_dir = self.current_dir.parent().unwrap().to_path_buf();
-
-        self.prev_entries = get_sorted_entries(&self.prev_dir);
+        let parent_path = self.current_dir.parent();
+        match parent_path {
+            Some(parent_path) => {
+                let parent_path = parent_path.to_path_buf();
+                self.prev_entries = get_sorted_entries(&parent_path).unwrap();
+                self.prev_dir = Some(parent_path);
+            }
+            None => {
+                self.prev_entries = vec![];
+                self.prev_dir = None;
+            }
+        };
 
         Ok(())
     }
 }
 
-// FIXME(Chris): Display unix-specific metadata like number of hard links
-// https://doc.rust-lang.org/std/os/unix/fs/trait.MetadataExt.html
 #[derive(Debug)]
 struct DirEntryInfo {
     dir_entry: DirEntry,
@@ -1614,9 +1681,8 @@ fn queue_blank_column(
     Ok(())
 }
 
-fn get_sorted_entries<P: AsRef<Path>>(path: P) -> Vec<DirEntryInfo> {
-    let mut entries = std::fs::read_dir(path)
-        .unwrap()
+fn get_sorted_entries<P: AsRef<Path>>(path: P) -> io::Result<Vec<DirEntryInfo>> {
+    let mut entries = std::fs::read_dir(path)?
         .map(|entry| {
             let dir_entry = entry.unwrap();
             let metadata = std::fs::symlink_metadata(dir_entry.path()).unwrap();
@@ -1630,5 +1696,5 @@ fn get_sorted_entries<P: AsRef<Path>>(path: P) -> Vec<DirEntryInfo> {
 
     entries.sort_by(cmp_dir_entry_info);
 
-    entries
+    Ok(entries)
 }
