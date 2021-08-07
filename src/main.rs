@@ -47,6 +47,21 @@ type HandlesVec = Vec<ImageHandle>;
 fn main() -> crossterm::Result<()> {
     let mut w = io::stdout();
 
+    let args: Vec<String> = std::env::args().collect();
+
+    let mut last_dir_path = None;
+
+    for (index, arg) in args.iter().enumerate() {
+        if arg == "-last-dir-path" {
+            if args.len() - 1 <= index + 1 {
+                last_dir_path = Some(PathBuf::from(args[index + 1].clone()));
+            } else {
+                // TODO(Chris): Show a better startup error
+                return Err(io::Error::from(io::ErrorKind::InvalidInput));
+            }
+        }
+    }
+
     terminal::enable_raw_mode()?;
 
     queue!(
@@ -70,14 +85,20 @@ fn main() -> crossterm::Result<()> {
     terminal::disable_raw_mode()?;
 
     match result {
-        Ok(_) => println!("Goodbye."),
+        Ok(current_dir) => match last_dir_path {
+            Some(last_dir_path) => {
+                std::fs::write(last_dir_path, current_dir.to_str().unwrap()).unwrap()
+            }
+            None => (),
+        },
         Err(err) => panic!("{}", err),
     }
 
     Ok(())
 }
 
-fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
+// Returns the path to the last dir
+fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     let user_name = match std::env::var("USER") {
         Ok(val) => val,
         Err(e) => panic!("Could not read $USER environment variable: {}", e),
@@ -547,7 +568,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<()> {
         }
     }
 
-    Ok(())
+    Ok(dir_states.current_dir)
 }
 
 fn queue_bottom_info_line(
@@ -841,8 +862,6 @@ fn queue_third_column(
             queue_blank_column(&mut w, left_x, right_x, column_height)?;
 
             let third_file = display_entry.dir_entry.path();
-
-            // FIXME(Chris): Reduce at least the incremental debug build times
 
             match third_file.extension() {
                 Some(os_str_ext) => match os_str_ext.to_str() {
