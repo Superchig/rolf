@@ -531,6 +531,109 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     )?;
                                 }
                             }
+                            'g' => {
+                                if dir_states.current_entries.len() > 0 {
+                                    abort_image_handles(&mut image_handles);
+
+                                    let old_starting_index = second_starting_index;
+                                    let old_display_offset = second_display_offset;
+
+                                    second_starting_index = 0;
+                                    second_display_offset = 0;
+
+                                    update_entries_column(
+                                        &mut stdout_lock,
+                                        second_column,
+                                        width / 2 - 2,
+                                        column_bot_y,
+                                        &dir_states.current_entries,
+                                        old_display_offset,
+                                        old_starting_index,
+                                        second_display_offset,
+                                        second_starting_index,
+                                    )?;
+
+                                    queue_third_column(
+                                        &mut stdout_lock,
+                                        &runtime,
+                                        &mut image_handles,
+                                        &win_pixels,
+                                        &dir_states,
+                                        &left_paths,
+                                        &available_execs,
+                                        width,
+                                        height,
+                                        column_height,
+                                        column_bot_y,
+                                        (second_starting_index + second_display_offset) as usize,
+                                    )?;
+
+                                    queue_bottom_info_line(
+                                        &mut stdout_lock,
+                                        width,
+                                        height,
+                                        second_starting_index,
+                                        second_display_offset,
+                                        &dir_states,
+                                    )?;
+                                }
+                            }
+                            'G' => {
+                                if dir_states.current_entries.len() > 0 {
+                                    abort_image_handles(&mut image_handles);
+
+                                    let old_starting_index = second_starting_index;
+                                    let old_display_offset = second_display_offset;
+
+                                    if dir_states.current_entries.len() <= (column_height as usize)
+                                    {
+                                        second_starting_index = 0;
+                                        second_display_offset =
+                                            dir_states.current_entries.len() as u16 - 1;
+                                    } else {
+                                        second_display_offset = column_height - 1;
+                                        second_starting_index = dir_states.current_entries.len()
+                                            as u16
+                                            - second_display_offset - 1;
+                                    }
+
+                                    update_entries_column(
+                                        &mut stdout_lock,
+                                        second_column,
+                                        width / 2 - 2,
+                                        column_bot_y,
+                                        &dir_states.current_entries,
+                                        old_display_offset,
+                                        old_starting_index,
+                                        second_display_offset,
+                                        second_starting_index,
+                                    )?;
+
+                                    queue_third_column(
+                                        &mut stdout_lock,
+                                        &runtime,
+                                        &mut image_handles,
+                                        &win_pixels,
+                                        &dir_states,
+                                        &left_paths,
+                                        &available_execs,
+                                        width,
+                                        height,
+                                        column_height,
+                                        column_bot_y,
+                                        (second_starting_index + second_display_offset) as usize,
+                                    )?;
+
+                                    queue_bottom_info_line(
+                                        &mut stdout_lock,
+                                        width,
+                                        height,
+                                        second_starting_index,
+                                        second_display_offset,
+                                        &dir_states,
+                                    )?;
+                                }
+                            }
                             _ => (),
                         }
                     }
