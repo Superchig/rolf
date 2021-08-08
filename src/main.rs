@@ -104,12 +104,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
         Err(e) => panic!("Could not read $USER environment variable: {}", e),
     };
 
-    // TODO(Chris): Read the hostname in via POSIX syscalls
-    // https://man7.org/linux/man-pages/man2/gethostname.2.html
-    let host_name = match std::env::var("HOSTNAME") {
-        Ok(val) => val,
-        Err(e) => panic!("Could not read $HOSTNAME environment variable: {}", e),
-    };
+    let host_name = get_hostname().unwrap();
 
     let home_name = match std::env::var("HOME") {
         Ok(val) => val,
@@ -594,7 +589,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         second_display_offset = column_height - 1;
                                         second_starting_index = dir_states.current_entries.len()
                                             as u16
-                                            - second_display_offset - 1;
+                                            - second_display_offset
+                                            - 1;
                                     }
 
                                     update_entries_column(
@@ -740,6 +736,44 @@ fn queue_bottom_info_line(
 struct ImageHandle {
     handle: JoinHandle<crossterm::Result<()>>,
     can_display_image: Arc<Mutex<bool>>,
+}
+
+// Should get the hostname in a POSIX-compliant way.
+// Only tested on Linux, however.
+fn get_hostname() -> io::Result<String> {
+    unsafe {
+        // NOTE(Chris): HOST_NAME_MAX is defined in bits/local_lim.h on Linux
+
+        let host_name_max: usize = libc::sysconf(libc::_SC_HOST_NAME_MAX) as usize;
+
+        // HOST_NAME_MAX can't be larger than 256 on POSIX systems
+        let mut name_buf = [0; 256];
+
+        let err = libc::gethostname(name_buf.as_mut_ptr(), host_name_max);
+        match err {
+            0 => {
+                // Make sure that at least the last character is NUL
+                name_buf[host_name_max - 1] = 0;
+
+                let null_position = name_buf.iter().position(|byte| *byte == 0).unwrap();
+
+                let name_u8 = { &*(&mut name_buf[..] as *mut [i8] as *mut [u8]) };
+
+                Ok(std::str::from_utf8(&name_u8[0..null_position])
+                    .unwrap()
+                    .to_string())
+            }
+            1 => {
+                let errno_location = libc::__errno_location();
+                let errno = (*errno_location) as i32;
+
+                Err(io::Error::from_raw_os_error(errno))
+            }
+            _ => {
+                panic!("Invalid libc:gethostname return value: {}", err);
+            }
+        }
+    }
 }
 
 // A Linux-specific, possibly-safe wrapper around an ioctl call with TIOCGWINSZ.
