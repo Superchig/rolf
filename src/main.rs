@@ -859,9 +859,43 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                         }
                         KeyCode::Backspace => {
                             if cursor_index > 0 {
-                                input_line.remove(cursor_index - 1);
+                                if event.modifiers.contains(KeyModifiers::ALT) {
+                                    let ending_index = cursor_index;
 
-                                cursor_index -= 1;
+                                    let chars: Vec<char> =
+                                        input_line[..cursor_index].chars().collect();
+
+                                    for (index, ch) in chars.iter().enumerate().rev() {
+                                        if !is_word_separator(*ch) {
+                                            cursor_index = index;
+                                            break;
+                                        }
+                                    }
+
+                                    for (index, ch) in
+                                        chars[..cursor_index].iter().enumerate().rev()
+                                    {
+                                        if cursor_index == 0 {
+                                            break;
+                                        }
+
+                                        if is_word_separator(*ch) {
+                                            cursor_index = index + 1;
+                                            break;
+                                        }
+
+                                        if index == 0 {
+                                            cursor_index = 0;
+                                            break;
+                                        }
+                                    }
+
+                                    input_line.replace_range(cursor_index..ending_index, "");
+                                } else {
+                                    input_line.remove(cursor_index - 1);
+
+                                    cursor_index -= 1;
+                                }
                             }
                         }
                         KeyCode::Esc => {
