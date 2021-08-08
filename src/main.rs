@@ -36,7 +36,7 @@ use chrono::prelude::{DateTime, Local, NaiveDateTime};
 
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode},
+    event::{self, Event, KeyCode, KeyModifiers},
     execute, queue,
     style::{self, Attribute, Color},
     terminal::{self, ClearType},
@@ -142,6 +142,9 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     let mut left_paths: HashMap<std::path::PathBuf, DirLocation> = HashMap::new();
 
     let mut win_pixels = get_win_pixels()?;
+
+    let mut should_enter_cmd_line = false;
+
     // Main input loop
     loop {
         // Gather all the data before rendering things with stdout_lock
@@ -630,6 +633,9 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     )?;
                                 }
                             }
+                            ':' => {
+                                should_enter_cmd_line = true;
+                            }
                             _ => (),
                         }
                     }
@@ -638,36 +644,358 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                 },
                 Event::Mouse(_) => (),
                 Event::Resize(_, _) => {
-                    queue!(stdout_lock, terminal::Clear(ClearType::All))?;
-
-                    let (width, height) = terminal::size()?;
-                    let (second_column, column_bot_y, column_height) =
-                        calc_second_column_info(width, height);
-
-                    win_pixels = get_win_pixels()?;
-
-                    queue_all_columns(
+                    redraw_upper(
                         &mut stdout_lock,
+                        &mut win_pixels,
                         &runtime,
                         &mut image_handles,
-                        &win_pixels,
                         &dir_states,
                         &left_paths,
                         &available_execs,
+                        second_starting_index,
+                        second_display_offset,
+                    )?;
+
+                    let (width, height) = terminal::size()?;
+
+                    queue_bottom_info_line(
+                        &mut stdout_lock,
                         width,
                         height,
-                        column_height,
-                        column_bot_y,
-                        second_column,
-                        second_display_offset,
                         second_starting_index,
+                        second_display_offset,
+                        &dir_states,
                     )?;
                 }
+            }
+        }
+
+        // The command line code is activated via a flag so that we aren't stuck with stdout
+        // locked (which would happen if we put this code in the input-handling match statements
+        // above)
+        if should_enter_cmd_line {
+            should_enter_cmd_line = false;
+
+            let mut cursor_index = 0; // Where a new character will next be entered
+
+            let mut input_line = String::new();
+
+            {
+                let mut stdout_lock = w.lock();
+
+                queue!(
+                    &mut stdout_lock,
+                    style::SetAttribute(Attribute::Reset),
+                    cursor::Show,
+                    cursor::MoveTo(0, height - 1),
+                    terminal::Clear(ClearType::CurrentLine),
+                    style::Print(':'),
+                    cursor::MoveTo(1, height - 1),
+                )?;
+
+                stdout_lock.flush()?;
+            }
+
+            // Command line input loop
+            loop {
+                let event = event::read()?;
+
+                let mut stdout_lock = w.lock();
+
+                match event {
+                    Event::Key(event) => match event.code {
+                        KeyCode::Char(ch) => {
+                            if event.modifiers.contains(KeyModifiers::CONTROL) {
+                                match ch {
+                                    'b' => {
+                                        if cursor_index > 0 {
+                                            cursor_index -= 1;
+                                        }
+                                    }
+                                    'f' => {
+                                        if cursor_index < input_line.len() {
+                                            cursor_index += 1;
+                                        }
+                                    }
+                                    'a' => cursor_index = 0,
+                                    'e' => cursor_index = input_line.len(),
+                                    'c' => {
+                                        queue_cmd_line_exit(
+                                            &mut &mut stdout_lock,
+                                            &dir_states,
+                                            width,
+                                            height,
+                                            second_starting_index,
+                                            second_display_offset,
+                                        )?;
+
+                                        break;
+                                    }
+                                    'k' => {
+                                        input_line =
+                                            input_line.chars().take(cursor_index).collect();
+                                    }
+                                    _ => (),
+                                }
+                            } else if event.modifiers.contains(KeyModifiers::ALT) {
+                                match ch {
+                                    'b' => {
+                                        let chars: Vec<char> =
+                                            input_line[..cursor_index].chars().collect();
+
+                                        for (index, ch) in chars.iter().enumerate().rev() {
+                                            if !is_word_separator(*ch) {
+                                                cursor_index = index;
+                                                break;
+                                            }
+                                        }
+
+                                        for (index, ch) in
+                                            chars[..cursor_index].iter().enumerate().rev()
+                                        {
+                                            if cursor_index == 0 {
+                                                break;
+                                            }
+
+                                            if is_word_separator(*ch) {
+                                                cursor_index = index + 1;
+                                                break;
+                                            }
+
+                                            if index == 0 {
+                                                cursor_index = 0;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    'f' => {
+                                        for (idx, ch) in
+                                            input_line[cursor_index..].chars().enumerate()
+                                        {
+                                            let index = cursor_index + idx;
+
+                                            if !is_word_separator(ch) {
+                                                cursor_index = index;
+                                                break;
+                                            }
+                                        }
+
+                                        for (idx, ch) in
+                                            input_line[cursor_index..].chars().enumerate()
+                                        {
+                                            let index = cursor_index + idx;
+
+                                            if index == input_line.len() - 1 {
+                                                cursor_index = input_line.len();
+                                            }
+
+                                            if is_word_separator(ch) {
+                                                cursor_index = index;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    'd' => {
+                                        let starting_index = cursor_index;
+
+                                        let mut ending_index = None;
+
+                                        for (idx, ch) in
+                                            input_line[cursor_index..].chars().enumerate()
+                                        {
+                                            let index = cursor_index + idx;
+
+                                            if !is_word_separator(ch) {
+                                                cursor_index = index;
+                                                break;
+                                            }
+                                        }
+
+                                        for (idx, ch) in
+                                            input_line[cursor_index..].chars().enumerate()
+                                        {
+                                            let index = cursor_index + idx;
+
+                                            if is_word_separator(ch) {
+                                                ending_index = Some(index);
+                                                break;
+                                            }
+
+                                            if index == input_line.len() - 1 {
+                                                ending_index = Some(input_line.len());
+                                            }
+                                        }
+
+                                        if let Some(ending_index) = ending_index {
+                                            input_line
+                                                .replace_range(starting_index..ending_index, "");
+                                        }
+
+                                        // Without this, the cursor may move forwards more than
+                                        // necessary (if it was starting on a word separator)
+                                        let reverse_offset = cursor_index - starting_index;
+                                        cursor_index -= reverse_offset;
+                                    }
+                                    _ => (),
+                                }
+                            } else {
+                                input_line.insert(cursor_index, ch);
+
+                                cursor_index += 1;
+                            }
+                        }
+                        KeyCode::Enter => {
+                            eprintln!("{}", input_line);
+                        }
+                        KeyCode::Left => {
+                            if cursor_index > 0 {
+                                cursor_index -= 1;
+                            }
+                        }
+                        KeyCode::Right => {
+                            if cursor_index < input_line.len() {
+                                cursor_index += 1;
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            if cursor_index > 0 {
+                                input_line.remove(cursor_index - 1);
+
+                                cursor_index -= 1;
+                            }
+                        }
+                        KeyCode::Esc => {
+                            queue_cmd_line_exit(
+                                &mut &mut stdout_lock,
+                                &dir_states,
+                                width,
+                                height,
+                                second_starting_index,
+                                second_display_offset,
+                            )?;
+
+                            break;
+                        }
+                        _ => (),
+                    },
+                    Event::Mouse(_) => (),
+                    Event::Resize(_, _) => {
+                        redraw_upper(
+                            &mut stdout_lock,
+                            &mut win_pixels,
+                            &runtime,
+                            &mut image_handles,
+                            &dir_states,
+                            &left_paths,
+                            &available_execs,
+                            second_starting_index,
+                            second_display_offset,
+                        )?;
+                    }
+                }
+
+                assert!(cursor_index <= input_line.len());
+
+                queue!(
+                    &mut stdout_lock,
+                    cursor::MoveTo(0, height - 1),
+                    terminal::Clear(ClearType::CurrentLine),
+                    style::Print(format!(":{}", input_line)),
+                    cursor::MoveTo((1 + cursor_index) as u16, height - 1),
+                )?;
+
+                stdout_lock.flush()?;
             }
         }
     }
 
     Ok(dir_states.current_dir)
+}
+
+fn is_word_separator(ch: char) -> bool {
+    ch == ' ' || ch == '_'
+}
+
+fn queue_cmd_line_exit(
+    mut stdout_lock: &mut StdoutLock,
+    dir_states: &DirStates,
+    width: u16,
+    height: u16,
+    second_starting_index: u16,
+    second_display_offset: u16,
+) -> crossterm::Result<()> {
+    queue!(
+        stdout_lock,
+        terminal::Clear(ClearType::CurrentLine),
+        cursor::Hide
+    )?;
+
+    queue_bottom_info_line(
+        &mut stdout_lock,
+        width,
+        height,
+        second_starting_index,
+        second_display_offset,
+        &dir_states,
+    )?;
+
+    stdout_lock.flush()?;
+
+    Ok(())
+}
+
+// Redraw everything except the bottom info line.
+fn redraw_upper(
+    mut stdout_lock: &mut StdoutLock,
+    win_pixels: &mut WindowPixels,
+    runtime: &Runtime,
+    mut image_handles: &mut Vec<ImageHandle>,
+    dir_states: &DirStates,
+    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
+    available_execs: &HashMap<&str, std::path::PathBuf>,
+    second_starting_index: u16,
+    second_display_offset: u16,
+) -> crossterm::Result<()> {
+    queue!(stdout_lock, terminal::Clear(ClearType::All))?;
+
+    let (width, height) = terminal::size()?;
+    let (second_column, column_bot_y, column_height) = calc_second_column_info(width, height);
+
+    *win_pixels = get_win_pixels()?;
+
+    queue_first_column(
+        &mut stdout_lock,
+        &dir_states,
+        &left_paths,
+        width,
+        column_height,
+        column_bot_y,
+    )?;
+    queue_second_column(
+        &mut stdout_lock,
+        second_column,
+        width,
+        column_bot_y,
+        &dir_states.current_entries,
+        second_display_offset,
+        second_starting_index,
+    )?;
+    queue_third_column(
+        stdout_lock,
+        &runtime,
+        &mut image_handles,
+        &win_pixels,
+        &dir_states,
+        &left_paths,
+        &available_execs,
+        width,
+        height,
+        column_height,
+        column_bot_y,
+        (second_starting_index + second_display_offset) as usize,
+    )?;
+
+    Ok(())
 }
 
 fn queue_bottom_info_line(
@@ -821,9 +1149,9 @@ fn calc_second_column_info(width: u16, height: u16) -> (u16, u16, u16) {
 }
 
 fn queue_all_columns(
-    mut w: &mut StdoutLock,
+    mut stdout_lock: &mut StdoutLock,
     runtime: &Runtime,
-    mut handles: &mut HandlesVec,
+    mut image_handles: &mut HandlesVec,
     win_pixels: &WindowPixels,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
@@ -837,7 +1165,7 @@ fn queue_all_columns(
     second_starting_index: u16,
 ) -> crossterm::Result<()> {
     queue_first_column(
-        &mut w,
+        &mut stdout_lock,
         &dir_states,
         &left_paths,
         width,
@@ -845,7 +1173,7 @@ fn queue_all_columns(
         column_bot_y,
     )?;
     queue_second_column(
-        &mut w,
+        &mut stdout_lock,
         second_column,
         width,
         column_bot_y,
@@ -854,9 +1182,9 @@ fn queue_all_columns(
         second_starting_index,
     )?;
     queue_third_column(
-        w,
+        stdout_lock,
         &runtime,
-        &mut handles,
+        &mut image_handles,
         &win_pixels,
         &dir_states,
         &left_paths,
@@ -869,7 +1197,7 @@ fn queue_all_columns(
     )?;
 
     queue_bottom_info_line(
-        &mut w,
+        &mut stdout_lock,
         width,
         height,
         second_starting_index,
