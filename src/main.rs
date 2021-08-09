@@ -784,7 +784,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             if cursor_index > 0 {
                                 if event.modifiers.contains(KeyModifiers::ALT) {
                                     let ending_index = cursor_index;
-                                    cursor_index = line_edit::find_prev_word_pos(&input_line, cursor_index);
+                                    cursor_index =
+                                        line_edit::find_prev_word_pos(&input_line, cursor_index);
                                     input_line.replace_range(cursor_index..ending_index, "");
                                 } else {
                                     input_line.remove(cursor_index - 1);
@@ -954,6 +955,81 @@ fn queue_bottom_info_line(
     // let display_date = date_time.format("%a %b %d %H:%M:%S %Y");
     let display_date = date_time.format("%c");
 
+    // if new_file_type.is_dir() {
+    //     queue!(
+    //         w,
+    //         style::SetForegroundColor(Color::DarkBlue),
+    //         style::SetAttribute(Attribute::Bold),
+    //     )?;
+    // } else if new_file_type.is_file() {
+    //     queue!(w, style::SetForegroundColor(Color::White))?;
+    // } else if new_file_type.is_symlink() {
+    //     queue!(
+    //         w,
+    //         style::SetForegroundColor(Color::DarkCyan),
+    //         style::SetAttribute(Attribute::Bold)
+    //     )?;
+    // }
+
+    let colored_mode = {
+        let mut colored_mode = vec![];
+        queue!(colored_mode, style::SetAttribute(Attribute::Bold))?;
+        for (index, byte) in strmode(permissions.mode()).bytes().enumerate() {
+            if index > 3 {
+                queue!(colored_mode, style::SetAttribute(Attribute::Reset))?;
+            }
+
+            match &[byte] {
+                b"d" => {
+                    queue!(colored_mode, style::SetForegroundColor(Color::DarkBlue))?;
+                    colored_mode.push(byte);
+                }
+                b"r" => {
+                    queue!(colored_mode, style::SetForegroundColor(Color::DarkYellow))?;
+                    colored_mode.push(byte);
+                }
+                b"w" => {
+                    queue!(colored_mode, style::SetForegroundColor(Color::DarkRed))?;
+                    colored_mode.push(byte);
+                }
+                b"x" => {
+                    queue!(colored_mode, style::SetForegroundColor(Color::DarkGreen))?;
+                    colored_mode.push(byte);
+                }
+                b"-" => {
+                    queue!(colored_mode, style::SetForegroundColor(Color::DarkBlue))?;
+                    colored_mode.push(byte);
+                }
+                b"l" => {
+                    queue!(
+                        colored_mode,
+                        style::SetAttribute(Attribute::Reset),
+                        style::SetForegroundColor(Color::DarkCyan),
+                    )?;
+                    colored_mode.push(byte);
+                    queue!(
+                        colored_mode,
+                        style::SetAttribute(Attribute::Bold),
+                    )?;
+                }
+                b"c" | b"b" => {
+                    queue!(
+                        colored_mode,
+                        style::SetForegroundColor(Color::DarkYellow),
+                    )?;
+                    colored_mode.push(byte);
+                }
+                _ => {
+                    queue!(colored_mode, style::SetForegroundColor(Color::Reset),)?;
+                    colored_mode.push(byte);
+                }
+            }
+        }
+        queue!(colored_mode, style::SetForegroundColor(Color::Reset),)?;
+
+        colored_mode
+    };
+
     queue!(
         stdout_lock,
         style::SetAttribute(Attribute::Reset),
@@ -961,7 +1037,7 @@ fn queue_bottom_info_line(
         terminal::Clear(ClearType::CurrentLine),
         style::Print(format!(
             "{} {:2} {} {} {:4} {}",
-            strmode(permissions.mode()),
+            std::str::from_utf8(&colored_mode).unwrap(),
             updated_curr_entry.metadata.nlink(),
             unix_users::get_unix_username(updated_curr_entry.metadata.uid()).unwrap(),
             unix_users::get_unix_groupname(updated_curr_entry.metadata.gid()).unwrap(),
