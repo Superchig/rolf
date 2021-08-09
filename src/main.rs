@@ -376,19 +376,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         second_display_offset += 1;
                                     }
 
-                                    update_entries_column(
-                                        &mut stdout_lock,
-                                        second_column,
-                                        width / 2 - 2,
-                                        column_bot_y,
-                                        &dir_states.current_entries,
-                                        old_display_offset,
-                                        old_starting_index,
-                                        second_display_offset,
-                                        second_starting_index,
-                                    )?;
-
-                                    queue_third_column(
+                                    queue_entry_changed(
                                         &mut stdout_lock,
                                         &runtime,
                                         &mut image_handles,
@@ -400,16 +388,11 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         height,
                                         column_height,
                                         column_bot_y,
-                                        (second_starting_index + second_display_offset) as usize,
-                                    )?;
-
-                                    queue_bottom_info_line(
-                                        &mut stdout_lock,
-                                        width,
-                                        height,
+                                        old_starting_index,
+                                        old_display_offset,
                                         second_starting_index,
                                         second_display_offset,
-                                        &dir_states,
+                                        second_column,
                                     )?;
                                 }
                             }
@@ -428,19 +411,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         second_display_offset -= 1;
                                     }
 
-                                    update_entries_column(
-                                        &mut stdout_lock,
-                                        second_column,
-                                        width / 2 - 2,
-                                        column_bot_y,
-                                        &dir_states.current_entries,
-                                        old_display_offset,
-                                        old_starting_index,
-                                        second_display_offset,
-                                        second_starting_index,
-                                    )?;
-
-                                    queue_third_column(
+                                    queue_entry_changed(
                                         &mut stdout_lock,
                                         &runtime,
                                         &mut image_handles,
@@ -452,16 +423,11 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         height,
                                         column_height,
                                         column_bot_y,
-                                        (second_starting_index + second_display_offset) as usize,
-                                    )?;
-
-                                    queue_bottom_info_line(
-                                        &mut stdout_lock,
-                                        width,
-                                        height,
+                                        old_starting_index,
+                                        old_display_offset,
                                         second_starting_index,
                                         second_display_offset,
-                                        &dir_states,
+                                        second_column,
                                     )?;
                                 }
                             }
@@ -765,7 +731,110 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             }
                         }
                         KeyCode::Enter => {
-                            eprintln!("{}", input_line);
+                            let input_line = input_line.trim();
+                            let spaced_words: Vec<&str> = input_line.split_whitespace().collect();
+
+                            if spaced_words.len() > 0 {
+                                match spaced_words[0] {
+                                    "search" => {
+                                        if spaced_words.len() == 2 {
+                                            let search_term = spaced_words[1];
+
+                                            let match_positions: Vec<usize> = dir_states
+                                                .current_entries
+                                                .iter()
+                                                .enumerate()
+                                                .filter_map(|(index, entry_info)| {
+                                                    if entry_info
+                                                        .dir_entry
+                                                        .file_name()
+                                                        .to_str()
+                                                        .unwrap()
+                                                        .contains(search_term)
+                                                    {
+                                                        Some(index)
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                                .collect();
+
+                                            let updated_second_entry_index = (second_starting_index
+                                                + second_display_offset)
+                                                as usize;
+
+                                            let next_position = match_positions
+                                                .iter()
+                                                .find(|pos| **pos > updated_second_entry_index);
+
+                                            let next_position = match next_position {
+                                                None => match_positions[0],
+                                                Some(next_position) => *next_position,
+                                            };
+
+                                            let old_starting_index = second_starting_index;
+                                            let old_display_offset = second_display_offset;
+
+                                            let two_thirds_height =
+                                                (column_height * 2 / 3) as usize;
+
+                                            if next_position
+                                                <= second_starting_index as usize
+                                                    + two_thirds_height
+                                            {
+                                                second_display_offset =
+                                                    (next_position as u16) - second_starting_index;
+                                            } else if next_position
+                                                >= dir_states.current_entries.len()
+                                                    - (column_height / 3) as usize
+                                            {
+                                                second_starting_index =
+                                                    (dir_states.current_entries.len() as u16)
+                                                        - column_height;
+
+                                                second_display_offset =
+                                                    next_position as u16 - second_starting_index;
+                                            } else {
+                                                second_display_offset = two_thirds_height as u16;
+
+                                                second_starting_index =
+                                                    next_position as u16 - second_display_offset;
+                                            }
+
+                                            queue_entry_changed(
+                                                &mut stdout_lock,
+                                                &runtime,
+                                                &mut image_handles,
+                                                &win_pixels,
+                                                &dir_states,
+                                                &left_paths,
+                                                &available_execs,
+                                                width,
+                                                height,
+                                                column_height,
+                                                column_bot_y,
+                                                old_starting_index,
+                                                old_display_offset,
+                                                second_starting_index,
+                                                second_display_offset,
+                                                second_column,
+                                            )?;
+                                        }
+                                    }
+                                    _ => (),
+                                }
+
+                                queue_cmd_line_exit(
+                                    &mut &mut stdout_lock,
+                                    &dir_states,
+                                    width,
+                                    height,
+                                    second_starting_index,
+                                    second_display_offset,
+                                )?;
+
+                                break;
+                            }
                         }
                         KeyCode::Left => {
                             if cursor_index > 0 {
@@ -837,6 +906,63 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     }
 
     Ok(dir_states.current_dir)
+}
+
+fn queue_entry_changed(
+    mut stdout_lock: &mut StdoutLock,
+    runtime: &Runtime,
+    mut image_handles: &mut Vec<ImageHandle>,
+    win_pixels: &WindowPixels,
+    dir_states: &DirStates,
+    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
+    available_execs: &HashMap<&str, std::path::PathBuf>,
+    width: u16,
+    height: u16,
+    column_height: u16,
+    column_bot_y: u16,
+    old_starting_index: u16,
+    old_display_offset: u16,
+    second_starting_index: u16,
+    second_display_offset: u16,
+    second_column: u16,
+) -> crossterm::Result<()> {
+    update_entries_column(
+        &mut stdout_lock,
+        second_column,
+        width / 2 - 2,
+        column_bot_y,
+        &dir_states.current_entries,
+        old_display_offset,
+        old_starting_index,
+        second_display_offset,
+        second_starting_index,
+    )?;
+
+    queue_third_column(
+        &mut stdout_lock,
+        &runtime,
+        &mut image_handles,
+        &win_pixels,
+        &dir_states,
+        &left_paths,
+        &available_execs,
+        width,
+        height,
+        column_height,
+        column_bot_y,
+        (second_starting_index + second_display_offset) as usize,
+    )?;
+
+    queue_bottom_info_line(
+        &mut stdout_lock,
+        width,
+        height,
+        second_starting_index,
+        second_display_offset,
+        &dir_states,
+    )?;
+
+    Ok(())
 }
 
 fn queue_cmd_line_exit(
