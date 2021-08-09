@@ -2,6 +2,7 @@ mod natural_sort; // This declares the existence of the natural_sort module, whi
                   // default for natural_sort.rs or natural_sort/mod.rs
 
 mod human_size;
+mod line_edit;
 mod strmode;
 mod tiff;
 mod unix_users;
@@ -740,101 +741,23 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             } else if event.modifiers.contains(KeyModifiers::ALT) {
                                 match ch {
                                     'b' => {
-                                        let chars: Vec<char> =
-                                            input_line[..cursor_index].chars().collect();
-
-                                        for (index, ch) in chars.iter().enumerate().rev() {
-                                            if !is_word_separator(*ch) {
-                                                cursor_index = index;
-                                                break;
-                                            }
-                                        }
-
-                                        for (index, ch) in
-                                            chars[..cursor_index].iter().enumerate().rev()
-                                        {
-                                            if cursor_index == 0 {
-                                                break;
-                                            }
-
-                                            if is_word_separator(*ch) {
-                                                cursor_index = index + 1;
-                                                break;
-                                            }
-
-                                            if index == 0 {
-                                                cursor_index = 0;
-                                                break;
-                                            }
-                                        }
+                                        cursor_index = line_edit::find_prev_word_pos(
+                                            &input_line,
+                                            cursor_index,
+                                        );
                                     }
                                     'f' => {
-                                        for (idx, ch) in
-                                            input_line[cursor_index..].chars().enumerate()
-                                        {
-                                            let index = cursor_index + idx;
-
-                                            if !is_word_separator(ch) {
-                                                cursor_index = index;
-                                                break;
-                                            }
-                                        }
-
-                                        for (idx, ch) in
-                                            input_line[cursor_index..].chars().enumerate()
-                                        {
-                                            let index = cursor_index + idx;
-
-                                            if index == input_line.len() - 1 {
-                                                cursor_index = input_line.len();
-                                            }
-
-                                            if is_word_separator(ch) {
-                                                cursor_index = index;
-                                                break;
-                                            }
-                                        }
+                                        cursor_index = line_edit::find_next_word_pos(
+                                            &input_line,
+                                            cursor_index,
+                                        );
                                     }
                                     'd' => {
-                                        let starting_index = cursor_index;
-
-                                        let mut ending_index = None;
-
-                                        for (idx, ch) in
-                                            input_line[cursor_index..].chars().enumerate()
-                                        {
-                                            let index = cursor_index + idx;
-
-                                            if !is_word_separator(ch) {
-                                                cursor_index = index;
-                                                break;
-                                            }
-                                        }
-
-                                        for (idx, ch) in
-                                            input_line[cursor_index..].chars().enumerate()
-                                        {
-                                            let index = cursor_index + idx;
-
-                                            if is_word_separator(ch) {
-                                                ending_index = Some(index);
-                                                break;
-                                            }
-
-                                            if index == input_line.len() - 1 {
-                                                ending_index = Some(input_line.len());
-                                            }
-                                        }
-
-                                        if let Some(ending_index) = ending_index {
-                                            input_line
-                                                .replace_range(starting_index..ending_index, "");
-                                        }
-
-                                        // Without this, the cursor may move forwards more than
-                                        // necessary (if it was starting on a word separator)
-                                        let reverse_offset = cursor_index - starting_index;
-                                        cursor_index -= reverse_offset;
+                                        let ending_index = line_edit::find_next_word_pos(
+                                            &input_line,
+                                            cursor_index,
+                                        );
+                                        input_line.replace_range(cursor_index..ending_index, "");
                                     }
                                     _ => (),
                                 }
@@ -861,35 +784,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             if cursor_index > 0 {
                                 if event.modifiers.contains(KeyModifiers::ALT) {
                                     let ending_index = cursor_index;
-
-                                    let chars: Vec<char> =
-                                        input_line[..cursor_index].chars().collect();
-
-                                    for (index, ch) in chars.iter().enumerate().rev() {
-                                        if !is_word_separator(*ch) {
-                                            cursor_index = index;
-                                            break;
-                                        }
-                                    }
-
-                                    for (index, ch) in
-                                        chars[..cursor_index].iter().enumerate().rev()
-                                    {
-                                        if cursor_index == 0 {
-                                            break;
-                                        }
-
-                                        if is_word_separator(*ch) {
-                                            cursor_index = index + 1;
-                                            break;
-                                        }
-
-                                        if index == 0 {
-                                            cursor_index = 0;
-                                            break;
-                                        }
-                                    }
-
+                                    cursor_index = line_edit::find_prev_word_pos(&input_line, cursor_index);
                                     input_line.replace_range(cursor_index..ending_index, "");
                                 } else {
                                     input_line.remove(cursor_index - 1);
@@ -944,10 +839,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     }
 
     Ok(dir_states.current_dir)
-}
-
-fn is_word_separator(ch: char) -> bool {
-    ch == ' ' || ch == '_'
 }
 
 fn queue_cmd_line_exit(
