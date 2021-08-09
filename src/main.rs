@@ -309,8 +309,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     KeyCode::Char(ch) => {
                         match ch {
                             'q' => break,
-                            // TODO(Chris): Account for possibility of no .parent() AKA when
-                            // current_dir is '/'
                             'h' => {
                                 abort_image_handles(&mut image_handles);
 
@@ -1776,7 +1774,6 @@ fn queue_oneline_column(
 }
 
 fn format_current_dir(dir_states: &DirStates, home_path: &Path) -> String {
-    // TODO(Chris): Handle case when current_dir is '/'
     // NOTE(Chris): This creates a new String, and it'd be nice to avoid making a heap
     // allocation here, but it's probably not worth trying to figure out how to use only a str
 
