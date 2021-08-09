@@ -80,7 +80,6 @@ fn main() -> crossterm::Result<()> {
         style::ResetColor,
         cursor::Show,
         terminal::LeaveAlternateScreen,
-        cursor::MoveToNextLine(1),
     )?;
 
     terminal::disable_raw_mode()?;
@@ -1142,6 +1141,10 @@ fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
         const TIOCGWINSZ: u64 = 21523;
 
         // 0 is the file descriptor for stdin
+        // NOTE(Chris): This only works if stdin is a tty. If it is not (e.g. zsh widgets), then
+        // you may have to redirect the tty to stdin.
+        // Example:
+        // rf() { rolf < $TTY }
         let err = libc::ioctl(0, TIOCGWINSZ, &mut winsize);
         if err != 0 {
             let errno_location = libc::__errno_location();
