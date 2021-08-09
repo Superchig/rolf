@@ -39,7 +39,7 @@ use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyModifiers},
     execute, queue,
-    style::{self, Attribute, Color},
+    style::{self, Attribute, Color, Stylize},
     terminal::{self, ClearType},
 };
 
@@ -955,22 +955,6 @@ fn queue_bottom_info_line(
     // let display_date = date_time.format("%a %b %d %H:%M:%S %Y");
     let display_date = date_time.format("%c");
 
-    // if new_file_type.is_dir() {
-    //     queue!(
-    //         w,
-    //         style::SetForegroundColor(Color::DarkBlue),
-    //         style::SetAttribute(Attribute::Bold),
-    //     )?;
-    // } else if new_file_type.is_file() {
-    //     queue!(w, style::SetForegroundColor(Color::White))?;
-    // } else if new_file_type.is_symlink() {
-    //     queue!(
-    //         w,
-    //         style::SetForegroundColor(Color::DarkCyan),
-    //         style::SetAttribute(Attribute::Bold)
-    //     )?;
-    // }
-
     let colored_mode = {
         let mut colored_mode = vec![];
         queue!(colored_mode, style::SetAttribute(Attribute::Bold))?;
@@ -1007,16 +991,10 @@ fn queue_bottom_info_line(
                         style::SetForegroundColor(Color::DarkCyan),
                     )?;
                     colored_mode.push(byte);
-                    queue!(
-                        colored_mode,
-                        style::SetAttribute(Attribute::Bold),
-                    )?;
+                    queue!(colored_mode, style::SetAttribute(Attribute::Bold),)?;
                 }
                 b"c" | b"b" => {
-                    queue!(
-                        colored_mode,
-                        style::SetForegroundColor(Color::DarkYellow),
-                    )?;
+                    queue!(colored_mode, style::SetForegroundColor(Color::DarkYellow),)?;
                     colored_mode.push(byte);
                 }
                 _ => {
@@ -1030,19 +1008,62 @@ fn queue_bottom_info_line(
         colored_mode
     };
 
+    let colored_size = {
+        let mut colored_size = vec![];
+        queue!(
+            colored_size,
+            style::SetForegroundColor(Color::DarkGreen),
+            style::SetAttribute(Attribute::Bold),
+            style::Print(format!(
+                "{:4}",
+                human_size(updated_curr_entry.metadata.size())
+            )),
+            style::SetAttribute(Attribute::Reset),
+        )?;
+        colored_size
+    };
+
+    let colored_display_date = {
+        let mut colored_display_date = vec![];
+        queue!(
+            colored_display_date,
+            style::SetForegroundColor(Color::DarkBlue),
+            style::Print(&display_date),
+        )?;
+        colored_display_date
+    };
+
     queue!(
         stdout_lock,
         style::SetAttribute(Attribute::Reset),
         cursor::MoveTo(0, height - 1),
         terminal::Clear(ClearType::CurrentLine),
+        style::Print(std::str::from_utf8(&colored_mode).unwrap()),
+        style::PrintStyledContent(
+            format!(" {:2}", updated_curr_entry.metadata.nlink())
+                .with(Color::DarkRed)
+                .attribute(Attribute::Bold)
+        ),
+        style::PrintStyledContent(
+            format!(
+                " {}",
+                unix_users::get_unix_username(updated_curr_entry.metadata.uid()).unwrap()
+            )
+            .with(Color::DarkYellow)
+            .attribute(Attribute::Bold)
+        ),
+        style::PrintStyledContent(
+            format!(
+                " {}",
+                unix_users::get_unix_groupname(updated_curr_entry.metadata.gid()).unwrap()
+            )
+            .with(Color::DarkYellow)
+            .attribute(Attribute::Bold)
+        ),
         style::Print(format!(
-            "{} {:2} {} {} {:4} {}",
-            std::str::from_utf8(&colored_mode).unwrap(),
-            updated_curr_entry.metadata.nlink(),
-            unix_users::get_unix_username(updated_curr_entry.metadata.uid()).unwrap(),
-            unix_users::get_unix_groupname(updated_curr_entry.metadata.gid()).unwrap(),
-            human_size(updated_curr_entry.metadata.size()),
-            display_date,
+            " {} {}",
+            std::str::from_utf8(&colored_size).unwrap(),
+            std::str::from_utf8(&colored_display_date).unwrap(),
         )),
     )?;
 
@@ -1055,6 +1076,7 @@ fn queue_bottom_info_line(
     queue!(
         stdout_lock,
         cursor::MoveTo(width - (display_position.len() as u16), height - 1),
+        style::SetForegroundColor(Color::Reset),
         style::Print(display_position),
     )?;
 
