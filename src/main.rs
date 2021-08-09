@@ -1848,19 +1848,17 @@ struct DirStates {
 
 impl DirStates {
     fn new() -> crossterm::Result<DirStates> {
-        let current_dir = std::env::current_dir()?;
+        // This is a slightly wasteful way to do this, but I'm too lazy to add anything better
+        let mut dir_states = DirStates {
+            current_dir: PathBuf::with_capacity(0),
+            current_entries: Vec::with_capacity(0),
+            prev_dir: None,
+            prev_entries: Vec::with_capacity(0),
+        };
 
-        let entries_info = get_sorted_entries(&current_dir).unwrap();
-        let prev_dir = current_dir.parent().unwrap().to_path_buf();
+        dir_states.set_current_dir(".")?;
 
-        let prev_entries = get_sorted_entries(&prev_dir).unwrap();
-
-        Ok(DirStates {
-            current_dir,
-            current_entries: entries_info,
-            prev_dir: Some(prev_dir),
-            prev_entries,
-        })
+        Ok(dir_states)
     }
 
     fn set_current_dir<P: AsRef<Path>>(self: &mut DirStates, path: P) -> crossterm::Result<()> {
