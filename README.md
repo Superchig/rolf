@@ -20,7 +20,8 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
       for text file highlighting
 - [ ] Make [highlight](http://www.andre-simon.de/doku/highlight/highlight.php)
       an optional dependency.
-- [ ] Implement command-line
+- [x] Implement part of command-line
+  - [x] Implement some basic GNU readline keybindings
 - [x] EXPERIMENTAL: Display image previews on kitty
   - [x] Display images asynchronously
   - [x] Show image thumbnail for videos
@@ -34,3 +35,5 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 - [x] Use the kitty protocol (and possibly other terminal image protocols)
       directly for image previews
 - [ ] Make the file manager way faster
+- [ ] Refactor variables into structs, to avoid having massive numbers of
+      parameters to functions
