@@ -787,7 +787,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                         .file_name()
                                                         .to_str()
                                                         .unwrap()
-                                                        .contains(search_term)
+                                                        .to_lowercase()
+                                                        .contains(&search_term.to_lowercase())
                                                     {
                                                         Some(index)
                                                     } else {
@@ -952,8 +953,6 @@ fn queue_search_next(
             *second_starting_index = 0;
 
             *second_display_offset = next_position as u16;
-        } else if next_position <= *second_starting_index as usize + lesser_offset {
-            *second_display_offset = next_position as u16 - *second_starting_index;
         } else {
             *second_display_offset = lesser_offset as u16;
 
