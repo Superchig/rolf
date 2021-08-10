@@ -944,9 +944,6 @@ fn queue_search_next(
     let lesser_offset = SCROLL_OFFSET as usize;
     let greater_offset = (column_height - SCROLL_OFFSET - 1) as usize;
 
-    // FIXME(Chris): Handle case where next_position requires you to loop around and it's above the
-    // current screen area / implement backwards search motion
-
     if column_height as usize > dir_states.current_entries.len() {
         *second_display_offset = next_position as u16;
     } else if next_position < second_entry_index as usize {
