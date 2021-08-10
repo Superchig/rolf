@@ -145,6 +145,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     let mut should_enter_cmd_line = false;
 
+    let mut match_positions: Vec<usize> = vec![];
+
     // Main input loop
     loop {
         // Gather all the data before rendering things with stdout_lock
@@ -600,6 +602,28 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             ':' => {
                                 should_enter_cmd_line = true;
                             }
+                            'n' => {
+                                // FIXME(Chris): Refactor search-jumping forwards into a reusable
+                                // function
+
+                                queue_search_next(
+                                    &mut stdout_lock,
+                                    &match_positions,
+                                    &runtime,
+                                    &mut image_handles,
+                                    &win_pixels,
+                                    &dir_states,
+                                    &left_paths,
+                                    &available_execs,
+                                    width,
+                                    height,
+                                    column_height,
+                                    column_bot_y,
+                                    &mut second_starting_index,
+                                    &mut second_display_offset,
+                                    second_column,
+                                )?;
+                            }
                             _ => (),
                         }
                     }
@@ -740,7 +764,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         if spaced_words.len() == 2 {
                                             let search_term = spaced_words[1];
 
-                                            let match_positions: Vec<usize> = dir_states
+                                            match_positions = dir_states
                                                 .current_entries
                                                 .iter()
                                                 .enumerate()
@@ -759,50 +783,9 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 })
                                                 .collect();
 
-                                            let updated_second_entry_index = (second_starting_index
-                                                + second_display_offset)
-                                                as usize;
-
-                                            let next_position = match_positions
-                                                .iter()
-                                                .find(|pos| **pos > updated_second_entry_index);
-
-                                            let next_position = match next_position {
-                                                None => match_positions[0],
-                                                Some(next_position) => *next_position,
-                                            };
-
-                                            let old_starting_index = second_starting_index;
-                                            let old_display_offset = second_display_offset;
-
-                                            let two_thirds_height =
-                                                (column_height * 2 / 3) as usize;
-
-                                            if next_position
-                                                <= second_starting_index as usize
-                                                    + two_thirds_height
-                                            {
-                                                second_display_offset =
-                                                    (next_position as u16) - second_starting_index;
-                                            } else if next_position
-                                                >= dir_states.current_entries.len()
-                                                    - (column_height / 3) as usize
-                                            {
-                                                second_starting_index =
-                                                    (dir_states.current_entries.len() as u16)
-                                                        - column_height;
-
-                                                second_display_offset =
-                                                    next_position as u16 - second_starting_index;
-                                            } else {
-                                                second_display_offset = two_thirds_height as u16;
-
-                                                second_starting_index =
-                                                    next_position as u16 - second_display_offset;
-                                            }
-
-                                            queue_entry_changed(
+                                            queue_search_next(
                                                 &mut stdout_lock,
+                                                &match_positions,
                                                 &runtime,
                                                 &mut image_handles,
                                                 &win_pixels,
@@ -813,10 +796,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 height,
                                                 column_height,
                                                 column_bot_y,
-                                                old_starting_index,
-                                                old_display_offset,
-                                                second_starting_index,
-                                                second_display_offset,
+                                                &mut second_starting_index,
+                                                &mut second_display_offset,
                                                 second_column,
                                             )?;
                                         }
@@ -906,6 +887,77 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     }
 
     Ok(dir_states.current_dir)
+}
+
+fn queue_search_next(
+    mut stdout_lock: &mut StdoutLock,
+    match_positions: &Vec<usize>,
+    runtime: &Runtime,
+    mut image_handles: &mut Vec<ImageHandle>,
+    win_pixels: &WindowPixels,
+    dir_states: &DirStates,
+    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
+    available_execs: &HashMap<&str, std::path::PathBuf>,
+    width: u16,
+    height: u16,
+    column_height: u16,
+    column_bot_y: u16,
+    second_starting_index: &mut u16,
+    second_display_offset: &mut u16,
+    second_column: u16,
+) -> crossterm::Result<()> {
+    if match_positions.len() <= 0 {
+        return Ok(());
+    }
+
+    let second_entry_index = *second_starting_index + *second_display_offset;
+
+    let next_position = match_positions
+        .iter()
+        .find(|pos| **pos > second_entry_index as usize);
+
+    let next_position = match next_position {
+        None => match_positions[0],
+        Some(next_position) => *next_position,
+    };
+
+    let old_starting_index = *second_starting_index;
+    let old_display_offset = *second_display_offset;
+
+    let two_thirds_height = (column_height * 2 / 3) as usize;
+
+    if next_position <= *second_starting_index as usize + two_thirds_height {
+        *second_display_offset = (next_position as u16) - *second_starting_index;
+    } else if next_position >= dir_states.current_entries.len() - (column_height / 3) as usize {
+        *second_starting_index = (dir_states.current_entries.len() as u16) - column_height;
+
+        *second_display_offset = next_position as u16 - *second_starting_index;
+    } else {
+        *second_display_offset = two_thirds_height as u16;
+
+        *second_starting_index = next_position as u16 - *second_display_offset;
+    }
+
+    queue_entry_changed(
+        &mut stdout_lock,
+        &runtime,
+        &mut image_handles,
+        &win_pixels,
+        &dir_states,
+        &left_paths,
+        &available_execs,
+        width,
+        height,
+        column_height,
+        column_bot_y,
+        old_starting_index,
+        old_display_offset,
+        *second_starting_index,
+        *second_display_offset,
+        second_column,
+    )?;
+
+    Ok(())
 }
 
 fn queue_entry_changed(
