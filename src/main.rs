@@ -43,6 +43,9 @@ use crossterm::{
     terminal::{self, ClearType},
 };
 
+// TODO(Chris): Make this configurable rather than hard-coding the constant
+const SCROLL_OFFSET: u16 = 10;
+
 type HandlesVec = Vec<ImageHandle>;
 
 fn main() -> crossterm::Result<()> {
@@ -371,7 +374,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     let old_starting_index = second_starting_index;
                                     let old_display_offset = second_display_offset;
 
-                                    if second_display_offset >= (column_bot_y * 2 / 3)
+                                    if second_display_offset >= (column_height - SCROLL_OFFSET - 1)
                                         && (second_bottom_index as usize)
                                             < dir_states.current_entries.len()
                                     {
@@ -407,7 +410,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     let old_starting_index = second_starting_index;
                                     let old_display_offset = second_display_offset;
 
-                                    if second_display_offset <= (column_bot_y * 1 / 3)
+                                    if second_display_offset <= (SCROLL_OFFSET)
                                         && second_starting_index > 0
                                     {
                                         second_starting_index -= 1;
@@ -763,7 +766,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                         }
                         KeyCode::Enter => {
                             let trimmed_input_line = input_line.trim();
-                            let spaced_words: Vec<&str> = trimmed_input_line.split_whitespace().collect();
+                            let spaced_words: Vec<&str> =
+                                trimmed_input_line.split_whitespace().collect();
 
                             // FIXME(Chris): Implement reverse search (search-back)
 
@@ -935,21 +939,46 @@ fn queue_search_next(
     let old_starting_index = *second_starting_index;
     let old_display_offset = *second_display_offset;
 
-    let two_thirds_height = (column_height * 2 / 3) as usize;
+    // let lower_offset = (column_height * 2 / 3) as usize;
+    // let upper_offset = (column_height / 3) as usize;
+    let lesser_offset = SCROLL_OFFSET as usize;
+    let greater_offset = (column_height - SCROLL_OFFSET - 1) as usize;
 
     // FIXME(Chris): Handle case where next_position requires you to loop around and it's above the
     // current screen area / implement backwards search motion
 
-    if next_position <= *second_starting_index as usize + two_thirds_height {
-        *second_display_offset = (next_position as u16) - *second_starting_index;
-    } else if next_position >= dir_states.current_entries.len() - (column_height / 3) as usize {
-        *second_starting_index = (dir_states.current_entries.len() as u16) - column_height;
+    if column_height as usize > dir_states.current_entries.len() {
+        *second_display_offset = next_position as u16;
+    } else if next_position < second_entry_index as usize {
+        // Moving up
+        if next_position <= lesser_offset {
+            *second_starting_index = 0;
 
-        *second_display_offset = next_position as u16 - *second_starting_index;
+            *second_display_offset = next_position as u16;
+        } else if next_position <= *second_starting_index as usize + lesser_offset {
+            *second_display_offset = next_position as u16 - *second_starting_index;
+        } else {
+            *second_display_offset = lesser_offset as u16;
+
+            *second_starting_index = next_position as u16 - *second_display_offset;
+        }
+    } else if next_position > second_entry_index as usize {
+        // Moving down
+        if next_position <= greater_offset {
+            *second_starting_index = 0;
+
+            *second_display_offset = next_position as u16;
+        } else if next_position <= *second_starting_index as usize + greater_offset {
+            *second_display_offset = next_position as u16 - *second_starting_index;
+        } else if next_position > *second_starting_index as usize + greater_offset {
+            *second_display_offset = greater_offset as u16;
+
+            *second_starting_index = next_position as u16 - *second_display_offset;
+        } else {
+            panic!();
+        }
     } else {
-        *second_display_offset = two_thirds_height as u16;
-
-        *second_starting_index = next_position as u16 - *second_display_offset;
+        panic!();
     }
 
     queue_entry_changed(
