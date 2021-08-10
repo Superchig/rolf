@@ -973,6 +973,8 @@ fn queue_search_next(
         } else {
             panic!();
         }
+    } else if next_position == second_entry_index as usize {
+        // Do nothing.
     } else {
         panic!();
     }
