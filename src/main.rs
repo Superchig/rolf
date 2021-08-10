@@ -147,6 +147,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     let mut match_positions: Vec<usize> = vec![];
 
+    let mut input_line = String::new();
+
     // Main input loop
     loop {
         // Gather all the data before rendering things with stdout_lock
@@ -602,10 +604,14 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             ':' => {
                                 should_enter_cmd_line = true;
                             }
-                            'n' => {
-                                // FIXME(Chris): Refactor search-jumping forwards into a reusable
-                                // function
+                            '/' => {
+                                assert!(input_line.len() <= 0);
 
+                                input_line.push_str("search ");
+
+                                should_enter_cmd_line = true;
+                            }
+                            'n' => {
                                 queue_search_next(
                                     &mut stdout_lock,
                                     &match_positions,
@@ -664,9 +670,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
         if should_enter_cmd_line {
             should_enter_cmd_line = false;
 
-            let mut cursor_index = 0; // Where a new character will next be entered
-
-            let mut input_line = String::new();
+            let mut cursor_index = input_line.len(); // Where a new character will next be entered
 
             {
                 let mut stdout_lock = w.lock();
@@ -679,6 +683,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     terminal::Clear(ClearType::CurrentLine),
                     style::Print(':'),
                     cursor::MoveTo(1, height - 1),
+                    style::Print(&input_line),
+                    cursor::MoveTo(1 + cursor_index as u16, height - 1),
                 )?;
 
                 stdout_lock.flush()?;
@@ -715,6 +721,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             height,
                                             second_starting_index,
                                             second_display_offset,
+                                            &mut input_line,
                                         )?;
 
                                         break;
@@ -755,8 +762,10 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             }
                         }
                         KeyCode::Enter => {
-                            let input_line = input_line.trim();
-                            let spaced_words: Vec<&str> = input_line.split_whitespace().collect();
+                            let trimmed_input_line = input_line.trim();
+                            let spaced_words: Vec<&str> = trimmed_input_line.split_whitespace().collect();
+
+                            // FIXME(Chris): Implement reverse search (search-back)
 
                             if spaced_words.len() > 0 {
                                 match spaced_words[0] {
@@ -812,6 +821,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     height,
                                     second_starting_index,
                                     second_display_offset,
+                                    &mut input_line,
                                 )?;
 
                                 break;
@@ -849,6 +859,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 height,
                                 second_starting_index,
                                 second_display_offset,
+                                &mut input_line,
                             )?;
 
                             break;
@@ -925,6 +936,9 @@ fn queue_search_next(
     let old_display_offset = *second_display_offset;
 
     let two_thirds_height = (column_height * 2 / 3) as usize;
+
+    // FIXME(Chris): Handle case where next_position requires you to loop around and it's above the
+    // current screen area / implement backwards search motion
 
     if next_position <= *second_starting_index as usize + two_thirds_height {
         *second_display_offset = (next_position as u16) - *second_starting_index;
@@ -1024,7 +1038,10 @@ fn queue_cmd_line_exit(
     height: u16,
     second_starting_index: u16,
     second_display_offset: u16,
+    input_line: &mut String,
 ) -> crossterm::Result<()> {
+    input_line.clear();
+
     queue!(
         stdout_lock,
         terminal::Clear(ClearType::CurrentLine),
