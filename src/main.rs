@@ -1095,6 +1095,9 @@ fn queue_entry_changed(
         (second_starting_index + second_display_offset) as usize,
     )?;
 
+    // NOTE(Chris): We flush here, so the current function is more than a "queue_" function
+    stdout_lock.flush()?;
+
     queue_bottom_info_line(
         &mut stdout_lock,
         width,
