@@ -220,92 +220,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
             stdout_lock.flush()?;
         }
 
-        let mut enter_entry = |mut stdout_lock: &mut StdoutLock| -> crossterm::Result<()> {
-            // NOTE(Chris): We don't need to abort image handles here. If we are entering a
-            // directory, then the previous current entry was a directory, and we were never
-            // displaying an image. If we are entering a file, then we aren't changing the current
-            // file, so there's no need to abort the image display.
-
-            if dir_states.current_entries.len() > 0 {
-                save_location(
-                    &mut left_paths,
-                    &dir_states,
-                    second_entry_index,
-                    second_starting_index,
-                    second_display_offset,
-                );
-
-                let selected_entry =
-                    &dir_states.current_entries[second_entry_index as usize].dir_entry;
-
-                let selected_file_type = selected_entry.file_type().unwrap();
-
-                if selected_file_type.is_dir() {
-                    let selected_dir_path = selected_entry.path();
-
-                    // TODO(Chris): Avoid substituting apparent path with symlink target when
-                    // entering symlinked directories
-                    dir_states.set_current_dir(&selected_dir_path)?;
-
-                    match left_paths.get(&selected_dir_path) {
-                        Some(dir_location) => {
-                            let curr_entry_index = dir_states
-                                .current_entries
-                                .iter()
-                                .position(|entry| entry.dir_entry.path() == *dir_location.dir_path);
-
-                            match curr_entry_index {
-                                Some(curr_entry_index) => {
-                                    let orig_entry_index = (dir_location.starting_index
-                                        + dir_location.display_offset)
-                                        as usize;
-                                    if curr_entry_index == orig_entry_index {
-                                        second_starting_index = dir_location.starting_index;
-                                        second_display_offset = dir_location.display_offset;
-                                    } else {
-                                        second_starting_index = (curr_entry_index / 2) as u16;
-                                        second_display_offset =
-                                            (curr_entry_index as u16) - second_starting_index;
-                                    }
-                                }
-                                None => {
-                                    second_starting_index = 0;
-                                    second_display_offset = 0;
-                                }
-                            }
-                        }
-                        None => {
-                            second_starting_index = 0;
-                            second_display_offset = 0;
-                        }
-                    };
-
-                    queue_all_columns(
-                        &mut stdout_lock,
-                        &runtime,
-                        &mut image_handles,
-                        &win_pixels,
-                        &dir_states,
-                        &left_paths,
-                        &available_execs,
-                        width,
-                        height,
-                        column_height,
-                        column_bot_y,
-                        second_column,
-                        second_display_offset,
-                        second_starting_index,
-                    )?;
-                } else if selected_file_type.is_file() {
-                    // Should we display some sort of error message according to the exit status
-                    // here?
-                    open::that_in_background(selected_entry.path());
-                }
-            }
-
-            Ok(())
-        };
-
         {
             let event = event::read()?;
 
@@ -362,7 +276,23 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 )?;
                             }
                             'l' => {
-                                enter_entry(&mut stdout_lock)?;
+                                enter_entry(
+                                    &mut stdout_lock,
+                                    &runtime,
+                                    &mut image_handles,
+                                    &available_execs,
+                                    &mut dir_states,
+                                    &mut left_paths,
+                                    win_pixels,
+                                    width,
+                                    height,
+                                    second_entry_index,
+                                    &mut second_starting_index,
+                                    &mut second_display_offset,
+                                    column_height,
+                                    column_bot_y,
+                                    second_column,
+                                )?;
                             }
                             'j' => {
                                 if dir_states.current_entries.len() > 0
@@ -636,7 +566,23 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             _ => (),
                         }
                     }
-                    KeyCode::Enter => enter_entry(&mut stdout_lock)?,
+                    KeyCode::Enter => enter_entry(
+                        &mut stdout_lock,
+                        &runtime,
+                        &mut image_handles,
+                        &available_execs,
+                        &mut dir_states,
+                        &mut left_paths,
+                        win_pixels,
+                        width,
+                        height,
+                        second_entry_index,
+                        &mut second_starting_index,
+                        &mut second_display_offset,
+                        column_height,
+                        column_bot_y,
+                        second_column,
+                    )?,
                     _ => (),
                 },
                 Event::Mouse(_) => (),
@@ -903,6 +849,109 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     }
 
     Ok(dir_states.current_dir)
+}
+
+fn enter_entry(
+    mut stdout_lock: &mut StdoutLock,
+    runtime: &Runtime,
+    mut image_handles: &mut Vec<ImageHandle>,
+    available_execs: &HashMap<&str, std::path::PathBuf>,
+    dir_states: &mut DirStates,
+    mut left_paths: &mut HashMap<std::path::PathBuf, DirLocation>,
+    win_pixels: WindowPixels,
+    width: u16,
+    height: u16,
+    second_entry_index: u16,
+    second_starting_index: &mut u16,
+    second_display_offset: &mut u16,
+    column_height: u16,
+    column_bot_y: u16,
+    second_column: u16,
+) -> crossterm::Result<()> {
+    // NOTE(Chris): We don't need to abort image handles here. If we are entering a
+    // directory, then the previous current entry was a directory, and we were never
+    // displaying an image. If we are entering a file, then we aren't changing the current
+    // file, so there's no need to abort the image display.
+
+    // FIXME(Chris): Implement entering symlinks correctly
+
+    if dir_states.current_entries.len() > 0 {
+        save_location(
+            &mut left_paths,
+            &dir_states,
+            second_entry_index,
+            *second_starting_index,
+            *second_display_offset,
+        );
+
+        let selected_entry = &dir_states.current_entries[second_entry_index as usize].dir_entry;
+
+        let selected_file_type = selected_entry.file_type().unwrap();
+
+        if selected_file_type.is_dir() {
+            let selected_dir_path = selected_entry.path();
+
+            // TODO(Chris): Avoid substituting apparent path with symlink target when
+            // entering symlinked directories
+            dir_states.set_current_dir(&selected_dir_path)?;
+
+            match left_paths.get(&selected_dir_path) {
+                Some(dir_location) => {
+                    let curr_entry_index = dir_states
+                        .current_entries
+                        .iter()
+                        .position(|entry| entry.dir_entry.path() == *dir_location.dir_path);
+
+                    match curr_entry_index {
+                        Some(curr_entry_index) => {
+                            let orig_entry_index = (dir_location.starting_index
+                                + dir_location.display_offset)
+                                as usize;
+                            if curr_entry_index == orig_entry_index {
+                                *second_starting_index = dir_location.starting_index;
+                                *second_display_offset = dir_location.display_offset;
+                            } else {
+                                *second_starting_index = (curr_entry_index / 2) as u16;
+                                *second_display_offset =
+                                    (curr_entry_index as u16) - *second_starting_index;
+                            }
+                        }
+                        None => {
+                            *second_starting_index = 0;
+                            *second_display_offset = 0;
+                        }
+                    }
+                }
+                None => {
+                    *second_starting_index = 0;
+                    *second_display_offset = 0;
+                }
+            };
+
+            queue_all_columns(
+                &mut stdout_lock,
+                &runtime,
+                &mut image_handles,
+                &win_pixels,
+                &dir_states,
+                &left_paths,
+                &available_execs,
+                width,
+                height,
+                column_height,
+                column_bot_y,
+                second_column,
+                *second_display_offset,
+                *second_starting_index,
+            )?;
+        } else if selected_file_type.is_file() {
+            // Should we display some sort of error message according to the exit status
+            // here?
+            open::that_in_background(selected_entry.path());
+        }
+    }
+
+    Ok(())
 }
 
 fn queue_search_next(
@@ -1252,6 +1301,8 @@ fn queue_bottom_info_line(
         colored_display_date
     };
 
+    // stdout_lock.flush()?;
+
     queue!(
         stdout_lock,
         style::SetAttribute(Attribute::Reset),
@@ -1298,6 +1349,34 @@ fn queue_bottom_info_line(
         style::SetForegroundColor(Color::Reset),
         style::Print(display_position),
     )?;
+
+    // queue!(
+    //     stdout_lock,
+    //     style::SetAttribute(Attribute::Reset),
+    //     cursor::MoveTo(0, height - 1),
+    //     terminal::Clear(ClearType::CurrentLine),
+    //     style::Print(format!(
+    //         "{} {:2} {} {} {:4} {}",
+    //         strmode(permissions.mode()),
+    //         updated_curr_entry.metadata.nlink(),
+    //         unix_users::get_unix_username(updated_curr_entry.metadata.uid()).unwrap(),
+    //         unix_users::get_unix_groupname(updated_curr_entry.metadata.gid()).unwrap(),
+    //         human_size(updated_curr_entry.metadata.size()),
+    //         display_date,
+    //     )),
+    // )?;
+
+    // let display_position = format!(
+    //     "{}/{}",
+    //     updated_second_entry_index + 1,
+    //     dir_states.current_entries.len()
+    // );
+
+    // queue!(
+    //     stdout_lock,
+    //     cursor::MoveTo(width - (display_position.len() as u16), height - 1),
+    //     style::Print(display_position),
+    // )?;
 
     Ok(())
 }
@@ -1513,7 +1592,7 @@ fn queue_second_column(
 fn queue_third_column(
     mut w: &mut StdoutLock,
     runtime: &Runtime,
-    handles: &mut HandlesVec,
+    mut handles: &mut HandlesVec,
     win_pixels: &WindowPixels,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
@@ -1535,145 +1614,229 @@ fn queue_third_column(
         let file_type = display_entry.dir_entry.file_type().unwrap();
 
         if file_type.is_dir() {
-            w.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
-
-            let third_dir = display_entry.dir_entry.path();
-
-            match get_sorted_entries(&third_dir) {
-                Ok(third_entries) => {
-                    let (display_offset, starting_index) = match left_paths.get(&third_dir) {
-                        Some(dir_location) => {
-                            (dir_location.display_offset, dir_location.starting_index)
-                        }
-                        None => (0, 0),
-                    };
-
-                    queue_entries_column(
-                        &mut w,
-                        width / 2 + 1,
-                        width - 2,
-                        column_bot_y,
-                        &third_entries,
-                        display_offset,
-                        starting_index,
-                    )?;
-                }
-                Err(err) => {
-                    let message = match err.kind() {
-                        io::ErrorKind::PermissionDenied => String::from("permission denied"),
-                        _ => {
-                            format!("error reading: {}", err)
-                        }
-                    };
-
-                    queue_oneline_column(&mut w, left_x, right_x, column_bot_y, &message)?;
-                }
-            }
+            queue_third_column_dir(
+                &mut w,
+                &left_paths,
+                width,
+                left_x,
+                right_x,
+                column_bot_y,
+                &display_entry,
+            )?;
         } else if file_type.is_file() {
-            queue_blank_column(&mut w, left_x, right_x, column_height)?;
+            queue_third_column_file(
+                &mut w,
+                &runtime,
+                &mut handles,
+                &display_entry,
+                &available_execs,
+                *win_pixels,
+                width,
+                height,
+                column_height,
+                column_bot_y,
+                left_x,
+                right_x,
+            )?;
+        } else if file_type.is_symlink() {
+            let underlying_metadata = std::fs::metadata(display_entry.dir_entry.path()).unwrap();
+            let underlying_file_type = underlying_metadata.file_type();
 
-            let third_file = display_entry.dir_entry.path();
-
-            match third_file.extension() {
-                Some(os_str_ext) => match os_str_ext.to_str() {
-                    Some(ext) => {
-                        let ext = ext.to_lowercase();
-                        let ext = ext.as_str();
-
-                        match ext {
-                            "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
-                                let can_display_image = Arc::new(Mutex::new(true));
-
-                                queue!(
-                                    w,
-                                    style::SetAttribute(Attribute::Reset),
-                                    style::SetAttribute(Attribute::Reverse),
-                                    cursor::MoveTo(left_x, 1),
-                                    style::Print("Loading..."),
-                                    style::SetAttribute(Attribute::Reset),
-                                )?;
-
-                                w.flush()?;
-
-                                let preview_image_handle = runtime.spawn(preview_image_or_video(
-                                    win_pixels.clone(),
-                                    third_file.clone(),
-                                    ext.to_string(),
-                                    width,
-                                    height,
-                                    left_x,
-                                    Arc::clone(&can_display_image),
-                                ));
-
-                                handles.push(ImageHandle {
-                                    handle: preview_image_handle,
-                                    can_display_image,
-                                });
-                            }
-                            _ => match available_execs.get("highlight") {
-                                None => (),
-                                Some(highlight) => {
-                                    // TODO(Chris): Actually show that something went wrong
-                                    let output = Command::new(highlight)
-                                        .arg("-O")
-                                        .arg("ansi")
-                                        .arg("--max-size=500K")
-                                        .arg(&third_file)
-                                        .output()
-                                        .unwrap();
-
-                                    // TODO(Chris): Handle case when file is not valid utf8
-                                    if let Ok(text) = std::str::from_utf8(&output.stdout) {
-                                        let mut curr_y = 1; // Columns start at y = 1
-                                        queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
-
-                                        queue!(&mut w, terminal::DisableLineWrap)?;
-
-                                        for ch in text.as_bytes() {
-                                            if curr_y > column_bot_y {
-                                                break;
-                                            }
-
-                                            if *ch == b'\n' {
-                                                curr_y += 1;
-
-                                                queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
-                                            } else {
-                                                // NOTE(Chris): We write directly to stdout so as to
-                                                // allow the ANSI escape codes to match the end of a
-                                                // line
-                                                w.write(&[*ch])?;
-                                            }
-                                        }
-
-                                        queue!(&mut w, terminal::EnableLineWrap)?;
-
-                                        // TODO(Chris): Figure out why the right-most edge of the
-                                        // terminal sometimes has a character that should be one beyond
-                                        // that right-most edge. This bug occurs when right-most edge
-                                        // isn't blanked out (as is currently done below).
-
-                                        // Clear the right-most edge of the terminal, since it might
-                                        // have been drawn over when printing file contents
-                                        for curr_y in 1..=column_bot_y {
-                                            queue!(
-                                                &mut w,
-                                                cursor::MoveTo(width, curr_y),
-                                                style::Print(' ')
-                                            )?;
-                                        }
-                                    }
-                                }
-                            },
-                        }
-                    }
-                    None => (),
-                },
-                None => (),
+            if underlying_file_type.is_dir() {
+                queue_third_column_dir(
+                    &mut w,
+                    &left_paths,
+                    width,
+                    left_x,
+                    right_x,
+                    column_bot_y,
+                    &display_entry,
+                )?;
+            } else if underlying_file_type.is_file() {
+                queue_third_column_file(
+                    &mut w,
+                    &runtime,
+                    &mut handles,
+                    &display_entry,
+                    &available_execs,
+                    *win_pixels,
+                    width,
+                    height,
+                    column_height,
+                    column_bot_y,
+                    left_x,
+                    right_x,
+                )?;
+            } else {
+                queue_blank_column(&mut w, left_x, right_x, column_height)?;
             }
         } else {
             queue_blank_column(&mut w, left_x, right_x, column_height)?;
         }
+    }
+
+    Ok(())
+}
+
+fn queue_third_column_dir(
+    mut w: &mut StdoutLock,
+    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
+    width: u16,
+    left_x: u16,
+    right_x: u16,
+    column_bot_y: u16,
+    display_entry: &DirEntryInfo,
+) -> crossterm::Result<()> {
+    w.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
+
+    let third_dir = display_entry.dir_entry.path();
+
+    match get_sorted_entries(&third_dir) {
+        Ok(third_entries) => {
+            let (display_offset, starting_index) = match left_paths.get(&third_dir) {
+                Some(dir_location) => (dir_location.display_offset, dir_location.starting_index),
+                None => (0, 0),
+            };
+
+            queue_entries_column(
+                &mut w,
+                width / 2 + 1,
+                width - 2,
+                column_bot_y,
+                &third_entries,
+                display_offset,
+                starting_index,
+            )?;
+        }
+        Err(err) => {
+            let message = match err.kind() {
+                io::ErrorKind::PermissionDenied => String::from("permission denied"),
+                _ => {
+                    format!("error reading: {}", err)
+                }
+            };
+
+            queue_oneline_column(&mut w, left_x, right_x, column_bot_y, &message)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn queue_third_column_file(
+    mut w: &mut StdoutLock,
+    runtime: &Runtime,
+    handles: &mut HandlesVec,
+    display_entry: &DirEntryInfo,
+    available_execs: &HashMap<&str, std::path::PathBuf>,
+    win_pixels: WindowPixels,
+    width: u16,
+    height: u16,
+    column_height: u16,
+    column_bot_y: u16,
+    left_x: u16,
+    right_x: u16,
+) -> crossterm::Result<()> {
+    queue_blank_column(&mut w, left_x, right_x, column_height)?;
+
+    let third_file = display_entry.dir_entry.path();
+
+    match third_file.extension() {
+        Some(os_str_ext) => match os_str_ext.to_str() {
+            Some(ext) => {
+                let ext = ext.to_lowercase();
+                let ext = ext.as_str();
+
+                match ext {
+                    "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
+                        let can_display_image = Arc::new(Mutex::new(true));
+
+                        queue!(
+                            w,
+                            style::SetAttribute(Attribute::Reset),
+                            style::SetAttribute(Attribute::Reverse),
+                            cursor::MoveTo(left_x, 1),
+                            style::Print("Loading..."),
+                            style::SetAttribute(Attribute::Reset),
+                        )?;
+
+                        w.flush()?;
+
+                        let preview_image_handle = runtime.spawn(preview_image_or_video(
+                            win_pixels.clone(),
+                            third_file.clone(),
+                            ext.to_string(),
+                            width,
+                            height,
+                            left_x,
+                            Arc::clone(&can_display_image),
+                        ));
+
+                        handles.push(ImageHandle {
+                            handle: preview_image_handle,
+                            can_display_image,
+                        });
+                    }
+                    _ => match available_execs.get("highlight") {
+                        None => (),
+                        Some(highlight) => {
+                            // TODO(Chris): Actually show that something went wrong
+                            let output = Command::new(highlight)
+                                .arg("-O")
+                                .arg("ansi")
+                                .arg("--max-size=500K")
+                                .arg(&third_file)
+                                .output()
+                                .unwrap();
+
+                            // TODO(Chris): Handle case when file is not valid utf8
+                            if let Ok(text) = std::str::from_utf8(&output.stdout) {
+                                let mut curr_y = 1; // Columns start at y = 1
+                                queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
+
+                                queue!(&mut w, terminal::DisableLineWrap)?;
+
+                                for ch in text.as_bytes() {
+                                    if curr_y > column_bot_y {
+                                        break;
+                                    }
+
+                                    if *ch == b'\n' {
+                                        curr_y += 1;
+
+                                        queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
+                                    } else {
+                                        // NOTE(Chris): We write directly to stdout so as to
+                                        // allow the ANSI escape codes to match the end of a
+                                        // line
+                                        w.write(&[*ch])?;
+                                    }
+                                }
+
+                                queue!(&mut w, terminal::EnableLineWrap)?;
+
+                                // TODO(Chris): Figure out why the right-most edge of the
+                                // terminal sometimes has a character that should be one beyond
+                                // that right-most edge. This bug occurs when right-most edge
+                                // isn't blanked out (as is currently done below).
+
+                                // Clear the right-most edge of the terminal, since it might
+                                // have been drawn over when printing file contents
+                                for curr_y in 1..=column_bot_y {
+                                    queue!(
+                                        &mut w,
+                                        cursor::MoveTo(width, curr_y),
+                                        style::Print(' ')
+                                    )?;
+                                }
+                            }
+                        }
+                    },
+                }
+            }
+            None => (),
+        },
+        None => (),
     }
 
     Ok(())
