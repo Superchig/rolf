@@ -26,7 +26,7 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
   - [x] Display images asynchronously
   - [x] Show image thumbnail for videos
   - [ ] Make ffmpeg an optional dependency
-- [ ] Make symlinks actually usable
+- [x] Make symlinks actually usable
 - [x] Fix compiler warnings on latest version of Rust stable
 
 # Long-term TODO (May Never Happen)
