@@ -134,8 +134,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     let mut dir_states = DirStates::new()?;
 
-    dir_states.set_current_dir(".")?;
-
     let mut second_display_offset = 0;
 
     let mut is_first_iteration = true;
@@ -244,7 +242,9 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     );
                                 }
 
-                                dir_states.set_current_dir("..")?;
+                                if let Some(parent_dir) = dir_states.prev_dir.clone() {
+                                    dir_states.set_current_dir(parent_dir)?;
+                                }
 
                                 let (display_offset, starting_index) = find_correct_location(
                                     &left_paths,
@@ -856,7 +856,7 @@ fn enter_entry(
     runtime: &Runtime,
     mut image_handles: &mut Vec<ImageHandle>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
-    dir_states: &mut DirStates,
+    mut dir_states: &mut DirStates,
     mut left_paths: &mut HashMap<std::path::PathBuf, DirLocation>,
     win_pixels: WindowPixels,
     width: u16,
@@ -884,71 +884,113 @@ fn enter_entry(
             *second_display_offset,
         );
 
-        let selected_entry = &dir_states.current_entries[second_entry_index as usize].dir_entry;
+        let selected_entry_path = &dir_states.current_entries[second_entry_index as usize]
+            .dir_entry
+            .path();
 
-        let selected_file_type = selected_entry.file_type().unwrap();
+        enter_specific_entry(
+            &mut stdout_lock,
+            &runtime,
+            &mut image_handles,
+            &available_execs,
+            &mut dir_states,
+            &left_paths,
+            win_pixels,
+            width,
+            height,
+            second_starting_index,
+            second_display_offset,
+            column_height,
+            column_bot_y,
+            second_column,
+            selected_entry_path,
+        )?;
+    }
 
-        if selected_file_type.is_dir() {
-            let selected_dir_path = selected_entry.path();
+    Ok(())
+}
 
-            // TODO(Chris): Avoid substituting apparent path with symlink target when
-            // entering symlinked directories
-            dir_states.set_current_dir(&selected_dir_path)?;
+fn enter_specific_entry(
+    mut stdout_lock: &mut StdoutLock,
+    runtime: &Runtime,
+    mut image_handles: &mut Vec<ImageHandle>,
+    available_execs: &HashMap<&str, std::path::PathBuf>,
+    dir_states: &mut DirStates,
+    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
+    win_pixels: WindowPixels,
+    width: u16,
+    height: u16,
+    second_starting_index: &mut u16,
+    second_display_offset: &mut u16,
+    column_height: u16,
+    column_bot_y: u16,
+    second_column: u16,
+    selected_entry_path: &PathBuf,
+) -> crossterm::Result<()> {
+    let selected_target_file_type = selected_entry_path
+        .metadata()
+        .unwrap()
+        .file_type();
 
-            match left_paths.get(&selected_dir_path) {
-                Some(dir_location) => {
-                    let curr_entry_index = dir_states
-                        .current_entries
-                        .iter()
-                        .position(|entry| entry.dir_entry.path() == *dir_location.dir_path);
+    if selected_target_file_type.is_dir() {
+        let selected_dir_path = selected_entry_path;
 
-                    match curr_entry_index {
-                        Some(curr_entry_index) => {
-                            let orig_entry_index = (dir_location.starting_index
-                                + dir_location.display_offset)
-                                as usize;
-                            if curr_entry_index == orig_entry_index {
-                                *second_starting_index = dir_location.starting_index;
-                                *second_display_offset = dir_location.display_offset;
-                            } else {
-                                *second_starting_index = (curr_entry_index / 2) as u16;
-                                *second_display_offset =
-                                    (curr_entry_index as u16) - *second_starting_index;
-                            }
-                        }
-                        None => {
-                            *second_starting_index = 0;
-                            *second_display_offset = 0;
+        // TODO(Chris): Avoid substituting apparent path with symlink target when
+        // entering symlinked directories
+        dir_states.set_current_dir(selected_dir_path)?;
+
+        match left_paths.get(selected_dir_path) {
+            Some(dir_location) => {
+                let curr_entry_index = dir_states
+                    .current_entries
+                    .iter()
+                    .position(|entry| entry.dir_entry.path() == *dir_location.dir_path);
+
+                match curr_entry_index {
+                    Some(curr_entry_index) => {
+                        let orig_entry_index =
+                            (dir_location.starting_index + dir_location.display_offset) as usize;
+                        if curr_entry_index == orig_entry_index {
+                            *second_starting_index = dir_location.starting_index;
+                            *second_display_offset = dir_location.display_offset;
+                        } else {
+                            *second_starting_index = (curr_entry_index / 2) as u16;
+                            *second_display_offset =
+                                (curr_entry_index as u16) - *second_starting_index;
                         }
                     }
+                    None => {
+                        *second_starting_index = 0;
+                        *second_display_offset = 0;
+                    }
                 }
-                None => {
-                    *second_starting_index = 0;
-                    *second_display_offset = 0;
-                }
-            };
+            }
+            None => {
+                *second_starting_index = 0;
+                *second_display_offset = 0;
+            }
+        };
 
-            queue_all_columns(
-                &mut stdout_lock,
-                &runtime,
-                &mut image_handles,
-                &win_pixels,
-                &dir_states,
-                &left_paths,
-                &available_execs,
-                width,
-                height,
-                column_height,
-                column_bot_y,
-                second_column,
-                *second_display_offset,
-                *second_starting_index,
-            )?;
-        } else if selected_file_type.is_file() {
-            // Should we display some sort of error message according to the exit status
-            // here?
-            open::that_in_background(selected_entry.path());
-        }
+        queue_all_columns(
+            &mut stdout_lock,
+            &runtime,
+            &mut image_handles,
+            &win_pixels,
+            &dir_states,
+            &left_paths,
+            &available_execs,
+            width,
+            height,
+            column_height,
+            column_bot_y,
+            second_column,
+            *second_display_offset,
+            *second_starting_index,
+        )?;
+    } else if selected_target_file_type.is_file() {
+        // Should we display some sort of error message according to the exit status
+        // here?
+        open::that_in_background(selected_entry_path);
     }
 
     Ok(())
@@ -2241,15 +2283,15 @@ impl DirStates {
             prev_entries: Vec::with_capacity(0),
         };
 
-        dir_states.set_current_dir(".")?;
+        dir_states.set_current_dir(std::env::var("PWD").unwrap())?;
 
         Ok(dir_states)
     }
 
     fn set_current_dir<P: AsRef<Path>>(self: &mut DirStates, path: P) -> crossterm::Result<()> {
-        std::env::set_current_dir(path)?;
+        std::env::set_current_dir(&path)?;
 
-        self.current_dir = std::env::current_dir()?;
+        self.current_dir = path.as_ref().to_path_buf();
 
         self.current_entries = get_sorted_entries(&self.current_dir).unwrap();
 
@@ -2598,7 +2640,8 @@ fn queue_blank_column(
 }
 
 fn get_sorted_entries<P: AsRef<Path>>(path: P) -> io::Result<Vec<DirEntryInfo>> {
-    let mut entries = std::fs::read_dir(path)?
+    let mut entries = std::fs::read_dir(path)
+        .unwrap()
         .map(|entry| {
             let dir_entry = entry.unwrap();
             let metadata = std::fs::symlink_metadata(dir_entry.path()).unwrap();
