@@ -150,9 +150,18 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     let mut input_line = String::new();
 
+    let user_host_display = format!("{}@{}", user_name, host_name);
+
     // Main input loop
     loop {
         // Gather all the data before rendering things with stdout_lock
+
+        // The terminal's height is also the index of the lowest cell
+        let (width, height) = terminal::size()?;
+        let (second_column, column_bot_y, column_height) = calc_second_column_info(width, height);
+
+        let second_bottom_index = second_starting_index + column_height;
+
         let current_dir_display = format_current_dir(&dir_states, home_path);
 
         let second_entry_index = second_starting_index + second_display_offset;
@@ -167,14 +176,23 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
             curr_entry.to_str().unwrap()
         };
 
+        // TODO(Chris): Use the unicode-segmentation package to count graphemes
+        let remaining_width =
+            width as usize - (user_host_display.len() + 1 + current_dir_display.len() + 1);
+
+        // Add 1 because of the ':' that is displayed after user_host_display
+        // Add 1 again because of the '/' that is displayed at the end of current_dir_display
+        let file_stem =
+            if file_stem.len() > remaining_width
+            {
+                // format!("{}~", &file_stem[..remaining_width - 2])
+                String::from(&file_stem[..remaining_width])
+            } else {
+                String::from(file_stem)
+            };
+
         // TODO(Chris): Check if we're currently using the kitty terminal (or anything which
         // supports its image protocol)
-
-        // The terminal's height is also the index of the lowest cell
-        let (width, height) = terminal::size()?;
-        let (second_column, column_bot_y, column_height) = calc_second_column_info(width, height);
-
-        let second_bottom_index = second_starting_index + column_height;
 
         {
             let mut stdout_lock = w.lock();
@@ -185,7 +203,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                 terminal::Clear(ClearType::CurrentLine),
                 style::SetForegroundColor(Color::DarkGreen),
                 style::SetAttribute(Attribute::Bold),
-                style::Print(format!("{}@{}", user_name, host_name)),
+                style::Print(&user_host_display),
                 style::SetForegroundColor(Color::White),
                 style::Print(":"),
                 style::SetForegroundColor(Color::DarkBlue),
@@ -927,10 +945,7 @@ fn enter_specific_entry(
     second_column: u16,
     selected_entry_path: &PathBuf,
 ) -> crossterm::Result<()> {
-    let selected_target_file_type = selected_entry_path
-        .metadata()
-        .unwrap()
-        .file_type();
+    let selected_target_file_type = selected_entry_path.metadata().unwrap().file_type();
 
     if selected_target_file_type.is_dir() {
         let selected_dir_path = selected_entry_path;
