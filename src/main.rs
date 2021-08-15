@@ -182,14 +182,12 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
         // Add 1 because of the ':' that is displayed after user_host_display
         // Add 1 again because of the '/' that is displayed at the end of current_dir_display
-        let file_stem =
-            if file_stem.len() > remaining_width
-            {
-                // format!("{}~", &file_stem[..remaining_width - 2])
-                String::from(&file_stem[..remaining_width])
-            } else {
-                String::from(file_stem)
-            };
+        let file_stem = if file_stem.len() > remaining_width {
+            // format!("{}~", &file_stem[..remaining_width - 2])
+            String::from(&file_stem[..remaining_width])
+        } else {
+            String::from(file_stem)
+        };
 
         // TODO(Chris): Check if we're currently using the kitty terminal (or anything which
         // supports its image protocol)
@@ -1699,36 +1697,43 @@ fn queue_third_column(
                 right_x,
             )?;
         } else if file_type.is_symlink() {
-            let underlying_metadata = std::fs::metadata(display_entry.dir_entry.path()).unwrap();
-            let underlying_file_type = underlying_metadata.file_type();
+            // TODO(Chris): Show error if symlink is invalid
+            match std::fs::metadata(display_entry.dir_entry.path()) {
+                Ok(underlying_metadata) => {
+                    let underlying_file_type = underlying_metadata.file_type();
 
-            if underlying_file_type.is_dir() {
-                queue_third_column_dir(
-                    &mut w,
-                    &left_paths,
-                    width,
-                    left_x,
-                    right_x,
-                    column_bot_y,
-                    &display_entry,
-                )?;
-            } else if underlying_file_type.is_file() {
-                queue_third_column_file(
-                    &mut w,
-                    &runtime,
-                    &mut handles,
-                    &display_entry,
-                    &available_execs,
-                    *win_pixels,
-                    width,
-                    height,
-                    column_height,
-                    column_bot_y,
-                    left_x,
-                    right_x,
-                )?;
-            } else {
-                queue_blank_column(&mut w, left_x, right_x, column_height)?;
+                    if underlying_file_type.is_dir() {
+                        queue_third_column_dir(
+                            &mut w,
+                            &left_paths,
+                            width,
+                            left_x,
+                            right_x,
+                            column_bot_y,
+                            &display_entry,
+                        )?;
+                    } else if underlying_file_type.is_file() {
+                        queue_third_column_file(
+                            &mut w,
+                            &runtime,
+                            &mut handles,
+                            &display_entry,
+                            &available_execs,
+                            *win_pixels,
+                            width,
+                            height,
+                            column_height,
+                            column_bot_y,
+                            left_x,
+                            right_x,
+                        )?;
+                    } else {
+                        queue_blank_column(&mut w, left_x, right_x, column_height)?;
+                    }
+                }
+                Err(_) => {
+                    queue_blank_column(&mut w, left_x, right_x, column_height)?;
+                }
             }
         } else {
             queue_blank_column(&mut w, left_x, right_x, column_height)?;
