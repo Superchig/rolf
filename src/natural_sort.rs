@@ -1,42 +1,5 @@
 use std::cmp::Ordering;
 
-fn is_uppercase(b: u8) -> bool {
-    b'A' <= b && b <= b'Z'
-}
-
-fn is_lowercase(b: u8) -> bool {
-    b'a' <= b && b <= b'z'
-}
-
-fn to_lowercase(b: u8) -> u8 {
-    assert!(is_uppercase(b));
-
-    b + 32
-}
-
-fn cmp_mixed_caps(str1: &[u8], str2: &[u8]) -> Ordering {
-    let both = str1.iter().zip(str2.iter());
-
-    for pair in both {
-        let ch1 = *pair.0;
-        let ch2 = *pair.1;
-
-        if ch1 == ch2 {
-            continue;
-        }
-
-        if is_uppercase(ch1) && is_lowercase(ch2) {
-            return to_lowercase(ch1).cmp(&ch2);
-        } else if is_lowercase(ch1) && is_uppercase(ch2) {
-            return ch1.cmp(&to_lowercase(ch2));
-        } else {
-            return ch1.cmp(&ch2);
-        }
-    }
-
-    str1.len().cmp(&str2.len())
-}
-
 fn is_digit(b: u8) -> bool {
     // 48 = '0'
     // 57 = '9'
@@ -116,7 +79,7 @@ pub fn cmp_natural(str1: &str, str2: &str) -> Ordering {
         // both of the chunks actually numerical. Thus, these chunks are the ones which will
         // finally determine the order of the strings, so we only need to compare them.
         // return s1[lo1..hi1].cmp(&s2[lo2..hi2]);
-        return cmp_mixed_caps(&s1[lo1..hi1], &s2[lo2..hi2]);
+        return str1.to_ascii_lowercase().cmp(&str2.to_ascii_lowercase());
     }
 }
 
@@ -138,17 +101,5 @@ mod tests {
         assert_eq!(cmp_natural(".gitignore", ".gitignore"), Ordering::Equal);
 
         assert_eq!(cmp_natural("class_schedule", "Electron_Background"), Ordering::Less);
-    }
-
-    #[test]
-    fn cmp_mixed_caps_works() {
-        assert!(is_uppercase(b'E'));
-        assert!(!is_uppercase(b'e'));
-
-        assert!(is_lowercase(b'd'));
-        
-        assert_eq!(to_lowercase(b'E'), b'e');
-
-        assert_eq!(cmp_mixed_caps(b"anagramster-py", b"Electron"), Ordering::Less);
     }
 }
