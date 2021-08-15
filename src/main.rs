@@ -2464,9 +2464,16 @@ fn queue_full_entry(
     } else if new_file_type.is_file() {
         queue!(w, style::SetForegroundColor(Color::White))?;
     } else if new_file_type.is_symlink() {
+        let color = match std::fs::metadata(new_entry_info.dir_entry.path()) {
+            Ok(_) => Color::DarkCyan,
+            // This assumes that if there is an error, it is because the symlink points to an
+            // invalid target
+            Err(_) => Color::DarkRed,
+        };
+
         queue!(
             w,
-            style::SetForegroundColor(Color::DarkCyan),
+            style::SetForegroundColor(color),
             style::SetAttribute(Attribute::Bold)
         )?;
     }
