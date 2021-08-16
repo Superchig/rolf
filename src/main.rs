@@ -914,8 +914,6 @@ fn enter_entry(
     if selected_target_file_type.is_dir() {
         let selected_dir_path = selected_entry_path;
 
-        // TODO(Chris): Avoid substituting apparent path with symlink target when
-        // entering symlinked directories
         dir_states.set_current_dir(selected_dir_path)?;
 
         match left_paths.get(selected_dir_path) {
