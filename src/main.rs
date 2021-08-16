@@ -889,8 +889,6 @@ fn enter_entry(
     // displaying an image. If we are entering a file, then we aren't changing the current
     // file, so there's no need to abort the image display.
 
-    // FIXME(Chris): Implement entering symlinks correctly
-
     if dir_states.current_entries.len() > 0 {
         save_location(
             &mut left_paths,
