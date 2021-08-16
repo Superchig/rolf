@@ -872,7 +872,7 @@ fn enter_entry(
     runtime: &Runtime,
     mut image_handles: &mut Vec<ImageHandle>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
-    mut dir_states: &mut DirStates,
+    dir_states: &mut DirStates,
     mut left_paths: &mut HashMap<std::path::PathBuf, DirLocation>,
     win_pixels: WindowPixels,
     width: u16,
@@ -889,58 +889,22 @@ fn enter_entry(
     // displaying an image. If we are entering a file, then we aren't changing the current
     // file, so there's no need to abort the image display.
 
-    if dir_states.current_entries.len() > 0 {
-        save_location(
-            &mut left_paths,
-            &dir_states,
-            second_entry_index,
-            *second_starting_index,
-            *second_display_offset,
-        );
-
-        let selected_entry_path = &dir_states.current_entries[second_entry_index as usize]
-            .dir_entry
-            .path();
-
-        enter_specific_entry(
-            &mut stdout_lock,
-            &runtime,
-            &mut image_handles,
-            &available_execs,
-            &mut dir_states,
-            &left_paths,
-            win_pixels,
-            width,
-            height,
-            second_starting_index,
-            second_display_offset,
-            column_height,
-            column_bot_y,
-            second_column,
-            selected_entry_path,
-        )?;
+    if dir_states.current_entries.len() <= 0 {
+        return Ok(());
     }
 
-    Ok(())
-}
+    save_location(
+        &mut left_paths,
+        &dir_states,
+        second_entry_index,
+        *second_starting_index,
+        *second_display_offset,
+    );
 
-fn enter_specific_entry(
-    mut stdout_lock: &mut StdoutLock,
-    runtime: &Runtime,
-    mut image_handles: &mut Vec<ImageHandle>,
-    available_execs: &HashMap<&str, std::path::PathBuf>,
-    dir_states: &mut DirStates,
-    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
-    win_pixels: WindowPixels,
-    width: u16,
-    height: u16,
-    second_starting_index: &mut u16,
-    second_display_offset: &mut u16,
-    column_height: u16,
-    column_bot_y: u16,
-    second_column: u16,
-    selected_entry_path: &PathBuf,
-) -> crossterm::Result<()> {
+    let selected_entry_path = &dir_states.current_entries[second_entry_index as usize]
+        .dir_entry
+        .path();
+
     // TODO(Chris): Show this error without crashing the program
     let selected_target_file_type = match selected_entry_path.metadata() {
         Ok(metadata) => metadata.file_type(),
@@ -2481,13 +2445,74 @@ fn queue_full_entry(
     }
 
     // TODO(Chris): Inline this function, since it's only used once
-    queue_entry(
-        w,
-        left_x,
-        right_x,
-        display_offset,
-        new_entry_info.dir_entry.file_name().to_str().unwrap(),
-    )?;
+    {
+        let w: &mut io::StdoutLock = w;
+        let left_x = left_x;
+        let right_x = right_x;
+        let display_offset = display_offset;
+        let file_name = new_entry_info.dir_entry.file_name();
+        let file_name = file_name.to_str().unwrap();
+        let mut curr_x = left_x; // This is the cell which we are about to print into
+
+        queue!(
+            w,
+            cursor::MoveTo(left_x, display_offset + 1),
+            style::Print(' ')
+        )?; // 1 is the starting y for columns
+        curr_x += 1;
+
+        // NOTE(Chris): In lf, we start by printing an initial space. This is already done above.
+        // If the file name is smaller than the column width - 2, print the name and then add spaces
+        // until the end of the column
+        // If the file name is exactly the column width - 2, print the name and then add spaces until
+        // the end of the column (which is now just one space)
+        // If the file name is more than the column width - 2, print the name until the end of column -
+        // 2, then add a "~" (this is in column - 1),
+        // then add spaces until the end of the column (which is now just one space)
+
+        // NOTE(Chris): "until" here means up to and including that cell
+        // The "end of column" is the last cell in the column
+        // A column does not include the gaps in between columns (there's an uncolored gap on the side
+        // of each column, resulting in there being a two-cell gap between any two columns)
+
+        // This is the number of cells in the column. If right_x and left_x were equal, there would
+        // still be exactly one cell in the column, which is why we add 1.
+        let col_width = (right_x - left_x + 1) as usize;
+
+        let file_name_len = file_name.chars().count();
+
+        if file_name_len <= col_width - 2 {
+            queue!(w, style::Print(file_name))?;
+            // This conversion is fine since file_name.len() can't be longer than
+            // the terminal width in this instance.
+            curr_x += file_name.len() as u16;
+        } else {
+            // Print the name until the end of column - 2
+            for ch in file_name.chars() {
+                // If curr_x == right_x - 1, then a character was printed into right_x - 2 in the
+                // previous iteration of the loop
+                if curr_x == right_x - 1 {
+                    break;
+                }
+
+                queue!(w, style::Print(ch))?;
+
+                curr_x += 1;
+            }
+
+            assert!(curr_x == right_x - 1);
+
+            // This '~' is now in column - 1
+            queue!(w, style::Print('~'))?;
+            curr_x += 1;
+        }
+
+        while curr_x <= right_x {
+            queue!(w, style::Print(' '))?;
+
+            curr_x += 1;
+        }
+    }
 
     if new_file_type.is_dir() || new_file_type.is_symlink() {
         queue!(w, style::SetAttribute(Attribute::NormalIntensity))?;
@@ -2563,78 +2588,6 @@ fn queue_entries_column(
         }
 
         curr_y += 1;
-    }
-
-    Ok(())
-}
-
-// This inherits the cursor's current y
-fn queue_entry(
-    w: &mut io::StdoutLock,
-    left_x: u16,
-    right_x: u16,
-    display_offset: u16,
-    file_name: &str,
-) -> crossterm::Result<()> {
-    let mut curr_x = left_x; // This is the cell which we are about to print into
-
-    queue!(
-        w,
-        cursor::MoveTo(left_x, display_offset + 1),
-        style::Print(' ')
-    )?; // 1 is the starting y for columns
-    curr_x += 1;
-
-    // NOTE(Chris): In lf, we start by printing an initial space. This is already done above.
-    // If the file name is smaller than the column width - 2, print the name and then add spaces
-    // until the end of the column
-    // If the file name is exactly the column width - 2, print the name and then add spaces until
-    // the end of the column (which is now just one space)
-    // If the file name is more than the column width - 2, print the name until the end of column -
-    // 2, then add a "~" (this is in column - 1),
-    // then add spaces until the end of the column (which is now just one space)
-
-    // NOTE(Chris): "until" here means up to and including that cell
-    // The "end of column" is the last cell in the column
-    // A column does not include the gaps in between columns (there's an uncolored gap on the side
-    // of each column, resulting in there being a two-cell gap between any two columns)
-
-    // This is the number of cells in the column. If right_x and left_x were equal, there would
-    // still be exactly one cell in the column, which is why we add 1.
-    let col_width = (right_x - left_x + 1) as usize;
-
-    let file_name_len = file_name.chars().count();
-
-    if file_name_len <= col_width - 2 {
-        queue!(w, style::Print(file_name))?;
-        // This conversion is fine since file_name.len() can't be longer than
-        // the terminal width in this instance.
-        curr_x += file_name.len() as u16;
-    } else {
-        // Print the name until the end of column - 2
-        for ch in file_name.chars() {
-            // If curr_x == right_x - 1, then a character was printed into right_x - 2 in the
-            // previous iteration of the loop
-            if curr_x == right_x - 1 {
-                break;
-            }
-
-            queue!(w, style::Print(ch))?;
-
-            curr_x += 1;
-        }
-
-        assert!(curr_x == right_x - 1);
-
-        // This '~' is now in column - 1
-        queue!(w, style::Print('~'))?;
-        curr_x += 1;
-    }
-
-    while curr_x <= right_x {
-        queue!(w, style::Print(' '))?;
-
-        curr_x += 1;
     }
 
     Ok(())
