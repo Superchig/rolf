@@ -2442,74 +2442,71 @@ fn queue_full_entry(
         )?;
     }
 
-    // TODO(Chris): Inline this function, since it's only used once
-    {
-        let w: &mut io::StdoutLock = w;
-        let left_x = left_x;
-        let right_x = right_x;
-        let display_offset = display_offset;
-        let file_name = new_entry_info.dir_entry.file_name();
-        let file_name = file_name.to_str().unwrap();
-        let mut curr_x = left_x; // This is the cell which we are about to print into
+    let w: &mut io::StdoutLock = w;
+    let left_x = left_x;
+    let right_x = right_x;
+    let display_offset = display_offset;
+    let file_name = new_entry_info.dir_entry.file_name();
+    let file_name = file_name.to_str().unwrap();
+    let mut curr_x = left_x; // This is the cell which we are about to print into
 
-        queue!(
-            w,
-            cursor::MoveTo(left_x, display_offset + 1),
-            style::Print(' ')
-        )?; // 1 is the starting y for columns
-        curr_x += 1;
+    queue!(
+        w,
+        cursor::MoveTo(left_x, display_offset + 1),
+        style::Print(' ')
+    )?; // 1 is the starting y for columns
+    curr_x += 1;
 
-        // NOTE(Chris): In lf, we start by printing an initial space. This is already done above.
-        // If the file name is smaller than the column width - 2, print the name and then add spaces
-        // until the end of the column
-        // If the file name is exactly the column width - 2, print the name and then add spaces until
-        // the end of the column (which is now just one space)
-        // If the file name is more than the column width - 2, print the name until the end of column -
-        // 2, then add a "~" (this is in column - 1),
-        // then add spaces until the end of the column (which is now just one space)
+    // NOTE(Chris): In lf, we start by printing an initial space. This is already done above.
+    // If the file name is smaller than the column width - 2, print the name and then add spaces
+    // until the end of the column
+    // If the file name is exactly the column width - 2, print the name and then add spaces until
+    // the end of the column (which is now just one space)
+    // If the file name is more than the column width - 2, print the name until the end of column -
+    // 2, then add a "~" (this is in column - 1),
+    // then add spaces until the end of the column (which is now just one space)
 
-        // NOTE(Chris): "until" here means up to and including that cell
-        // The "end of column" is the last cell in the column
-        // A column does not include the gaps in between columns (there's an uncolored gap on the side
-        // of each column, resulting in there being a two-cell gap between any two columns)
+    // NOTE(Chris): "until" here means up to and including that cell
+    // The "end of column" is the last cell in the column
+    // A column does not include the gaps in between columns (there's an uncolored gap on the side
+    // of each column, resulting in there being a two-cell gap between any two columns)
 
-        // This is the number of cells in the column. If right_x and left_x were equal, there would
-        // still be exactly one cell in the column, which is why we add 1.
-        let col_width = (right_x - left_x + 1) as usize;
+    // This is the number of cells in the column. If right_x and left_x were equal, there would
+    // still be exactly one cell in the column, which is why we add 1.
+    let col_width = (right_x - left_x + 1) as usize;
 
-        let file_name_len = file_name.chars().count();
+    let file_name_len = file_name.chars().count();
 
-        if file_name_len <= col_width - 2 {
-            queue!(w, style::Print(file_name))?;
-            // This conversion is fine since file_name.len() can't be longer than
-            // the terminal width in this instance.
-            curr_x += file_name.len() as u16;
-        } else {
-            // Print the name until the end of column - 2
-            for ch in file_name.chars() {
-                // If curr_x == right_x - 1, then a character was printed into right_x - 2 in the
-                // previous iteration of the loop
-                if curr_x == right_x - 1 {
-                    break;
-                }
-
-                queue!(w, style::Print(ch))?;
-
-                curr_x += 1;
+    if file_name_len <= col_width - 2 {
+        queue!(w, style::Print(file_name))?;
+        // This conversion is fine since file_name.len() can't be longer than
+        // the terminal width in this instance.
+        curr_x += file_name.len() as u16;
+    } else {
+        // Print the name until the end of column - 2
+        for ch in file_name.chars() {
+            // If curr_x == right_x - 1, then a character was printed into right_x - 2 in the
+            // previous iteration of the loop
+            if curr_x == right_x - 1 {
+                break;
             }
 
-            assert!(curr_x == right_x - 1);
-
-            // This '~' is now in column - 1
-            queue!(w, style::Print('~'))?;
-            curr_x += 1;
-        }
-
-        while curr_x <= right_x {
-            queue!(w, style::Print(' '))?;
+            queue!(w, style::Print(ch))?;
 
             curr_x += 1;
         }
+
+        assert!(curr_x == right_x - 1);
+
+        // This '~' is now in column - 1
+        queue!(w, style::Print('~'))?;
+        curr_x += 1;
+    }
+
+    while curr_x <= right_x {
+        queue!(w, style::Print(' '))?;
+
+        curr_x += 1;
     }
 
     if new_file_type.is_dir() || new_file_type.is_symlink() {
