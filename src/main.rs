@@ -943,7 +943,11 @@ fn enter_specific_entry(
     second_column: u16,
     selected_entry_path: &PathBuf,
 ) -> crossterm::Result<()> {
-    let selected_target_file_type = selected_entry_path.metadata().unwrap().file_type();
+    // TODO(Chris): Show this error without crashing the program
+    let selected_target_file_type = match selected_entry_path.metadata() {
+        Ok(metadata) => metadata.file_type(),
+        Err(_) => return Ok(()),
+    };
 
     if selected_target_file_type.is_dir() {
         let selected_dir_path = selected_entry_path;
