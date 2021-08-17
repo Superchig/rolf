@@ -1139,12 +1139,7 @@ fn queue_search_jump(
     } else if next_position > second_entry_index as usize {
         // Moving down
 
-        // TODO(Chris): See if this first branch can be removed safely
-        if next_position <= greater_offset {
-            *second_starting_index = 0;
-
-            *second_display_offset = next_position as u16;
-        } else if next_position <= *second_starting_index as usize + greater_offset {
+        if next_position <= *second_starting_index as usize + greater_offset {
             *second_display_offset = next_position as u16 - *second_starting_index;
         } else if next_position > *second_starting_index as usize + greater_offset {
             *second_display_offset = greater_offset as u16;
