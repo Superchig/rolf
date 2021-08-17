@@ -148,6 +148,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     let mut match_positions: Vec<usize> = vec![];
 
+    let mut should_search_forwards = true;
+
     let mut input_line = String::new();
 
     let user_host_display = format!("{}@{}", user_name, host_name);
@@ -259,7 +261,11 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 }
 
                                 if let Some(parent_dir) = dir_states.prev_dir.clone() {
-                                    set_current_dir(parent_dir, &mut dir_states, &mut match_positions)?;
+                                    set_current_dir(
+                                        parent_dir,
+                                        &mut dir_states,
+                                        &mut match_positions,
+                                    )?;
                                 }
 
                                 let (display_offset, starting_index) = find_correct_location(
@@ -561,6 +567,13 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                                 should_enter_cmd_line = true;
                             }
+                            '?' => {
+                                assert!(input_line.len() <= 0);
+
+                                input_line.push_str("search-back ");
+
+                                should_enter_cmd_line = true;
+                            }
                             'n' => {
                                 queue_search_next(
                                     &mut stdout_lock,
@@ -571,6 +584,27 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &dir_states,
                                     &left_paths,
                                     &available_execs,
+                                    should_search_forwards,
+                                    width,
+                                    height,
+                                    column_height,
+                                    column_bot_y,
+                                    &mut second_starting_index,
+                                    &mut second_display_offset,
+                                    second_column,
+                                )?;
+                            }
+                            'N' => {
+                                queue_search_next(
+                                    &mut stdout_lock,
+                                    &match_positions,
+                                    &runtime,
+                                    &mut image_handles,
+                                    &win_pixels,
+                                    &dir_states,
+                                    &left_paths,
+                                    &available_execs,
+                                    !should_search_forwards,
                                     width,
                                     height,
                                     column_height,
@@ -761,6 +795,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 })
                                                 .collect();
 
+                                            should_search_forwards = true;
+
                                             queue_search_next(
                                                 &mut stdout_lock,
                                                 &match_positions,
@@ -770,6 +806,53 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 &dir_states,
                                                 &left_paths,
                                                 &available_execs,
+                                                should_search_forwards,
+                                                width,
+                                                height,
+                                                column_height,
+                                                column_bot_y,
+                                                &mut second_starting_index,
+                                                &mut second_display_offset,
+                                                second_column,
+                                            )?;
+                                        }
+                                    }
+                                    "search-back" => {
+                                        if spaced_words.len() == 2 {
+                                            let search_term = spaced_words[1];
+
+                                            match_positions = dir_states
+                                                .current_entries
+                                                .iter()
+                                                .enumerate()
+                                                .filter_map(|(index, entry_info)| {
+                                                    if entry_info
+                                                        .dir_entry
+                                                        .file_name()
+                                                        .to_str()
+                                                        .unwrap()
+                                                        .to_lowercase()
+                                                        .contains(&search_term.to_lowercase())
+                                                    {
+                                                        Some(index)
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                                .collect();
+
+                                            should_search_forwards = false;
+
+                                            queue_search_next(
+                                                &mut stdout_lock,
+                                                &match_positions,
+                                                &runtime,
+                                                &mut image_handles,
+                                                &win_pixels,
+                                                &dir_states,
+                                                &left_paths,
+                                                &available_execs,
+                                                should_search_forwards,
                                                 width,
                                                 height,
                                                 column_height,
@@ -987,6 +1070,7 @@ fn enter_entry(
     Ok(())
 }
 
+// FIXME(Chris): Rename this function, since it sort of searches both next and prev
 fn queue_search_next(
     mut stdout_lock: &mut StdoutLock,
     match_positions: &Vec<usize>,
@@ -996,6 +1080,7 @@ fn queue_search_next(
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
+    should_search_forwards: bool,
     width: u16,
     height: u16,
     column_height: u16,
@@ -1010,13 +1095,25 @@ fn queue_search_next(
 
     let second_entry_index = *second_starting_index + *second_display_offset;
 
-    let next_position = match_positions
-        .iter()
-        .find(|pos| **pos > second_entry_index as usize);
+    let next_position = if should_search_forwards {
+        let result = match_positions
+            .iter()
+            .find(|pos| **pos > second_entry_index as usize);
 
-    let next_position = match next_position {
-        None => match_positions[0],
-        Some(next_position) => *next_position,
+        match result {
+            None => match_positions[0],
+            Some(next_position) => *next_position,
+        }
+    } else {
+        let result = match_positions
+            .iter()
+            .rev()
+            .find(|pos| **pos < second_entry_index as usize);
+
+        match result {
+            None => *match_positions.last().unwrap(),
+            Some(next_position) => *next_position,
+        }
     };
 
     let old_starting_index = *second_starting_index;
@@ -1035,10 +1132,12 @@ fn queue_search_next(
             *second_starting_index = 0;
 
             *second_display_offset = next_position as u16;
-        } else {
+        } else if next_position <= *second_starting_index as usize + lesser_offset {
             *second_display_offset = lesser_offset as u16;
 
             *second_starting_index = next_position as u16 - *second_display_offset;
+        } else if next_position > *second_starting_index as usize + lesser_offset {
+            *second_display_offset = next_position as u16 - *second_starting_index; 
         }
     } else if next_position > second_entry_index as usize {
         // Moving down
