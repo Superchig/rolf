@@ -1134,10 +1134,12 @@ fn queue_search_jump(
 
             *second_starting_index = next_position as u16 - *second_display_offset;
         } else if next_position > *second_starting_index as usize + lesser_offset {
-            *second_display_offset = next_position as u16 - *second_starting_index; 
+            *second_display_offset = next_position as u16 - *second_starting_index;
         }
     } else if next_position > second_entry_index as usize {
         // Moving down
+
+        // TODO(Chris): See if this first branch can be removed safely
         if next_position <= greater_offset {
             *second_starting_index = 0;
 
@@ -1151,11 +1153,23 @@ fn queue_search_jump(
         } else {
             panic!();
         }
+
+        // Stop us from going too far down the third column
+        if *second_starting_index > dir_states.current_entries.len() as u16 - column_height {
+            *second_starting_index = dir_states.current_entries.len() as u16 - column_height;
+
+            *second_display_offset = next_position as u16 - *second_starting_index;
+        }
     } else if next_position == second_entry_index as usize {
         // Do nothing.
     } else {
         panic!();
     }
+
+    assert_eq!(
+        next_position,
+        (*second_starting_index + *second_display_offset) as usize
+    );
 
     queue_entry_changed(
         &mut stdout_lock,
