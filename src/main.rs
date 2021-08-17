@@ -767,8 +767,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             let spaced_words: Vec<&str> =
                                 trimmed_input_line.split_whitespace().collect();
 
-                            // FIXME(Chris): Implement reverse search (search-back)
-
                             if spaced_words.len() > 0 {
                                 match spaced_words[0] {
                                     "search" => {
