@@ -575,7 +575,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 should_enter_cmd_line = true;
                             }
                             'n' => {
-                                queue_search_next(
+                                queue_search_jump(
                                     &mut stdout_lock,
                                     &match_positions,
                                     &runtime,
@@ -595,7 +595,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 )?;
                             }
                             'N' => {
-                                queue_search_next(
+                                queue_search_jump(
                                     &mut stdout_lock,
                                     &match_positions,
                                     &runtime,
@@ -795,7 +795,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                                             should_search_forwards = true;
 
-                                            queue_search_next(
+                                            queue_search_jump(
                                                 &mut stdout_lock,
                                                 &match_positions,
                                                 &runtime,
@@ -841,7 +841,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                                             should_search_forwards = false;
 
-                                            queue_search_next(
+                                            queue_search_jump(
                                                 &mut stdout_lock,
                                                 &match_positions,
                                                 &runtime,
@@ -1068,8 +1068,7 @@ fn enter_entry(
     Ok(())
 }
 
-// FIXME(Chris): Rename this function, since it sort of searches both next and prev
-fn queue_search_next(
+fn queue_search_jump(
     mut stdout_lock: &mut StdoutLock,
     match_positions: &Vec<usize>,
     runtime: &Runtime,
