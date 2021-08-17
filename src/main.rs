@@ -259,9 +259,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 }
 
                                 if let Some(parent_dir) = dir_states.prev_dir.clone() {
-                                    // FIXME(Chris): Wrap dir_states.set_current_dir() with a
-                                    // function that changes other relevant state when a dir
-                                    // changes (like the match_positions Vec)
                                     set_current_dir(parent_dir, &mut dir_states, &mut match_positions)?;
                                 }
 
