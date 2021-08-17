@@ -28,6 +28,7 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
   - [ ] Make ffmpeg an optional dependency
 - [x] Make symlinks actually usable
 - [x] Fix compiler warnings on latest version of Rust stable
+- [x] Search backwards and forwards
 
 # Long-term TODO (May Never Happen)
 - [ ] Add Windows support
