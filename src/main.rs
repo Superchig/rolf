@@ -259,7 +259,10 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 }
 
                                 if let Some(parent_dir) = dir_states.prev_dir.clone() {
-                                    dir_states.set_current_dir(parent_dir)?;
+                                    // FIXME(Chris): Wrap dir_states.set_current_dir() with a
+                                    // function that changes other relevant state when a dir
+                                    // changes (like the match_positions Vec)
+                                    set_current_dir(parent_dir, &mut dir_states, &mut match_positions)?;
                                 }
 
                                 let (display_offset, starting_index) = find_correct_location(
@@ -298,6 +301,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &mut image_handles,
                                     &available_execs,
                                     &mut dir_states,
+                                    &mut match_positions,
                                     &mut left_paths,
                                     win_pixels,
                                     width,
@@ -588,6 +592,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                         &mut image_handles,
                         &available_execs,
                         &mut dir_states,
+                        &mut match_positions,
                         &mut left_paths,
                         win_pixels,
                         width,
@@ -867,12 +872,24 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     Ok(dir_states.current_dir)
 }
 
+fn set_current_dir<P: AsRef<Path>>(
+    new_current_dir: P,
+    dir_states: &mut DirStates,
+    match_positions: &mut Vec<usize>,
+) -> crossterm::Result<()> {
+    dir_states.set_current_dir(new_current_dir)?;
+    match_positions.clear();
+
+    Ok(())
+}
+
 fn enter_entry(
     mut stdout_lock: &mut StdoutLock,
     runtime: &Runtime,
     mut image_handles: &mut Vec<ImageHandle>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
-    dir_states: &mut DirStates,
+    mut dir_states: &mut DirStates,
+    mut match_positions: &mut Vec<usize>,
     mut left_paths: &mut HashMap<std::path::PathBuf, DirLocation>,
     win_pixels: WindowPixels,
     width: u16,
@@ -914,7 +931,7 @@ fn enter_entry(
     if selected_target_file_type.is_dir() {
         let selected_dir_path = selected_entry_path;
 
-        dir_states.set_current_dir(selected_dir_path)?;
+        set_current_dir(selected_dir_path, &mut dir_states, &mut match_positions)?;
 
         match left_paths.get(selected_dir_path) {
             Some(dir_location) => {
