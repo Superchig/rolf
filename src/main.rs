@@ -134,11 +134,12 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     let mut dir_states = DirStates::new()?;
 
-    let mut second_display_offset = 0;
-
     let mut is_first_iteration = true;
 
-    let mut second_starting_index = 0;
+    let mut second = ColumnInfo {
+        starting_index: 0,
+        display_offset: 0,
+    };
 
     let mut left_paths: HashMap<std::path::PathBuf, DirLocation> = HashMap::new();
 
@@ -162,11 +163,11 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
         let (width, height) = terminal::size()?;
         let (second_column, column_bot_y, column_height) = calc_second_column_info(width, height);
 
-        let second_bottom_index = second_starting_index + column_height;
+        let second_bottom_index = second.starting_index + column_height;
 
         let current_dir_display = format_current_dir(&dir_states, home_path);
 
-        let second_entry_index = second_starting_index + second_display_offset;
+        let second_entry_index = second.starting_index + second.display_offset;
 
         let curr_entry;
         let file_stem = if dir_states.current_entries.len() <= 0 {
@@ -226,8 +227,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     column_height,
                     column_bot_y,
                     second_column,
-                    second_display_offset,
-                    second_starting_index,
+                    second,
                 )?;
 
                 is_first_iteration = false;
@@ -255,8 +255,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &mut left_paths,
                                         &dir_states,
                                         second_entry_index,
-                                        second_starting_index,
-                                        second_display_offset,
+                                        second.starting_index,
+                                        second.display_offset,
                                     );
                                 }
 
@@ -275,8 +275,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &dir_states.current_entries,
                                     &old_current_dir,
                                 );
-                                second_display_offset = display_offset;
-                                second_starting_index = starting_index;
+                                second.display_offset = display_offset;
+                                second.starting_index = starting_index;
 
                                 stdout_lock.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
 
@@ -293,8 +293,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     column_height,
                                     column_bot_y,
                                     second_column,
-                                    second_display_offset,
-                                    second_starting_index,
+                                    second,
                                 )?;
                             }
                             'l' => {
@@ -310,8 +309,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     width,
                                     height,
                                     second_entry_index,
-                                    &mut second_starting_index,
-                                    &mut second_display_offset,
+                                    &mut second,
                                     column_height,
                                     column_bot_y,
                                     second_column,
@@ -324,16 +322,16 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 {
                                     abort_image_handles(&mut image_handles);
 
-                                    let old_starting_index = second_starting_index;
-                                    let old_display_offset = second_display_offset;
+                                    let old_starting_index = second.starting_index;
+                                    let old_display_offset = second.display_offset;
 
-                                    if second_display_offset >= (column_height - SCROLL_OFFSET - 1)
+                                    if second.display_offset >= (column_height - SCROLL_OFFSET - 1)
                                         && (second_bottom_index as usize)
                                             < dir_states.current_entries.len()
                                     {
-                                        second_starting_index += 1;
+                                        second.starting_index += 1;
                                     } else if second_entry_index < second_bottom_index {
-                                        second_display_offset += 1;
+                                        second.display_offset += 1;
                                     }
 
                                     queue_entry_changed(
@@ -350,8 +348,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         column_bot_y,
                                         old_starting_index,
                                         old_display_offset,
-                                        second_starting_index,
-                                        second_display_offset,
+                                        second,
                                         second_column,
                                     )?;
                                 }
@@ -360,15 +357,15 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 if dir_states.current_entries.len() > 0 {
                                     abort_image_handles(&mut image_handles);
 
-                                    let old_starting_index = second_starting_index;
-                                    let old_display_offset = second_display_offset;
+                                    let old_starting_index = second.starting_index;
+                                    let old_display_offset = second.display_offset;
 
-                                    if second_display_offset <= (SCROLL_OFFSET)
-                                        && second_starting_index > 0
+                                    if second.display_offset <= (SCROLL_OFFSET)
+                                        && second.starting_index > 0
                                     {
-                                        second_starting_index -= 1;
+                                        second.starting_index -= 1;
                                     } else if second_entry_index > 0 {
-                                        second_display_offset -= 1;
+                                        second.display_offset -= 1;
                                     }
 
                                     queue_entry_changed(
@@ -385,8 +382,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         column_bot_y,
                                         old_starting_index,
                                         old_display_offset,
-                                        second_starting_index,
-                                        second_display_offset,
+                                        second,
                                         second_column,
                                     )?;
                                 }
@@ -448,8 +444,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         column_height,
                                         column_bot_y,
                                         second_column,
-                                        second_display_offset,
-                                        second_starting_index,
+                                        second,
                                     )?;
                                 }
                             }
@@ -457,11 +452,11 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 if dir_states.current_entries.len() > 0 {
                                     abort_image_handles(&mut image_handles);
 
-                                    let old_starting_index = second_starting_index;
-                                    let old_display_offset = second_display_offset;
+                                    let old_starting_index = second.starting_index;
+                                    let old_display_offset = second.display_offset;
 
-                                    second_starting_index = 0;
-                                    second_display_offset = 0;
+                                    second.starting_index = 0;
+                                    second.display_offset = 0;
 
                                     update_entries_column(
                                         &mut stdout_lock,
@@ -471,8 +466,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &dir_states.current_entries,
                                         old_display_offset,
                                         old_starting_index,
-                                        second_display_offset,
-                                        second_starting_index,
+                                        second,
                                     )?;
 
                                     queue_third_column(
@@ -487,15 +481,14 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         height,
                                         column_height,
                                         column_bot_y,
-                                        (second_starting_index + second_display_offset) as usize,
+                                        (second.starting_index + second.display_offset) as usize,
                                     )?;
 
                                     queue_bottom_info_line(
                                         &mut stdout_lock,
                                         width,
                                         height,
-                                        second_starting_index,
-                                        second_display_offset,
+                                        second,
                                         &dir_states,
                                     )?;
                                 }
@@ -504,19 +497,19 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 if dir_states.current_entries.len() > 0 {
                                     abort_image_handles(&mut image_handles);
 
-                                    let old_starting_index = second_starting_index;
-                                    let old_display_offset = second_display_offset;
+                                    let old_starting_index = second.starting_index;
+                                    let old_display_offset = second.display_offset;
 
                                     if dir_states.current_entries.len() <= (column_height as usize)
                                     {
-                                        second_starting_index = 0;
-                                        second_display_offset =
+                                        second.starting_index = 0;
+                                        second.display_offset =
                                             dir_states.current_entries.len() as u16 - 1;
                                     } else {
-                                        second_display_offset = column_height - 1;
-                                        second_starting_index = dir_states.current_entries.len()
+                                        second.display_offset = column_height - 1;
+                                        second.starting_index = dir_states.current_entries.len()
                                             as u16
-                                            - second_display_offset
+                                            - second.display_offset
                                             - 1;
                                     }
 
@@ -528,8 +521,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &dir_states.current_entries,
                                         old_display_offset,
                                         old_starting_index,
-                                        second_display_offset,
-                                        second_starting_index,
+                                        second,
                                     )?;
 
                                     queue_third_column(
@@ -544,15 +536,14 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         height,
                                         column_height,
                                         column_bot_y,
-                                        (second_starting_index + second_display_offset) as usize,
+                                        (second.starting_index + second.display_offset) as usize,
                                     )?;
 
                                     queue_bottom_info_line(
                                         &mut stdout_lock,
                                         width,
                                         height,
-                                        second_starting_index,
-                                        second_display_offset,
+                                        second,
                                         &dir_states,
                                     )?;
                                 }
@@ -589,8 +580,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     height,
                                     column_height,
                                     column_bot_y,
-                                    &mut second_starting_index,
-                                    &mut second_display_offset,
+                                    &mut second,
                                     second_column,
                                 )?;
                             }
@@ -609,8 +599,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     height,
                                     column_height,
                                     column_bot_y,
-                                    &mut second_starting_index,
-                                    &mut second_display_offset,
+                                    &mut second,
                                     second_column,
                                 )?;
                             }
@@ -629,8 +618,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                         width,
                         height,
                         second_entry_index,
-                        &mut second_starting_index,
-                        &mut second_display_offset,
+                        &mut second,
                         column_height,
                         column_bot_y,
                         second_column,
@@ -647,20 +635,12 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                         &dir_states,
                         &left_paths,
                         &available_execs,
-                        second_starting_index,
-                        second_display_offset,
+                        second,
                     )?;
 
                     let (width, height) = terminal::size()?;
 
-                    queue_bottom_info_line(
-                        &mut stdout_lock,
-                        width,
-                        height,
-                        second_starting_index,
-                        second_display_offset,
-                        &dir_states,
-                    )?;
+                    queue_bottom_info_line(&mut stdout_lock, width, height, second, &dir_states)?;
                 }
             }
         }
@@ -720,8 +700,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             &dir_states,
                                             width,
                                             height,
-                                            second_starting_index,
-                                            second_display_offset,
+                                            second,
                                             &mut input_line,
                                         )?;
 
@@ -809,8 +788,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 height,
                                                 column_height,
                                                 column_bot_y,
-                                                &mut second_starting_index,
-                                                &mut second_display_offset,
+                                                &mut second,
                                                 second_column,
                                             )?;
                                         }
@@ -855,8 +833,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 height,
                                                 column_height,
                                                 column_bot_y,
-                                                &mut second_starting_index,
-                                                &mut second_display_offset,
+                                                &mut second,
                                                 second_column,
                                             )?;
                                         }
@@ -869,8 +846,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &dir_states,
                                     width,
                                     height,
-                                    second_starting_index,
-                                    second_display_offset,
+                                    second,
                                     &mut input_line,
                                 )?;
 
@@ -907,8 +883,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 &dir_states,
                                 width,
                                 height,
-                                second_starting_index,
-                                second_display_offset,
+                                second,
                                 &mut input_line,
                             )?;
 
@@ -926,8 +901,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             &dir_states,
                             &left_paths,
                             &available_execs,
-                            second_starting_index,
-                            second_display_offset,
+                            second,
                         )?;
                     }
                 }
@@ -948,6 +922,12 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     }
 
     Ok(dir_states.current_dir)
+}
+
+#[derive(Clone, Copy)]
+struct ColumnInfo {
+    starting_index: u16,
+    display_offset: u16,
 }
 
 fn set_current_dir<P: AsRef<Path>>(
@@ -973,8 +953,7 @@ fn enter_entry(
     width: u16,
     height: u16,
     second_entry_index: u16,
-    second_starting_index: &mut u16,
-    second_display_offset: &mut u16,
+    second: &mut ColumnInfo,
     column_height: u16,
     column_bot_y: u16,
     second_column: u16,
@@ -992,8 +971,8 @@ fn enter_entry(
         &mut left_paths,
         &dir_states,
         second_entry_index,
-        *second_starting_index,
-        *second_display_offset,
+        second.starting_index,
+        second.display_offset,
     );
 
     let selected_entry_path = &dir_states.current_entries[second_entry_index as usize]
@@ -1023,23 +1002,23 @@ fn enter_entry(
                         let orig_entry_index =
                             (dir_location.starting_index + dir_location.display_offset) as usize;
                         if curr_entry_index == orig_entry_index {
-                            *second_starting_index = dir_location.starting_index;
-                            *second_display_offset = dir_location.display_offset;
+                            second.starting_index = dir_location.starting_index;
+                            second.display_offset = dir_location.display_offset;
                         } else {
-                            *second_starting_index = (curr_entry_index / 2) as u16;
-                            *second_display_offset =
-                                (curr_entry_index as u16) - *second_starting_index;
+                            second.starting_index = (curr_entry_index / 2) as u16;
+                            second.display_offset =
+                                (curr_entry_index as u16) - second.starting_index;
                         }
                     }
                     None => {
-                        *second_starting_index = 0;
-                        *second_display_offset = 0;
+                        second.starting_index = 0;
+                        second.display_offset = 0;
                     }
                 }
             }
             None => {
-                *second_starting_index = 0;
-                *second_display_offset = 0;
+                second.starting_index = 0;
+                second.display_offset = 0;
             }
         };
 
@@ -1056,8 +1035,7 @@ fn enter_entry(
             column_height,
             column_bot_y,
             second_column,
-            *second_display_offset,
-            *second_starting_index,
+            *second,
         )?;
     } else if selected_target_file_type.is_file() {
         // Should we display some sort of error message according to the exit status
@@ -1070,53 +1048,53 @@ fn enter_entry(
 
 // Sets the values underlying column_starting_index and column_display_offset to properly set a
 // cursor at the next_position index in a vector of entries.
+// FIXME(Chris): Center the first column's cursor using this function
 fn move_column_pos(
     current_entries_len: usize,
     column_height: u16,
-    column_starting_index: &mut u16,
-    column_display_offset: &mut u16,
+    column: &mut ColumnInfo,
     next_position: usize,
 ) -> crossterm::Result<()> {
-    let second_entry_index = *column_starting_index + *column_display_offset;
+    let second_entry_index = column.starting_index + column.display_offset;
 
-    // let lower_offset = (column_height * 2 / 3) as usize;
-    // let upper_offset = (column_height / 3) as usize;
+    // let lower_offset = (column.height * 2 / 3) as usize;
+    // let upper_offset = (column.height / 3) as usize;
     let lesser_offset = SCROLL_OFFSET as usize;
     let greater_offset = (column_height - SCROLL_OFFSET - 1) as usize;
 
     if column_height as usize > current_entries_len {
-        *column_display_offset = next_position as u16;
+        column.display_offset = next_position as u16;
     } else if next_position < second_entry_index as usize {
         // Moving up
         if next_position <= lesser_offset {
-            *column_starting_index = 0;
+            column.starting_index = 0;
 
-            *column_display_offset = next_position as u16;
-        } else if next_position <= *column_starting_index as usize + lesser_offset {
-            *column_display_offset = lesser_offset as u16;
+            column.display_offset = next_position as u16;
+        } else if next_position <= column.starting_index as usize + lesser_offset {
+            column.display_offset = lesser_offset as u16;
 
-            *column_starting_index = next_position as u16 - *column_display_offset;
-        } else if next_position > *column_starting_index as usize + lesser_offset {
-            *column_display_offset = next_position as u16 - *column_starting_index;
+            column.starting_index = next_position as u16 - column.display_offset;
+        } else if next_position > column.starting_index as usize + lesser_offset {
+            column.display_offset = next_position as u16 - column.starting_index;
         }
     } else if next_position > second_entry_index as usize {
         // Moving down
 
-        if next_position <= *column_starting_index as usize + greater_offset {
-            *column_display_offset = next_position as u16 - *column_starting_index;
-        } else if next_position > *column_starting_index as usize + greater_offset {
-            *column_display_offset = greater_offset as u16;
+        if next_position <= column.starting_index as usize + greater_offset {
+            column.display_offset = next_position as u16 - column.starting_index;
+        } else if next_position > column.starting_index as usize + greater_offset {
+            column.display_offset = greater_offset as u16;
 
-            *column_starting_index = next_position as u16 - *column_display_offset;
+            column.starting_index = next_position as u16 - column.display_offset;
         } else {
             panic!();
         }
 
         // Stop us from going too far down the third column
-        if *column_starting_index > current_entries_len as u16 - column_height {
-            *column_starting_index = current_entries_len as u16 - column_height;
+        if column.starting_index > current_entries_len as u16 - column_height {
+            column.starting_index = current_entries_len as u16 - column_height;
 
-            *column_display_offset = next_position as u16 - *column_starting_index;
+            column.display_offset = next_position as u16 - column.starting_index;
         }
     } else if next_position == second_entry_index as usize {
         // Do nothing.
@@ -1126,7 +1104,7 @@ fn move_column_pos(
 
     assert_eq!(
         next_position,
-        (*column_starting_index + *column_display_offset) as usize
+        (column.starting_index + column.display_offset) as usize
     );
 
     Ok(())
@@ -1146,15 +1124,14 @@ fn queue_search_jump(
     height: u16,
     column_height: u16,
     column_bot_y: u16,
-    second_starting_index: &mut u16,
-    second_display_offset: &mut u16,
+    second: &mut ColumnInfo,
     second_column: u16,
 ) -> crossterm::Result<()> {
     if match_positions.len() <= 0 {
         return Ok(());
     }
 
-    let second_entry_index = *second_starting_index + *second_display_offset;
+    let second_entry_index = second.starting_index + second.display_offset;
 
     let next_position = if should_search_forwards {
         let result = match_positions
@@ -1177,14 +1154,13 @@ fn queue_search_jump(
         }
     };
 
-    let old_starting_index = *second_starting_index;
-    let old_display_offset = *second_display_offset;
+    let old_starting_index = second.starting_index;
+    let old_display_offset = second.display_offset;
 
     move_column_pos(
         dir_states.current_entries.len(),
         column_height,
-        second_starting_index,
-        second_display_offset,
+        second,
         next_position,
     )?;
 
@@ -1202,8 +1178,7 @@ fn queue_search_jump(
         column_bot_y,
         old_starting_index,
         old_display_offset,
-        *second_starting_index,
-        *second_display_offset,
+        *second,
         second_column,
     )?;
 
@@ -1224,8 +1199,7 @@ fn queue_entry_changed(
     column_bot_y: u16,
     old_starting_index: u16,
     old_display_offset: u16,
-    second_starting_index: u16,
-    second_display_offset: u16,
+    second: ColumnInfo,
     second_column: u16,
 ) -> crossterm::Result<()> {
     update_entries_column(
@@ -1236,8 +1210,7 @@ fn queue_entry_changed(
         &dir_states.current_entries,
         old_display_offset,
         old_starting_index,
-        second_display_offset,
-        second_starting_index,
+        second,
     )?;
 
     queue_third_column(
@@ -1252,20 +1225,13 @@ fn queue_entry_changed(
         height,
         column_height,
         column_bot_y,
-        (second_starting_index + second_display_offset) as usize,
+        (second.starting_index + second.display_offset) as usize,
     )?;
 
     // NOTE(Chris): We flush here, so the current function is more than a "queue_" function
     stdout_lock.flush()?;
 
-    queue_bottom_info_line(
-        &mut stdout_lock,
-        width,
-        height,
-        second_starting_index,
-        second_display_offset,
-        &dir_states,
-    )?;
+    queue_bottom_info_line(&mut stdout_lock, width, height, second, &dir_states)?;
 
     Ok(())
 }
@@ -1275,8 +1241,7 @@ fn queue_cmd_line_exit(
     dir_states: &DirStates,
     width: u16,
     height: u16,
-    second_starting_index: u16,
-    second_display_offset: u16,
+    second: ColumnInfo,
     input_line: &mut String,
 ) -> crossterm::Result<()> {
     input_line.clear();
@@ -1287,14 +1252,7 @@ fn queue_cmd_line_exit(
         cursor::Hide
     )?;
 
-    queue_bottom_info_line(
-        &mut stdout_lock,
-        width,
-        height,
-        second_starting_index,
-        second_display_offset,
-        &dir_states,
-    )?;
+    queue_bottom_info_line(&mut stdout_lock, width, height, second, &dir_states)?;
 
     stdout_lock.flush()?;
 
@@ -1310,8 +1268,7 @@ fn redraw_upper(
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
-    second_starting_index: u16,
-    second_display_offset: u16,
+    second: ColumnInfo,
 ) -> crossterm::Result<()> {
     queue!(stdout_lock, terminal::Clear(ClearType::All))?;
 
@@ -1334,8 +1291,7 @@ fn redraw_upper(
         width,
         column_bot_y,
         &dir_states.current_entries,
-        second_display_offset,
-        second_starting_index,
+        second,
     )?;
     queue_third_column(
         stdout_lock,
@@ -1349,7 +1305,7 @@ fn redraw_upper(
         height,
         column_height,
         column_bot_y,
-        (second_starting_index + second_display_offset) as usize,
+        (second.starting_index + second.display_offset) as usize,
     )?;
 
     Ok(())
@@ -1359,15 +1315,14 @@ fn queue_bottom_info_line(
     stdout_lock: &mut StdoutLock,
     width: u16,
     height: u16,
-    second_starting_index: u16,
-    second_display_offset: u16,
+    second: ColumnInfo,
     dir_states: &DirStates,
 ) -> crossterm::Result<()> {
     if dir_states.current_entries.len() <= 0 {
         return Ok(());
     }
 
-    let updated_second_entry_index = second_starting_index + second_display_offset;
+    let updated_second_entry_index = second.starting_index + second.display_offset;
 
     let updated_curr_entry = &dir_states.current_entries[(updated_second_entry_index) as usize];
 
@@ -1649,8 +1604,7 @@ fn queue_all_columns(
     column_height: u16,
     column_bot_y: u16,
     second_column: u16,
-    second_display_offset: u16,
-    second_starting_index: u16,
+    second: ColumnInfo,
 ) -> crossterm::Result<()> {
     queue_first_column(
         &mut stdout_lock,
@@ -1666,8 +1620,7 @@ fn queue_all_columns(
         width,
         column_bot_y,
         &dir_states.current_entries,
-        second_display_offset,
-        second_starting_index,
+        second,
     )?;
     queue_third_column(
         stdout_lock,
@@ -1681,17 +1634,10 @@ fn queue_all_columns(
         height,
         column_height,
         column_bot_y,
-        (second_starting_index + second_display_offset) as usize,
+        (second.starting_index + second.display_offset) as usize,
     )?;
 
-    queue_bottom_info_line(
-        &mut stdout_lock,
-        width,
-        height,
-        second_starting_index,
-        second_display_offset,
-        &dir_states,
-    )?;
+    queue_bottom_info_line(&mut stdout_lock, width, height, second, &dir_states)?;
 
     Ok(())
 }
@@ -1718,8 +1664,7 @@ fn queue_first_column(
             width / 6 - 2,
             column_bot_y,
             &dir_states.prev_entries,
-            display_offset,
-            starting_index,
+            ColumnInfo { starting_index, display_offset },
         )?;
     } else {
         queue_oneline_column(&mut w, 1, width / 6 - 2, column_bot_y, "")?;
@@ -1736,8 +1681,7 @@ fn queue_second_column(
     column_bot_y: u16,
     // dir_states: &DirStates,
     entries: &Vec<DirEntryInfo>,
-    second_display_offset: u16,
-    second_starting_index: u16,
+    second: ColumnInfo,
 ) -> crossterm::Result<()> {
     queue_entries_column(
         &mut w,
@@ -1745,8 +1689,7 @@ fn queue_second_column(
         width / 2 - 2,
         column_bot_y,
         &entries,
-        second_display_offset,
-        second_starting_index,
+        second,
     )?;
 
     Ok(())
@@ -1874,8 +1817,7 @@ fn queue_third_column_dir(
                 width - 2,
                 column_bot_y,
                 &third_entries,
-                display_offset,
-                starting_index,
+                ColumnInfo { starting_index, display_offset },
             )?;
         }
         Err(err) => {
@@ -2517,18 +2459,16 @@ fn update_entries_column(
     entries: &Vec<DirEntryInfo>,
     old_offset: u16,
     old_start_index: u16,
-    new_offset: u16,
-    new_start_index: u16,
+    new: ColumnInfo,
 ) -> crossterm::Result<()> {
-    if new_start_index != old_start_index {
+    if new.starting_index != old_start_index {
         queue_entries_column(
             w,
             left_x,
             right_x,
             column_bot_y,
             entries,
-            new_offset,
-            new_start_index,
+            new,
         )?;
         return Ok(());
     }
@@ -2541,7 +2481,14 @@ fn update_entries_column(
     // Update the new offset
     queue!(w, style::SetAttribute(Attribute::Reverse))?;
 
-    queue_full_entry(w, &entries, left_x, right_x, new_offset, new_start_index)?;
+    queue_full_entry(
+        w,
+        &entries,
+        left_x,
+        right_x,
+        new.display_offset,
+        new.starting_index,
+    )?;
 
     queue!(w, style::SetAttribute(Attribute::NoReverse))?;
 
@@ -2663,8 +2610,7 @@ fn queue_entries_column(
     right_x: u16,
     bottom_y: u16,
     entries: &Vec<DirEntryInfo>,
-    offset: u16,
-    start_index: u16, // Index to start with in entries
+    column: ColumnInfo,
 ) -> crossterm::Result<()> {
     let mut curr_y = 1; // 1 is the starting y for columns
 
@@ -2691,19 +2637,19 @@ fn queue_entries_column(
 
         curr_y += 1;
     } else {
-        let our_entries = &entries[start_index as usize..];
+        let our_entries = &entries[column.starting_index as usize..];
         for _entry in our_entries {
             if curr_y > bottom_y {
                 break;
             }
 
-            let is_curr_entry = curr_y - 1 == offset;
+            let is_curr_entry = curr_y - 1 == column.display_offset;
 
             if is_curr_entry {
                 queue!(w, style::SetAttribute(Attribute::Reverse))?;
             }
 
-            queue_full_entry(w, &entries, left_x, right_x, curr_y - 1, start_index)?;
+            queue_full_entry(w, &entries, left_x, right_x, curr_y - 1, column.starting_index)?;
 
             if is_curr_entry {
                 queue!(w, style::SetAttribute(Attribute::Reset))?;
