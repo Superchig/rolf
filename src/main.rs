@@ -1068,6 +1068,70 @@ fn enter_entry(
     Ok(())
 }
 
+// Sets the values underlying column_starting_index and column_display_offset to properly set a
+// cursor at the next_position index in a vector of entries.
+fn move_column_pos(
+    current_entries_len: usize,
+    column_height: u16,
+    column_starting_index: &mut u16,
+    column_display_offset: &mut u16,
+    next_position: usize,
+) -> crossterm::Result<()> {
+    let second_entry_index = *column_starting_index + *column_display_offset;
+
+    // let lower_offset = (column_height * 2 / 3) as usize;
+    // let upper_offset = (column_height / 3) as usize;
+    let lesser_offset = SCROLL_OFFSET as usize;
+    let greater_offset = (column_height - SCROLL_OFFSET - 1) as usize;
+
+    if column_height as usize > current_entries_len {
+        *column_display_offset = next_position as u16;
+    } else if next_position < second_entry_index as usize {
+        // Moving up
+        if next_position <= lesser_offset {
+            *column_starting_index = 0;
+
+            *column_display_offset = next_position as u16;
+        } else if next_position <= *column_starting_index as usize + lesser_offset {
+            *column_display_offset = lesser_offset as u16;
+
+            *column_starting_index = next_position as u16 - *column_display_offset;
+        } else if next_position > *column_starting_index as usize + lesser_offset {
+            *column_display_offset = next_position as u16 - *column_starting_index;
+        }
+    } else if next_position > second_entry_index as usize {
+        // Moving down
+
+        if next_position <= *column_starting_index as usize + greater_offset {
+            *column_display_offset = next_position as u16 - *column_starting_index;
+        } else if next_position > *column_starting_index as usize + greater_offset {
+            *column_display_offset = greater_offset as u16;
+
+            *column_starting_index = next_position as u16 - *column_display_offset;
+        } else {
+            panic!();
+        }
+
+        // Stop us from going too far down the third column
+        if *column_starting_index > current_entries_len as u16 - column_height {
+            *column_starting_index = current_entries_len as u16 - column_height;
+
+            *column_display_offset = next_position as u16 - *column_starting_index;
+        }
+    } else if next_position == second_entry_index as usize {
+        // Do nothing.
+    } else {
+        panic!();
+    }
+
+    assert_eq!(
+        next_position,
+        (*column_starting_index + *column_display_offset) as usize
+    );
+
+    Ok(())
+}
+
 fn queue_search_jump(
     mut stdout_lock: &mut StdoutLock,
     match_positions: &Vec<usize>,
@@ -1116,55 +1180,13 @@ fn queue_search_jump(
     let old_starting_index = *second_starting_index;
     let old_display_offset = *second_display_offset;
 
-    // let lower_offset = (column_height * 2 / 3) as usize;
-    // let upper_offset = (column_height / 3) as usize;
-    let lesser_offset = SCROLL_OFFSET as usize;
-    let greater_offset = (column_height - SCROLL_OFFSET - 1) as usize;
-
-    if column_height as usize > dir_states.current_entries.len() {
-        *second_display_offset = next_position as u16;
-    } else if next_position < second_entry_index as usize {
-        // Moving up
-        if next_position <= lesser_offset {
-            *second_starting_index = 0;
-
-            *second_display_offset = next_position as u16;
-        } else if next_position <= *second_starting_index as usize + lesser_offset {
-            *second_display_offset = lesser_offset as u16;
-
-            *second_starting_index = next_position as u16 - *second_display_offset;
-        } else if next_position > *second_starting_index as usize + lesser_offset {
-            *second_display_offset = next_position as u16 - *second_starting_index;
-        }
-    } else if next_position > second_entry_index as usize {
-        // Moving down
-
-        if next_position <= *second_starting_index as usize + greater_offset {
-            *second_display_offset = next_position as u16 - *second_starting_index;
-        } else if next_position > *second_starting_index as usize + greater_offset {
-            *second_display_offset = greater_offset as u16;
-
-            *second_starting_index = next_position as u16 - *second_display_offset;
-        } else {
-            panic!();
-        }
-
-        // Stop us from going too far down the third column
-        if *second_starting_index > dir_states.current_entries.len() as u16 - column_height {
-            *second_starting_index = dir_states.current_entries.len() as u16 - column_height;
-
-            *second_display_offset = next_position as u16 - *second_starting_index;
-        }
-    } else if next_position == second_entry_index as usize {
-        // Do nothing.
-    } else {
-        panic!();
-    }
-
-    assert_eq!(
+    move_column_pos(
+        dir_states.current_entries.len(),
+        column_height,
+        second_starting_index,
+        second_display_offset,
         next_position,
-        (*second_starting_index + *second_display_offset) as usize
-    );
+    )?;
 
     queue_entry_changed(
         &mut stdout_lock,
