@@ -143,8 +143,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     let mut left_paths: HashMap<std::path::PathBuf, DirLocation> = HashMap::new();
 
-    let mut win_pixels = get_win_pixels()?;
-
     let mut should_enter_cmd_line = false;
 
     let mut match_positions: Vec<usize> = vec![];
@@ -155,15 +153,31 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     let user_host_display = format!("{}@{}", user_name, host_name);
 
+    let mut drawing_info = DrawingInfo {
+        win_pixels: get_win_pixels()?,
+        width: 0,
+        height: 0,
+        column_bot_y: 0,
+        column_height: 0,
+    };
+
     // Main input loop
     loop {
         // Gather all the data before rendering things with stdout_lock
 
         // The terminal's height is also the index of the lowest cell
-        let (width, height) = terminal::size()?;
-        let (second_column, column_bot_y, column_height) = calc_second_column_info(width, height);
+        {
+            let (width, height) = terminal::size()?;
+            drawing_info.width = width;
+            drawing_info.height = height;
+        }
 
-        let second_bottom_index = second.starting_index + column_height;
+        let (second_column, _column_bot_y, _column_height) =
+            calc_second_column_info(drawing_info.width, drawing_info.height);
+        drawing_info.column_bot_y = _column_bot_y;
+        drawing_info.column_height = _column_height;
+
+        let second_bottom_index = second.starting_index + drawing_info.column_height;
 
         let current_dir_display = format_current_dir(&dir_states, home_path);
 
@@ -180,8 +194,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
         };
 
         // TODO(Chris): Use the unicode-segmentation package to count graphemes
-        let remaining_width =
-            width as usize - (user_host_display.len() + 1 + current_dir_display.len() + 1);
+        let remaining_width = drawing_info.width as usize
+            - (user_host_display.len() + 1 + current_dir_display.len() + 1);
 
         // Add 1 because of the ':' that is displayed after user_host_display
         // Add 1 again because of the '/' that is displayed at the end of current_dir_display
@@ -214,18 +228,16 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
             )?;
 
             if is_first_iteration {
+                // FIXME(Chris): Refactor this to use DrawingInfo (except for WindowPixels)
                 queue_all_columns(
                     &mut stdout_lock,
                     &runtime,
                     &mut image_handles,
-                    &win_pixels,
+                    &drawing_info.win_pixels,
                     &dir_states,
                     &left_paths,
                     &available_execs,
-                    width,
-                    height,
-                    column_height,
-                    column_bot_y,
+                    drawing_info,
                     second_column,
                     second,
                 )?;
@@ -270,7 +282,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                                 let (display_offset, starting_index) = find_correct_location(
                                     &left_paths,
-                                    column_height,
+                                    drawing_info.column_height,
                                     &dir_states.current_dir,
                                     &dir_states.current_entries,
                                     &old_current_dir,
@@ -284,14 +296,11 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &mut stdout_lock,
                                     &runtime,
                                     &mut image_handles,
-                                    &win_pixels,
+                                    &drawing_info.win_pixels,
                                     &dir_states,
                                     &left_paths,
                                     &available_execs,
-                                    width,
-                                    height,
-                                    column_height,
-                                    column_bot_y,
+                                    drawing_info,
                                     second_column,
                                     second,
                                 )?;
@@ -305,13 +314,13 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &mut dir_states,
                                     &mut match_positions,
                                     &mut left_paths,
-                                    win_pixels,
-                                    width,
-                                    height,
+                                    drawing_info.win_pixels,
+                                    drawing_info.width,
+                                    drawing_info.height,
                                     second_entry_index,
                                     &mut second,
-                                    column_height,
-                                    column_bot_y,
+                                    drawing_info.column_height,
+                                    drawing_info.column_bot_y,
                                     second_column,
                                 )?;
                             }
@@ -325,7 +334,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     let old_starting_index = second.starting_index;
                                     let old_display_offset = second.display_offset;
 
-                                    if second.display_offset >= (column_height - SCROLL_OFFSET - 1)
+                                    if second.display_offset
+                                        >= (drawing_info.column_height - SCROLL_OFFSET - 1)
                                         && (second_bottom_index as usize)
                                             < dir_states.current_entries.len()
                                     {
@@ -338,14 +348,14 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &mut stdout_lock,
                                         &runtime,
                                         &mut image_handles,
-                                        &win_pixels,
+                                        &drawing_info.win_pixels,
                                         &dir_states,
                                         &left_paths,
                                         &available_execs,
-                                        width,
-                                        height,
-                                        column_height,
-                                        column_bot_y,
+                                        drawing_info.width,
+                                        drawing_info.height,
+                                        drawing_info.column_height,
+                                        drawing_info.column_bot_y,
                                         old_starting_index,
                                         old_display_offset,
                                         second,
@@ -372,14 +382,14 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &mut stdout_lock,
                                         &runtime,
                                         &mut image_handles,
-                                        &win_pixels,
+                                        &drawing_info.win_pixels,
                                         &dir_states,
                                         &left_paths,
                                         &available_execs,
-                                        width,
-                                        height,
-                                        column_height,
-                                        column_bot_y,
+                                        drawing_info.width,
+                                        drawing_info.height,
+                                        drawing_info.column_height,
+                                        drawing_info.column_bot_y,
                                         old_starting_index,
                                         old_display_offset,
                                         second,
@@ -435,14 +445,11 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &mut stdout_lock,
                                         &runtime,
                                         &mut image_handles,
-                                        &win_pixels,
+                                        &drawing_info.win_pixels,
                                         &dir_states,
                                         &left_paths,
                                         &available_execs,
-                                        width,
-                                        height,
-                                        column_height,
-                                        column_bot_y,
+                                        drawing_info,
                                         second_column,
                                         second,
                                     )?;
@@ -461,8 +468,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     update_entries_column(
                                         &mut stdout_lock,
                                         second_column,
-                                        width / 2 - 2,
-                                        column_bot_y,
+                                        drawing_info.width / 2 - 2,
+                                        drawing_info.column_bot_y,
                                         &dir_states.current_entries,
                                         old_display_offset,
                                         old_starting_index,
@@ -473,21 +480,21 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &mut stdout_lock,
                                         &runtime,
                                         &mut image_handles,
-                                        &win_pixels,
+                                        &drawing_info.win_pixels,
                                         &dir_states,
                                         &left_paths,
                                         &available_execs,
-                                        width,
-                                        height,
-                                        column_height,
-                                        column_bot_y,
+                                        drawing_info.width,
+                                        drawing_info.height,
+                                        drawing_info.column_height,
+                                        drawing_info.column_bot_y,
                                         (second.starting_index + second.display_offset) as usize,
                                     )?;
 
                                     queue_bottom_info_line(
                                         &mut stdout_lock,
-                                        width,
-                                        height,
+                                        drawing_info.width,
+                                        drawing_info.height,
                                         second,
                                         &dir_states,
                                     )?;
@@ -500,13 +507,14 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     let old_starting_index = second.starting_index;
                                     let old_display_offset = second.display_offset;
 
-                                    if dir_states.current_entries.len() <= (column_height as usize)
+                                    if dir_states.current_entries.len()
+                                        <= (drawing_info.column_height as usize)
                                     {
                                         second.starting_index = 0;
                                         second.display_offset =
                                             dir_states.current_entries.len() as u16 - 1;
                                     } else {
-                                        second.display_offset = column_height - 1;
+                                        second.display_offset = drawing_info.column_height - 1;
                                         second.starting_index = dir_states.current_entries.len()
                                             as u16
                                             - second.display_offset
@@ -516,8 +524,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     update_entries_column(
                                         &mut stdout_lock,
                                         second_column,
-                                        width / 2 - 2,
-                                        column_bot_y,
+                                        drawing_info.width / 2 - 2,
+                                        drawing_info.column_bot_y,
                                         &dir_states.current_entries,
                                         old_display_offset,
                                         old_starting_index,
@@ -528,21 +536,21 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &mut stdout_lock,
                                         &runtime,
                                         &mut image_handles,
-                                        &win_pixels,
+                                        &drawing_info.win_pixels,
                                         &dir_states,
                                         &left_paths,
                                         &available_execs,
-                                        width,
-                                        height,
-                                        column_height,
-                                        column_bot_y,
+                                        drawing_info.width,
+                                        drawing_info.height,
+                                        drawing_info.column_height,
+                                        drawing_info.column_bot_y,
                                         (second.starting_index + second.display_offset) as usize,
                                     )?;
 
                                     queue_bottom_info_line(
                                         &mut stdout_lock,
-                                        width,
-                                        height,
+                                        drawing_info.width,
+                                        drawing_info.height,
                                         second,
                                         &dir_states,
                                     )?;
@@ -571,15 +579,15 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &match_positions,
                                     &runtime,
                                     &mut image_handles,
-                                    &win_pixels,
+                                    &drawing_info.win_pixels,
                                     &dir_states,
                                     &left_paths,
                                     &available_execs,
                                     should_search_forwards,
-                                    width,
-                                    height,
-                                    column_height,
-                                    column_bot_y,
+                                    drawing_info.width,
+                                    drawing_info.height,
+                                    drawing_info.column_height,
+                                    drawing_info.column_bot_y,
                                     &mut second,
                                     second_column,
                                 )?;
@@ -590,15 +598,15 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &match_positions,
                                     &runtime,
                                     &mut image_handles,
-                                    &win_pixels,
+                                    &drawing_info.win_pixels,
                                     &dir_states,
                                     &left_paths,
                                     &available_execs,
                                     !should_search_forwards,
-                                    width,
-                                    height,
-                                    column_height,
-                                    column_bot_y,
+                                    drawing_info.width,
+                                    drawing_info.height,
+                                    drawing_info.column_height,
+                                    drawing_info.column_bot_y,
                                     &mut second,
                                     second_column,
                                 )?;
@@ -614,13 +622,13 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                         &mut dir_states,
                         &mut match_positions,
                         &mut left_paths,
-                        win_pixels,
-                        width,
-                        height,
+                        drawing_info.win_pixels,
+                        drawing_info.width,
+                        drawing_info.height,
                         second_entry_index,
                         &mut second,
-                        column_height,
-                        column_bot_y,
+                        drawing_info.column_height,
+                        drawing_info.column_bot_y,
                         second_column,
                     )?,
                     _ => (),
@@ -629,7 +637,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                 Event::Resize(_, _) => {
                     redraw_upper(
                         &mut stdout_lock,
-                        &mut win_pixels,
+                        &mut drawing_info.win_pixels,
                         &runtime,
                         &mut image_handles,
                         &dir_states,
@@ -660,12 +668,12 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     &mut stdout_lock,
                     style::SetAttribute(Attribute::Reset),
                     cursor::Show,
-                    cursor::MoveTo(0, height - 1),
+                    cursor::MoveTo(0, drawing_info.height - 1),
                     terminal::Clear(ClearType::CurrentLine),
                     style::Print(':'),
-                    cursor::MoveTo(1, height - 1),
+                    cursor::MoveTo(1, drawing_info.height - 1),
                     style::Print(&input_line),
-                    cursor::MoveTo(1 + cursor_index as u16, height - 1),
+                    cursor::MoveTo(1 + cursor_index as u16, drawing_info.height - 1),
                 )?;
 
                 stdout_lock.flush()?;
@@ -698,8 +706,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         queue_cmd_line_exit(
                                             &mut &mut stdout_lock,
                                             &dir_states,
-                                            width,
-                                            height,
+                                            drawing_info.width,
+                                            drawing_info.height,
                                             second,
                                             &mut input_line,
                                         )?;
@@ -779,15 +787,15 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 &match_positions,
                                                 &runtime,
                                                 &mut image_handles,
-                                                &win_pixels,
+                                                &drawing_info.win_pixels,
                                                 &dir_states,
                                                 &left_paths,
                                                 &available_execs,
                                                 should_search_forwards,
-                                                width,
-                                                height,
-                                                column_height,
-                                                column_bot_y,
+                                                drawing_info.width,
+                                                drawing_info.height,
+                                                drawing_info.column_height,
+                                                drawing_info.column_bot_y,
                                                 &mut second,
                                                 second_column,
                                             )?;
@@ -824,15 +832,15 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 &match_positions,
                                                 &runtime,
                                                 &mut image_handles,
-                                                &win_pixels,
+                                                &drawing_info.win_pixels,
                                                 &dir_states,
                                                 &left_paths,
                                                 &available_execs,
                                                 should_search_forwards,
-                                                width,
-                                                height,
-                                                column_height,
-                                                column_bot_y,
+                                                drawing_info.width,
+                                                drawing_info.height,
+                                                drawing_info.column_height,
+                                                drawing_info.column_bot_y,
                                                 &mut second,
                                                 second_column,
                                             )?;
@@ -844,8 +852,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 queue_cmd_line_exit(
                                     &mut &mut stdout_lock,
                                     &dir_states,
-                                    width,
-                                    height,
+                                    drawing_info.width,
+                                    drawing_info.height,
                                     second,
                                     &mut input_line,
                                 )?;
@@ -881,8 +889,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             queue_cmd_line_exit(
                                 &mut &mut stdout_lock,
                                 &dir_states,
-                                width,
-                                height,
+                                drawing_info.width,
+                                drawing_info.height,
                                 second,
                                 &mut input_line,
                             )?;
@@ -895,7 +903,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     Event::Resize(_, _) => {
                         redraw_upper(
                             &mut stdout_lock,
-                            &mut win_pixels,
+                            &mut drawing_info.win_pixels,
                             &runtime,
                             &mut image_handles,
                             &dir_states,
@@ -910,10 +918,10 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                 queue!(
                     &mut stdout_lock,
-                    cursor::MoveTo(0, height - 1),
+                    cursor::MoveTo(0, drawing_info.height - 1),
                     terminal::Clear(ClearType::CurrentLine),
                     style::Print(format!(":{}", input_line)),
-                    cursor::MoveTo((1 + cursor_index) as u16, height - 1),
+                    cursor::MoveTo((1 + cursor_index) as u16, drawing_info.height - 1),
                 )?;
 
                 stdout_lock.flush()?;
@@ -922,6 +930,15 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     }
 
     Ok(dir_states.current_dir)
+}
+
+#[derive(Clone, Copy)]
+struct DrawingInfo {
+    win_pixels: WindowPixels,
+    width: u16,
+    height: u16,
+    column_bot_y: u16,
+    column_height: u16,
 }
 
 #[derive(Clone, Copy)]
@@ -1030,10 +1047,17 @@ fn enter_entry(
             &dir_states,
             &left_paths,
             &available_execs,
-            width,
-            height,
-            column_height,
-            column_bot_y,
+            // FIXME(Chris): Pass a less-hacky DrawingInfo into here
+            DrawingInfo {
+                win_pixels: WindowPixels {
+                    width: 0,
+                    height: 0,
+                },
+                width,
+                height,
+                column_bot_y,
+                column_height,
+            },
             second_column,
             *second,
         )?;
@@ -1599,10 +1623,7 @@ fn queue_all_columns(
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
-    width: u16,
-    height: u16,
-    column_height: u16,
-    column_bot_y: u16,
+    drawing_info: DrawingInfo,
     second_column: u16,
     second: ColumnInfo,
 ) -> crossterm::Result<()> {
@@ -1610,15 +1631,15 @@ fn queue_all_columns(
         &mut stdout_lock,
         &dir_states,
         &left_paths,
-        width,
-        column_height,
-        column_bot_y,
+        drawing_info.width,
+        drawing_info.column_height,
+        drawing_info.column_bot_y,
     )?;
     queue_second_column(
         &mut stdout_lock,
         second_column,
-        width,
-        column_bot_y,
+        drawing_info.width,
+        drawing_info.column_bot_y,
         &dir_states.current_entries,
         second,
     )?;
@@ -1630,14 +1651,20 @@ fn queue_all_columns(
         &dir_states,
         &left_paths,
         &available_execs,
-        width,
-        height,
-        column_height,
-        column_bot_y,
+        drawing_info.width,
+        drawing_info.height,
+        drawing_info.column_height,
+        drawing_info.column_bot_y,
         (second.starting_index + second.display_offset) as usize,
     )?;
 
-    queue_bottom_info_line(&mut stdout_lock, width, height, second, &dir_states)?;
+    queue_bottom_info_line(
+        &mut stdout_lock,
+        drawing_info.width,
+        drawing_info.height,
+        second,
+        &dir_states,
+    )?;
 
     Ok(())
 }
@@ -1664,7 +1691,10 @@ fn queue_first_column(
             width / 6 - 2,
             column_bot_y,
             &dir_states.prev_entries,
-            ColumnInfo { starting_index, display_offset },
+            ColumnInfo {
+                starting_index,
+                display_offset,
+            },
         )?;
     } else {
         queue_oneline_column(&mut w, 1, width / 6 - 2, column_bot_y, "")?;
@@ -1817,7 +1847,10 @@ fn queue_third_column_dir(
                 width - 2,
                 column_bot_y,
                 &third_entries,
-                ColumnInfo { starting_index, display_offset },
+                ColumnInfo {
+                    starting_index,
+                    display_offset,
+                },
             )?;
         }
         Err(err) => {
@@ -2462,14 +2495,7 @@ fn update_entries_column(
     new: ColumnInfo,
 ) -> crossterm::Result<()> {
     if new.starting_index != old_start_index {
-        queue_entries_column(
-            w,
-            left_x,
-            right_x,
-            column_bot_y,
-            entries,
-            new,
-        )?;
+        queue_entries_column(w, left_x, right_x, column_bot_y, entries, new)?;
         return Ok(());
     }
 
@@ -2649,7 +2675,14 @@ fn queue_entries_column(
                 queue!(w, style::SetAttribute(Attribute::Reverse))?;
             }
 
-            queue_full_entry(w, &entries, left_x, right_x, curr_y - 1, column.starting_index)?;
+            queue_full_entry(
+                w,
+                &entries,
+                left_x,
+                right_x,
+                curr_y - 1,
+                column.starting_index,
+            )?;
 
             if is_curr_entry {
                 queue!(w, style::SetAttribute(Attribute::Reset))?;
