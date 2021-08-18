@@ -228,7 +228,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
             )?;
 
             if is_first_iteration {
-                // FIXME(Chris): Refactor this to use DrawingInfo (except for WindowPixels)
+                // FIXME(Chris): Use DrawingInfo fully (win_pixels)
                 queue_all_columns(
                     &mut stdout_lock,
                     &runtime,
@@ -314,13 +314,9 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &mut dir_states,
                                     &mut match_positions,
                                     &mut left_paths,
-                                    drawing_info.win_pixels,
-                                    drawing_info.width,
-                                    drawing_info.height,
+                                    drawing_info,
                                     second_entry_index,
                                     &mut second,
-                                    drawing_info.column_height,
-                                    drawing_info.column_bot_y,
                                     second_column,
                                 )?;
                             }
@@ -344,18 +340,15 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         second.display_offset += 1;
                                     }
 
+                                    // FIXME(Chris): Refactor this to fully use DrawingInfo
                                     queue_entry_changed(
                                         &mut stdout_lock,
                                         &runtime,
                                         &mut image_handles,
-                                        &drawing_info.win_pixels,
                                         &dir_states,
                                         &left_paths,
                                         &available_execs,
-                                        drawing_info.width,
-                                        drawing_info.height,
-                                        drawing_info.column_height,
-                                        drawing_info.column_bot_y,
+                                        drawing_info,
                                         old_starting_index,
                                         old_display_offset,
                                         second,
@@ -382,14 +375,10 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &mut stdout_lock,
                                         &runtime,
                                         &mut image_handles,
-                                        &drawing_info.win_pixels,
                                         &dir_states,
                                         &left_paths,
                                         &available_execs,
-                                        drawing_info.width,
-                                        drawing_info.height,
-                                        drawing_info.column_height,
-                                        drawing_info.column_bot_y,
+                                        drawing_info,
                                         old_starting_index,
                                         old_display_offset,
                                         second,
@@ -579,7 +568,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &match_positions,
                                     &runtime,
                                     &mut image_handles,
-                                    &drawing_info.win_pixels,
                                     &dir_states,
                                     &left_paths,
                                     &available_execs,
@@ -598,7 +586,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &match_positions,
                                     &runtime,
                                     &mut image_handles,
-                                    &drawing_info.win_pixels,
                                     &dir_states,
                                     &left_paths,
                                     &available_execs,
@@ -622,13 +609,9 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                         &mut dir_states,
                         &mut match_positions,
                         &mut left_paths,
-                        drawing_info.win_pixels,
-                        drawing_info.width,
-                        drawing_info.height,
+                        drawing_info,
                         second_entry_index,
                         &mut second,
-                        drawing_info.column_height,
-                        drawing_info.column_bot_y,
                         second_column,
                     )?,
                     _ => (),
@@ -787,7 +770,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 &match_positions,
                                                 &runtime,
                                                 &mut image_handles,
-                                                &drawing_info.win_pixels,
                                                 &dir_states,
                                                 &left_paths,
                                                 &available_execs,
@@ -832,7 +814,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 &match_positions,
                                                 &runtime,
                                                 &mut image_handles,
-                                                &drawing_info.win_pixels,
                                                 &dir_states,
                                                 &left_paths,
                                                 &available_execs,
@@ -966,13 +947,9 @@ fn enter_entry(
     mut dir_states: &mut DirStates,
     mut match_positions: &mut Vec<usize>,
     mut left_paths: &mut HashMap<std::path::PathBuf, DirLocation>,
-    win_pixels: WindowPixels,
-    width: u16,
-    height: u16,
+    drawing_info: DrawingInfo,
     second_entry_index: u16,
     second: &mut ColumnInfo,
-    column_height: u16,
-    column_bot_y: u16,
     second_column: u16,
 ) -> crossterm::Result<()> {
     // NOTE(Chris): We don't need to abort image handles here. If we are entering a
@@ -1043,21 +1020,11 @@ fn enter_entry(
             &mut stdout_lock,
             &runtime,
             &mut image_handles,
-            &win_pixels,
+            &drawing_info.win_pixels,
             &dir_states,
             &left_paths,
             &available_execs,
-            // FIXME(Chris): Pass a less-hacky DrawingInfo into here
-            DrawingInfo {
-                win_pixels: WindowPixels {
-                    width: 0,
-                    height: 0,
-                },
-                width,
-                height,
-                column_bot_y,
-                column_height,
-            },
+            drawing_info,
             second_column,
             *second,
         )?;
@@ -1139,7 +1106,6 @@ fn queue_search_jump(
     match_positions: &Vec<usize>,
     runtime: &Runtime,
     mut image_handles: &mut Vec<ImageHandle>,
-    win_pixels: &WindowPixels,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
@@ -1192,14 +1158,20 @@ fn queue_search_jump(
         &mut stdout_lock,
         &runtime,
         &mut image_handles,
-        &win_pixels,
         &dir_states,
         &left_paths,
         &available_execs,
-        width,
-        height,
-        column_height,
-        column_bot_y,
+        // FIXME(Chris): Use less hacky DrawingInfo
+        DrawingInfo {
+            win_pixels: WindowPixels {
+                width: 0,
+                height: 0,
+            },
+            width,
+            height,
+            column_bot_y,
+            column_height,
+        },
         old_starting_index,
         old_display_offset,
         *second,
@@ -1213,14 +1185,10 @@ fn queue_entry_changed(
     mut stdout_lock: &mut StdoutLock,
     runtime: &Runtime,
     mut image_handles: &mut Vec<ImageHandle>,
-    win_pixels: &WindowPixels,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
-    width: u16,
-    height: u16,
-    column_height: u16,
-    column_bot_y: u16,
+    drawing_info: DrawingInfo,
     old_starting_index: u16,
     old_display_offset: u16,
     second: ColumnInfo,
@@ -1229,8 +1197,8 @@ fn queue_entry_changed(
     update_entries_column(
         &mut stdout_lock,
         second_column,
-        width / 2 - 2,
-        column_bot_y,
+        drawing_info.width / 2 - 2,
+        drawing_info.column_bot_y,
         &dir_states.current_entries,
         old_display_offset,
         old_starting_index,
@@ -1241,21 +1209,27 @@ fn queue_entry_changed(
         &mut stdout_lock,
         &runtime,
         &mut image_handles,
-        &win_pixels,
+        &drawing_info.win_pixels,
         &dir_states,
         &left_paths,
         &available_execs,
-        width,
-        height,
-        column_height,
-        column_bot_y,
+        drawing_info.width,
+        drawing_info.height,
+        drawing_info.column_height,
+        drawing_info.column_bot_y,
         (second.starting_index + second.display_offset) as usize,
     )?;
 
     // NOTE(Chris): We flush here, so the current function is more than a "queue_" function
     stdout_lock.flush()?;
 
-    queue_bottom_info_line(&mut stdout_lock, width, height, second, &dir_states)?;
+    queue_bottom_info_line(
+        &mut stdout_lock,
+        drawing_info.width,
+        drawing_info.height,
+        second,
+        &dir_states,
+    )?;
 
     Ok(())
 }
