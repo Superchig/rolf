@@ -1195,17 +1195,19 @@ fn queue_cmd_line_exit(
 fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm::Result<()> {
     let (width, height) = terminal::size()?;
     // Represents the bottom-most y-cell of a column
-    let column_bot_y_tmp = height - 2;
+    let column_bot_y = height - 2;
     // Represents the number of cells in a column vertically.
-    let column_height_tmp = height - 2;
+    let column_height = height - 2;
 
     // FIXME(Chris): Consider using struct literal syntax
-    drawing_info.win_pixels = get_win_pixels()?;
-    drawing_info.width = width;
-    drawing_info.height = height;
-    drawing_info.column_bot_y = column_bot_y_tmp;
-    drawing_info.column_height = column_height_tmp;
-    drawing_info.second_column = width / 6 + 1;
+    *drawing_info = DrawingInfo {
+        win_pixels: get_win_pixels()?,
+        width,
+        height,
+        column_bot_y,
+        column_height,
+        second_column: width / 6 + 1,
+    };
 
     Ok(())
 }
