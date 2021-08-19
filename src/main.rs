@@ -227,7 +227,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     &left_paths,
                     &available_execs,
                     drawing_info,
-                    drawing_info.second_column,
                     second,
                 )?;
 
@@ -288,7 +287,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &left_paths,
                                     &available_execs,
                                     drawing_info,
-                                    drawing_info.second_column,
                                     second,
                                 )?;
                             }
@@ -304,7 +302,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     drawing_info,
                                     second_entry_index,
                                     &mut second,
-                                    drawing_info.second_column,
                                 )?;
                             }
                             'j' => {
@@ -424,7 +421,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &left_paths,
                                         &available_execs,
                                         drawing_info,
-                                        drawing_info.second_column,
                                         second,
                                     )?;
                                 }
@@ -581,7 +577,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                         drawing_info,
                         second_entry_index,
                         &mut second,
-                        drawing_info.second_column,
                     )?,
                     _ => (),
                 },
@@ -916,7 +911,6 @@ fn enter_entry(
     drawing_info: DrawingInfo,
     second_entry_index: u16,
     second: &mut ColumnInfo,
-    second_column: u16,
 ) -> crossterm::Result<()> {
     // NOTE(Chris): We don't need to abort image handles here. If we are entering a
     // directory, then the previous current entry was a directory, and we were never
@@ -984,7 +978,6 @@ fn enter_entry(
             &left_paths,
             &available_execs,
             drawing_info,
-            second_column,
             *second,
         )?;
     } else if selected_target_file_type.is_file() {
@@ -1230,7 +1223,6 @@ fn redraw_upper(
     // FIXME(Chris): Use drawing_info properly (especially second_column)
     queue_second_column(
         &mut stdout_lock,
-        drawing_info.second_column,
         *drawing_info,
         &dir_states.current_entries,
         second,
@@ -1529,13 +1521,11 @@ fn queue_all_columns(
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
     drawing_info: DrawingInfo,
-    second_column: u16,
     second: ColumnInfo,
 ) -> crossterm::Result<()> {
     queue_first_column(&mut stdout_lock, &dir_states, &left_paths, drawing_info)?;
     queue_second_column(
         &mut stdout_lock,
-        second_column,
         drawing_info,
         &dir_states.current_entries,
         second,
@@ -1597,14 +1587,14 @@ fn queue_first_column(
 // scheme of queue_first_column and queue_third_column
 fn queue_second_column(
     mut w: &mut StdoutLock,
-    second_column: u16,
     drawing_info: DrawingInfo,
     entries: &Vec<DirEntryInfo>,
     second: ColumnInfo,
 ) -> crossterm::Result<()> {
+    // FIXME(Chris): Use DrawingInfo properly
     queue_entries_column(
         &mut w,
-        second_column,
+        drawing_info.second_column,
         drawing_info.width / 2 - 2,
         drawing_info.column_bot_y,
         &entries,
