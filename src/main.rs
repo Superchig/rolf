@@ -261,13 +261,11 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                                 let old_current_dir = dir_states.current_dir.clone();
                                 if dir_states.current_entries.len() > 0 {
-                                    // FIXME(Chris): Just use the 'second' ColumnInfo
                                     save_location(
                                         &mut left_paths,
                                         &dir_states,
                                         second_entry_index,
-                                        second.starting_index,
-                                        second.display_offset,
+                                        second,
                                     );
                                 }
 
@@ -882,6 +880,12 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     Ok(dir_states.current_dir)
 }
 
+// NOTE(Chris): When it comes to refactoring many variables into structs, perhaps we should group
+// them by when they are modified. For example, DrawingInfo is modified whenever the terminal
+// window resizes, while ColumnInfo will be modified even when the terminal window isn't resizing.
+// Thus, we should maybe put the left_x value for each column in DrawingInfo (rather than
+// ColumnInfo), since those will primarily be modified when the terminal window changes.
+
 #[derive(Clone, Copy)]
 struct DrawingInfo {
     win_pixels: WindowPixels,
@@ -934,8 +938,7 @@ fn enter_entry(
         &mut left_paths,
         &dir_states,
         second_entry_index,
-        second.starting_index,
-        second.display_offset,
+        *second,
     );
 
     let selected_entry_path = &dir_states.current_entries[second_entry_index as usize]
@@ -2367,8 +2370,7 @@ fn save_location(
     >,
     dir_states: &DirStates,
     second_entry_index: u16,
-    second_starting_index: u16,
-    second_display_offset: u16,
+    second: ColumnInfo,
 ) {
     left_paths.insert(
         dir_states.current_dir.clone(),
@@ -2376,8 +2378,8 @@ fn save_location(
             dir_path: dir_states.current_entries[second_entry_index as usize]
                 .dir_entry
                 .path(),
-            starting_index: second_starting_index,
-            display_offset: second_display_offset,
+            starting_index: second.starting_index,
+            display_offset: second.display_offset,
         },
     );
 }
