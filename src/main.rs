@@ -166,17 +166,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     loop {
         // Gather all the data before rendering things with stdout_lock
 
-        // The terminal's height is also the index of the lowest cell
-        {
-            let (width, height) = terminal::size()?;
-            drawing_info.width = width;
-            drawing_info.height = height;
-        }
-
-        let (second_column, column_bot_y_tmp, column_height_tmp) =
-            calc_second_column_info(drawing_info.width, drawing_info.height);
-        drawing_info.column_bot_y = column_bot_y_tmp;
-        drawing_info.column_height = column_height_tmp;
+        update_drawing_info_from_resize(&mut drawing_info)?;
 
         let second_bottom_index = second.starting_index + drawing_info.column_height;
 
@@ -237,7 +227,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     &left_paths,
                     &available_execs,
                     drawing_info,
-                    second_column,
+                    drawing_info.second_column,
                     second,
                 )?;
 
@@ -298,7 +288,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &left_paths,
                                     &available_execs,
                                     drawing_info,
-                                    second_column,
+                                    drawing_info.second_column,
                                     second,
                                 )?;
                             }
@@ -314,7 +304,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     drawing_info,
                                     second_entry_index,
                                     &mut second,
-                                    second_column,
+                                    drawing_info.second_column,
                                 )?;
                             }
                             'j' => {
@@ -348,7 +338,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         old_starting_index,
                                         old_display_offset,
                                         second,
-                                        second_column,
+                                        drawing_info.second_column,
                                     )?;
                                 }
                             }
@@ -378,7 +368,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         old_starting_index,
                                         old_display_offset,
                                         second,
-                                        second_column,
+                                        drawing_info.second_column,
                                     )?;
                                 }
                             }
@@ -434,7 +424,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &left_paths,
                                         &available_execs,
                                         drawing_info,
-                                        second_column,
+                                        drawing_info.second_column,
                                         second,
                                     )?;
                                 }
@@ -451,7 +441,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                                     update_entries_column(
                                         &mut stdout_lock,
-                                        second_column,
+                                        drawing_info.second_column,
                                         drawing_info.width / 2 - 2,
                                         drawing_info.column_bot_y,
                                         &dir_states.current_entries,
@@ -502,7 +492,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                                     update_entries_column(
                                         &mut stdout_lock,
-                                        second_column,
+                                        drawing_info.second_column,
                                         drawing_info.width / 2 - 2,
                                         drawing_info.column_bot_y,
                                         &dir_states.current_entries,
@@ -559,7 +549,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     should_search_forwards,
                                     drawing_info,
                                     &mut second,
-                                    second_column,
+                                    drawing_info.second_column,
                                 )?;
                             }
                             'N' => {
@@ -574,7 +564,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     !should_search_forwards,
                                     drawing_info,
                                     &mut second,
-                                    second_column,
+                                    drawing_info.second_column,
                                 )?;
                             }
                             _ => (),
@@ -591,7 +581,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                         drawing_info,
                         second_entry_index,
                         &mut second,
-                        second_column,
+                        drawing_info.second_column,
                     )?,
                     _ => (),
                 },
@@ -752,7 +742,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 should_search_forwards,
                                                 drawing_info,
                                                 &mut second,
-                                                second_column,
+                                                drawing_info.second_column,
                                             )?;
                                         }
                                     }
@@ -793,7 +783,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 should_search_forwards,
                                                 drawing_info,
                                                 &mut second,
-                                                second_column,
+                                                drawing_info.second_column,
                                             )?;
                                         }
                                     }
@@ -1528,16 +1518,6 @@ fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
     };
 
     Ok(win_pixels)
-}
-
-fn calc_second_column_info(width: u16, height: u16) -> (u16, u16, u16) {
-    let second_column = width / 6 + 1;
-    // Represents the bottom-most y-cell of a column
-    let column_bot_y = height - 2;
-    // Represents the number of cells in a column vertically.
-    let column_height = height - 2;
-
-    (second_column, column_bot_y, column_height)
 }
 
 fn queue_all_columns(
