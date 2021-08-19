@@ -159,6 +159,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
         height: 0,
         column_bot_y: 0,
         column_height: 0,
+        second_column: 0,
     };
 
     // Main input loop
@@ -893,6 +894,8 @@ struct DrawingInfo {
     height: u16,
     column_bot_y: u16,
     column_height: u16,
+    // The left-most x position of the second column
+    second_column: u16,
 }
 
 #[derive(Clone, Copy)]
@@ -934,12 +937,7 @@ fn enter_entry(
         return Ok(());
     }
 
-    save_location(
-        &mut left_paths,
-        &dir_states,
-        second_entry_index,
-        *second,
-    );
+    save_location(&mut left_paths, &dir_states, second_entry_index, *second);
 
     let selected_entry_path = &dir_states.current_entries[second_entry_index as usize]
         .dir_entry
@@ -1197,14 +1195,27 @@ fn queue_cmd_line_exit(
         cursor::Hide
     )?;
 
-    queue_bottom_info_line(
-        &mut stdout_lock,
-        drawing_info,
-        second,
-        &dir_states,
-    )?;
+    queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
 
     stdout_lock.flush()?;
+
+    Ok(())
+}
+
+fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm::Result<()> {
+    let (width, height) = terminal::size()?;
+    // Represents the bottom-most y-cell of a column
+    let column_bot_y_tmp = height - 2;
+    // Represents the number of cells in a column vertically.
+    let column_height_tmp = height - 2;
+
+    // FIXME(Chris): Consider using struct literal syntax
+    drawing_info.win_pixels = get_win_pixels()?;
+    drawing_info.width = width;
+    drawing_info.height = height;
+    drawing_info.column_bot_y = column_bot_y_tmp;
+    drawing_info.column_height = column_height_tmp;
+    drawing_info.second_column = width / 6 + 1;
 
     Ok(())
 }
@@ -1212,7 +1223,7 @@ fn queue_cmd_line_exit(
 // Redraw everything except the bottom info line.
 fn redraw_upper(
     mut stdout_lock: &mut StdoutLock,
-    drawing_info: &mut DrawingInfo,
+    mut drawing_info: &mut DrawingInfo,
     runtime: &Runtime,
     mut image_handles: &mut Vec<ImageHandle>,
     dir_states: &DirStates,
@@ -1222,21 +1233,13 @@ fn redraw_upper(
 ) -> crossterm::Result<()> {
     queue!(stdout_lock, terminal::Clear(ClearType::All))?;
 
-    // FIXME(Chris): Consider refactoring this drawing_info updating functionality into a function
-    let (width, height) = terminal::size()?;
-    let (second_column, column_bot_y_tmp, column_height_tmp) =
-        calc_second_column_info(width, height);
-
-    drawing_info.win_pixels = get_win_pixels()?;
-    drawing_info.width = width;
-    drawing_info.height = height;
-    drawing_info.column_bot_y = column_bot_y_tmp;
-    drawing_info.column_height = column_height_tmp;
+    update_drawing_info_from_resize(&mut drawing_info)?;
 
     queue_first_column(&mut stdout_lock, &dir_states, &left_paths, *drawing_info)?;
+    // FIXME(Chris): Use drawing_info properly (especially second_column)
     queue_second_column(
         &mut stdout_lock,
-        second_column,
+        drawing_info.second_column,
         *drawing_info,
         &dir_states.current_entries,
         second,
