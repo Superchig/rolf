@@ -172,10 +172,10 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
             drawing_info.height = height;
         }
 
-        let (second_column, _column_bot_y, _column_height) =
+        let (second_column, column_bot_y_tmp, column_height_tmp) =
             calc_second_column_info(drawing_info.width, drawing_info.height);
-        drawing_info.column_bot_y = _column_bot_y;
-        drawing_info.column_height = _column_height;
+        drawing_info.column_bot_y = column_bot_y_tmp;
+        drawing_info.column_height = column_height_tmp;
 
         let second_bottom_index = second.starting_index + drawing_info.column_height;
 
@@ -228,12 +228,10 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
             )?;
 
             if is_first_iteration {
-                // FIXME(Chris): Use DrawingInfo fully (win_pixels)
                 queue_all_columns(
                     &mut stdout_lock,
                     &runtime,
                     &mut image_handles,
-                    &drawing_info.win_pixels,
                     &dir_states,
                     &left_paths,
                     &available_execs,
@@ -263,6 +261,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                                 let old_current_dir = dir_states.current_dir.clone();
                                 if dir_states.current_entries.len() > 0 {
+                                    // FIXME(Chris): Just use the 'second' ColumnInfo
                                     save_location(
                                         &mut left_paths,
                                         &dir_states,
@@ -296,7 +295,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &mut stdout_lock,
                                     &runtime,
                                     &mut image_handles,
-                                    &drawing_info.win_pixels,
                                     &dir_states,
                                     &left_paths,
                                     &available_execs,
@@ -340,7 +338,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         second.display_offset += 1;
                                     }
 
-                                    // FIXME(Chris): Refactor this to fully use DrawingInfo
                                     queue_entry_changed(
                                         &mut stdout_lock,
                                         &runtime,
@@ -434,7 +431,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &mut stdout_lock,
                                         &runtime,
                                         &mut image_handles,
-                                        &drawing_info.win_pixels,
                                         &dir_states,
                                         &left_paths,
                                         &available_execs,
@@ -469,21 +465,16 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &mut stdout_lock,
                                         &runtime,
                                         &mut image_handles,
-                                        &drawing_info.win_pixels,
                                         &dir_states,
                                         &left_paths,
                                         &available_execs,
-                                        drawing_info.width,
-                                        drawing_info.height,
-                                        drawing_info.column_height,
-                                        drawing_info.column_bot_y,
+                                        drawing_info,
                                         (second.starting_index + second.display_offset) as usize,
                                     )?;
 
                                     queue_bottom_info_line(
                                         &mut stdout_lock,
-                                        drawing_info.width,
-                                        drawing_info.height,
+                                        drawing_info,
                                         second,
                                         &dir_states,
                                     )?;
@@ -525,21 +516,16 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &mut stdout_lock,
                                         &runtime,
                                         &mut image_handles,
-                                        &drawing_info.win_pixels,
                                         &dir_states,
                                         &left_paths,
                                         &available_execs,
-                                        drawing_info.width,
-                                        drawing_info.height,
-                                        drawing_info.column_height,
-                                        drawing_info.column_bot_y,
+                                        drawing_info,
                                         (second.starting_index + second.display_offset) as usize,
                                     )?;
 
                                     queue_bottom_info_line(
                                         &mut stdout_lock,
-                                        drawing_info.width,
-                                        drawing_info.height,
+                                        drawing_info,
                                         second,
                                         &dir_states,
                                     )?;
@@ -572,10 +558,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &left_paths,
                                     &available_execs,
                                     should_search_forwards,
-                                    drawing_info.width,
-                                    drawing_info.height,
-                                    drawing_info.column_height,
-                                    drawing_info.column_bot_y,
+                                    drawing_info,
                                     &mut second,
                                     second_column,
                                 )?;
@@ -590,10 +573,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &left_paths,
                                     &available_execs,
                                     !should_search_forwards,
-                                    drawing_info.width,
-                                    drawing_info.height,
-                                    drawing_info.column_height,
-                                    drawing_info.column_bot_y,
+                                    drawing_info,
                                     &mut second,
                                     second_column,
                                 )?;
@@ -620,7 +600,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                 Event::Resize(_, _) => {
                     redraw_upper(
                         &mut stdout_lock,
-                        &mut drawing_info.win_pixels,
+                        &mut drawing_info,
                         &runtime,
                         &mut image_handles,
                         &dir_states,
@@ -629,9 +609,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                         second,
                     )?;
 
-                    let (width, height) = terminal::size()?;
-
-                    queue_bottom_info_line(&mut stdout_lock, width, height, second, &dir_states)?;
+                    queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
                 }
             }
         }
@@ -689,8 +667,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         queue_cmd_line_exit(
                                             &mut &mut stdout_lock,
                                             &dir_states,
-                                            drawing_info.width,
-                                            drawing_info.height,
+                                            drawing_info,
                                             second,
                                             &mut input_line,
                                         )?;
@@ -774,10 +751,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 &left_paths,
                                                 &available_execs,
                                                 should_search_forwards,
-                                                drawing_info.width,
-                                                drawing_info.height,
-                                                drawing_info.column_height,
-                                                drawing_info.column_bot_y,
+                                                drawing_info,
                                                 &mut second,
                                                 second_column,
                                             )?;
@@ -818,10 +792,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                                 &left_paths,
                                                 &available_execs,
                                                 should_search_forwards,
-                                                drawing_info.width,
-                                                drawing_info.height,
-                                                drawing_info.column_height,
-                                                drawing_info.column_bot_y,
+                                                drawing_info,
                                                 &mut second,
                                                 second_column,
                                             )?;
@@ -833,8 +804,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 queue_cmd_line_exit(
                                     &mut &mut stdout_lock,
                                     &dir_states,
-                                    drawing_info.width,
-                                    drawing_info.height,
+                                    drawing_info,
                                     second,
                                     &mut input_line,
                                 )?;
@@ -870,8 +840,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             queue_cmd_line_exit(
                                 &mut &mut stdout_lock,
                                 &dir_states,
-                                drawing_info.width,
-                                drawing_info.height,
+                                drawing_info,
                                 second,
                                 &mut input_line,
                             )?;
@@ -884,7 +853,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     Event::Resize(_, _) => {
                         redraw_upper(
                             &mut stdout_lock,
-                            &mut drawing_info.win_pixels,
+                            &mut drawing_info,
                             &runtime,
                             &mut image_handles,
                             &dir_states,
@@ -1020,7 +989,6 @@ fn enter_entry(
             &mut stdout_lock,
             &runtime,
             &mut image_handles,
-            &drawing_info.win_pixels,
             &dir_states,
             &left_paths,
             &available_execs,
@@ -1110,10 +1078,7 @@ fn queue_search_jump(
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
     should_search_forwards: bool,
-    width: u16,
-    height: u16,
-    column_height: u16,
-    column_bot_y: u16,
+    drawing_info: DrawingInfo,
     second: &mut ColumnInfo,
     second_column: u16,
 ) -> crossterm::Result<()> {
@@ -1149,7 +1114,7 @@ fn queue_search_jump(
 
     move_column_pos(
         dir_states.current_entries.len(),
-        column_height,
+        drawing_info.column_height,
         second,
         next_position,
     )?;
@@ -1161,17 +1126,7 @@ fn queue_search_jump(
         &dir_states,
         &left_paths,
         &available_execs,
-        // FIXME(Chris): Use less hacky DrawingInfo
-        DrawingInfo {
-            win_pixels: WindowPixels {
-                width: 0,
-                height: 0,
-            },
-            width,
-            height,
-            column_bot_y,
-            column_height,
-        },
+        drawing_info,
         old_starting_index,
         old_display_offset,
         *second,
@@ -1209,36 +1164,26 @@ fn queue_entry_changed(
         &mut stdout_lock,
         &runtime,
         &mut image_handles,
-        &drawing_info.win_pixels,
         &dir_states,
         &left_paths,
         &available_execs,
-        drawing_info.width,
-        drawing_info.height,
-        drawing_info.column_height,
-        drawing_info.column_bot_y,
+        drawing_info,
         (second.starting_index + second.display_offset) as usize,
     )?;
 
     // NOTE(Chris): We flush here, so the current function is more than a "queue_" function
     stdout_lock.flush()?;
 
-    queue_bottom_info_line(
-        &mut stdout_lock,
-        drawing_info.width,
-        drawing_info.height,
-        second,
-        &dir_states,
-    )?;
+    queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
 
     Ok(())
 }
 
+// FIXME(Chris): Use DrawingInfo correctly
 fn queue_cmd_line_exit(
     mut stdout_lock: &mut StdoutLock,
     dir_states: &DirStates,
-    width: u16,
-    height: u16,
+    drawing_info: DrawingInfo,
     second: ColumnInfo,
     input_line: &mut String,
 ) -> crossterm::Result<()> {
@@ -1250,7 +1195,13 @@ fn queue_cmd_line_exit(
         cursor::Hide
     )?;
 
-    queue_bottom_info_line(&mut stdout_lock, width, height, second, &dir_states)?;
+    // FIXME(Chris): Use less-hacky DrawingInfo
+    queue_bottom_info_line(
+        &mut stdout_lock,
+        drawing_info,
+        second,
+        &dir_states,
+    )?;
 
     stdout_lock.flush()?;
 
@@ -1260,7 +1211,7 @@ fn queue_cmd_line_exit(
 // Redraw everything except the bottom info line.
 fn redraw_upper(
     mut stdout_lock: &mut StdoutLock,
-    win_pixels: &mut WindowPixels,
+    drawing_info: &mut DrawingInfo,
     runtime: &Runtime,
     mut image_handles: &mut Vec<ImageHandle>,
     dir_states: &DirStates,
@@ -1270,24 +1221,22 @@ fn redraw_upper(
 ) -> crossterm::Result<()> {
     queue!(stdout_lock, terminal::Clear(ClearType::All))?;
 
+    // FIXME(Chris): Consider refactoring this drawing_info updating functionality into a function
     let (width, height) = terminal::size()?;
-    let (second_column, column_bot_y, column_height) = calc_second_column_info(width, height);
+    let (second_column, column_bot_y_tmp, column_height_tmp) =
+        calc_second_column_info(width, height);
 
-    *win_pixels = get_win_pixels()?;
+    drawing_info.win_pixels = get_win_pixels()?;
+    drawing_info.width = width;
+    drawing_info.height = height;
+    drawing_info.column_bot_y = column_bot_y_tmp;
+    drawing_info.column_height = column_height_tmp;
 
-    queue_first_column(
-        &mut stdout_lock,
-        &dir_states,
-        &left_paths,
-        width,
-        column_height,
-        column_bot_y,
-    )?;
+    queue_first_column(&mut stdout_lock, &dir_states, &left_paths, *drawing_info)?;
     queue_second_column(
         &mut stdout_lock,
         second_column,
-        width,
-        column_bot_y,
+        *drawing_info,
         &dir_states.current_entries,
         second,
     )?;
@@ -1295,14 +1244,10 @@ fn redraw_upper(
         stdout_lock,
         &runtime,
         &mut image_handles,
-        &win_pixels,
         &dir_states,
         &left_paths,
         &available_execs,
-        width,
-        height,
-        column_height,
-        column_bot_y,
+        *drawing_info,
         (second.starting_index + second.display_offset) as usize,
     )?;
 
@@ -1311,8 +1256,7 @@ fn redraw_upper(
 
 fn queue_bottom_info_line(
     stdout_lock: &mut StdoutLock,
-    width: u16,
-    height: u16,
+    drawing_info: DrawingInfo,
     second: ColumnInfo,
     dir_states: &DirStates,
 ) -> crossterm::Result<()> {
@@ -1422,7 +1366,7 @@ fn queue_bottom_info_line(
     queue!(
         stdout_lock,
         style::SetAttribute(Attribute::Reset),
-        cursor::MoveTo(0, height - 1),
+        cursor::MoveTo(0, drawing_info.height - 1),
         terminal::Clear(ClearType::CurrentLine),
         style::Print(std::str::from_utf8(&colored_mode).unwrap()),
         style::PrintStyledContent(
@@ -1461,7 +1405,10 @@ fn queue_bottom_info_line(
 
     queue!(
         stdout_lock,
-        cursor::MoveTo(width - (display_position.len() as u16), height - 1),
+        cursor::MoveTo(
+            drawing_info.width - (display_position.len() as u16),
+            drawing_info.height - 1
+        ),
         style::SetForegroundColor(Color::Reset),
         style::Print(display_position),
     )?;
@@ -1593,7 +1540,6 @@ fn queue_all_columns(
     mut stdout_lock: &mut StdoutLock,
     runtime: &Runtime,
     mut image_handles: &mut HandlesVec,
-    win_pixels: &WindowPixels,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
@@ -1601,19 +1547,11 @@ fn queue_all_columns(
     second_column: u16,
     second: ColumnInfo,
 ) -> crossterm::Result<()> {
-    queue_first_column(
-        &mut stdout_lock,
-        &dir_states,
-        &left_paths,
-        drawing_info.width,
-        drawing_info.column_height,
-        drawing_info.column_bot_y,
-    )?;
+    queue_first_column(&mut stdout_lock, &dir_states, &left_paths, drawing_info)?;
     queue_second_column(
         &mut stdout_lock,
         second_column,
-        drawing_info.width,
-        drawing_info.column_bot_y,
+        drawing_info,
         &dir_states.current_entries,
         second,
     )?;
@@ -1621,24 +1559,15 @@ fn queue_all_columns(
         stdout_lock,
         &runtime,
         &mut image_handles,
-        &win_pixels,
         &dir_states,
         &left_paths,
         &available_execs,
-        drawing_info.width,
-        drawing_info.height,
-        drawing_info.column_height,
-        drawing_info.column_bot_y,
+        drawing_info,
         (second.starting_index + second.display_offset) as usize,
     )?;
 
-    queue_bottom_info_line(
-        &mut stdout_lock,
-        drawing_info.width,
-        drawing_info.height,
-        second,
-        &dir_states,
-    )?;
+    // FIXME(Chris): Use DrawingInfo correctly (except win_pixels)
+    queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
 
     Ok(())
 }
@@ -1647,14 +1576,12 @@ fn queue_first_column(
     mut w: &mut StdoutLock,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
-    width: u16,
-    column_height: u16,
-    column_bot_y: u16,
+    drawing_info: DrawingInfo,
 ) -> crossterm::Result<()> {
     if let Some(prev_dir) = &dir_states.prev_dir {
         let (display_offset, starting_index) = find_correct_location(
             &left_paths,
-            column_height,
+            drawing_info.column_height,
             prev_dir,
             &dir_states.prev_entries,
             &dir_states.current_dir,
@@ -1662,8 +1589,8 @@ fn queue_first_column(
         queue_entries_column(
             &mut w,
             1,
-            width / 6 - 2,
-            column_bot_y,
+            drawing_info.width / 6 - 2,
+            drawing_info.column_bot_y,
             &dir_states.prev_entries,
             ColumnInfo {
                 starting_index,
@@ -1671,7 +1598,13 @@ fn queue_first_column(
             },
         )?;
     } else {
-        queue_oneline_column(&mut w, 1, width / 6 - 2, column_bot_y, "")?;
+        queue_oneline_column(
+            &mut w,
+            1,
+            drawing_info.width / 6 - 2,
+            drawing_info.column_bot_y,
+            "",
+        )?;
     }
     Ok(())
 }
@@ -1681,17 +1614,15 @@ fn queue_first_column(
 fn queue_second_column(
     mut w: &mut StdoutLock,
     second_column: u16,
-    width: u16,
-    column_bot_y: u16,
-    // dir_states: &DirStates,
+    drawing_info: DrawingInfo,
     entries: &Vec<DirEntryInfo>,
     second: ColumnInfo,
 ) -> crossterm::Result<()> {
     queue_entries_column(
         &mut w,
         second_column,
-        width / 2 - 2,
-        column_bot_y,
+        drawing_info.width / 2 - 2,
+        drawing_info.column_bot_y,
         &entries,
         second,
     )?;
@@ -1703,21 +1634,17 @@ fn queue_third_column(
     mut w: &mut StdoutLock,
     runtime: &Runtime,
     mut handles: &mut HandlesVec,
-    win_pixels: &WindowPixels,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
-    width: u16,
-    height: u16,
-    column_height: u16,
-    column_bot_y: u16,
+    drawing_info: DrawingInfo,
     change_index: usize,
 ) -> crossterm::Result<()> {
-    let left_x = width / 2 + 1;
-    let right_x = width - 2;
+    let left_x = drawing_info.width / 2 + 1;
+    let right_x = drawing_info.width - 2;
 
     if dir_states.current_entries.len() <= 0 {
-        queue_blank_column(&mut w, left_x, right_x, column_height)?;
+        queue_blank_column(&mut w, left_x, right_x, drawing_info.column_height)?;
     } else {
         let display_entry = &dir_states.current_entries[change_index];
 
@@ -1727,10 +1654,10 @@ fn queue_third_column(
             queue_third_column_dir(
                 &mut w,
                 &left_paths,
-                width,
+                drawing_info.width,
                 left_x,
                 right_x,
-                column_bot_y,
+                drawing_info.column_bot_y,
                 &display_entry,
             )?;
         } else if file_type.is_file() {
@@ -1740,11 +1667,11 @@ fn queue_third_column(
                 &mut handles,
                 &display_entry,
                 &available_execs,
-                *win_pixels,
-                width,
-                height,
-                column_height,
-                column_bot_y,
+                drawing_info.win_pixels,
+                drawing_info.width,
+                drawing_info.height,
+                drawing_info.column_height,
+                drawing_info.column_bot_y,
                 left_x,
                 right_x,
             )?;
@@ -1758,10 +1685,10 @@ fn queue_third_column(
                         queue_third_column_dir(
                             &mut w,
                             &left_paths,
-                            width,
+                            drawing_info.width,
                             left_x,
                             right_x,
-                            column_bot_y,
+                            drawing_info.column_bot_y,
                             &display_entry,
                         )?;
                     } else if underlying_file_type.is_file() {
@@ -1771,24 +1698,24 @@ fn queue_third_column(
                             &mut handles,
                             &display_entry,
                             &available_execs,
-                            *win_pixels,
-                            width,
-                            height,
-                            column_height,
-                            column_bot_y,
+                            drawing_info.win_pixels,
+                            drawing_info.width,
+                            drawing_info.height,
+                            drawing_info.column_height,
+                            drawing_info.column_bot_y,
                             left_x,
                             right_x,
                         )?;
                     } else {
-                        queue_blank_column(&mut w, left_x, right_x, column_height)?;
+                        queue_blank_column(&mut w, left_x, right_x, drawing_info.column_height)?;
                     }
                 }
                 Err(_) => {
-                    queue_blank_column(&mut w, left_x, right_x, column_height)?;
+                    queue_blank_column(&mut w, left_x, right_x, drawing_info.column_height)?;
                 }
             }
         } else {
-            queue_blank_column(&mut w, left_x, right_x, column_height)?;
+            queue_blank_column(&mut w, left_x, right_x, drawing_info.column_height)?;
         }
     }
 
