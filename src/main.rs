@@ -1220,7 +1220,6 @@ fn redraw_upper(
     update_drawing_info_from_resize(&mut drawing_info)?;
 
     queue_first_column(&mut stdout_lock, &dir_states, &left_paths, *drawing_info)?;
-    // FIXME(Chris): Use drawing_info properly (especially second_column)
     queue_second_column(
         &mut stdout_lock,
         *drawing_info,
