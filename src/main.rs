@@ -162,11 +162,11 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
         second_column: 0,
     };
 
+    update_drawing_info_from_resize(&mut drawing_info)?;
+
     // Main input loop
     loop {
         // Gather all the data before rendering things with stdout_lock
-
-        update_drawing_info_from_resize(&mut drawing_info)?;
 
         let second_bottom_index = second.starting_index + drawing_info.column_height;
 
