@@ -1179,7 +1179,6 @@ fn queue_entry_changed(
     Ok(())
 }
 
-// FIXME(Chris): Use DrawingInfo correctly
 fn queue_cmd_line_exit(
     mut stdout_lock: &mut StdoutLock,
     dir_states: &DirStates,
@@ -1195,7 +1194,6 @@ fn queue_cmd_line_exit(
         cursor::Hide
     )?;
 
-    // FIXME(Chris): Use less-hacky DrawingInfo
     queue_bottom_info_line(
         &mut stdout_lock,
         drawing_info,
@@ -1566,7 +1564,6 @@ fn queue_all_columns(
         (second.starting_index + second.display_offset) as usize,
     )?;
 
-    // FIXME(Chris): Use DrawingInfo correctly (except win_pixels)
     queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
 
     Ok(())
