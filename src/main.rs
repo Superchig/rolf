@@ -1199,7 +1199,6 @@ fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm:
     // Represents the number of cells in a column vertically.
     let column_height = height - 2;
 
-    // FIXME(Chris): Consider using struct literal syntax
     *drawing_info = DrawingInfo {
         win_pixels: get_win_pixels()?,
         width,
