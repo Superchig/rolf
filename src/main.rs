@@ -267,15 +267,13 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     )?;
                                 }
 
-                                let (display_offset, starting_index) = find_correct_location(
+                                second = find_correct_location(
                                     &left_paths,
                                     drawing_info.column_height,
                                     &dir_states.current_dir,
                                     &dir_states.current_entries,
                                     &old_current_dir,
                                 );
-                                second.display_offset = display_offset;
-                                second.starting_index = starting_index;
 
                                 stdout_lock.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
 
@@ -1556,7 +1554,7 @@ fn queue_first_column(
     drawing_info: DrawingInfo,
 ) -> crossterm::Result<()> {
     if let Some(prev_dir) = &dir_states.prev_dir {
-        let (display_offset, starting_index) = find_correct_location(
+        let result_column = find_correct_location(
             &left_paths,
             drawing_info.column_height,
             prev_dir,
@@ -1569,10 +1567,7 @@ fn queue_first_column(
             drawing_info.width / 6 - 2,
             drawing_info.column_bot_y,
             &dir_states.prev_entries,
-            ColumnInfo {
-                starting_index,
-                display_offset,
-            },
+            result_column,
         )?;
     } else {
         queue_oneline_column(
@@ -2207,16 +2202,18 @@ fn format_current_dir(dir_states: &DirStates, home_path: &Path) -> String {
 
 // For the list consisting of the entries in parent_entries, find the correct display offset and
 // starting index that will put the cursor on dir
-// FIXME(Chris): Return ColumnInfo rather than tuple
 fn find_correct_location(
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     column_height: u16,
     parent_dir: &std::path::PathBuf,
     parent_entries: &Vec<DirEntryInfo>,
     dir: &std::path::PathBuf,
-) -> (u16, u16) {
+) -> ColumnInfo {
     return match left_paths.get(parent_dir) {
-        Some(dir_location) => (dir_location.display_offset, dir_location.starting_index),
+        Some(dir_location) => ColumnInfo {
+            display_offset: dir_location.display_offset,
+            starting_index: dir_location.starting_index,
+        },
         None => {
             let first_bottom_index = column_height;
 
@@ -2226,7 +2223,7 @@ fn find_correct_location(
                 .unwrap();
 
             if parent_entry_index <= first_bottom_index as usize {
-                (parent_entry_index as u16, 0)
+                ColumnInfo { starting_index: 0, display_offset: parent_entry_index as u16 }
             } else {
                 let entries_len = parent_dir.read_dir().unwrap().count();
 
@@ -2246,7 +2243,7 @@ fn find_correct_location(
                 // eprintln!("column_height: {}", column_height);
                 // eprintln!("next_position: {}", parent_entry_index);
 
-                (result_column.display_offset, result_column.starting_index)
+                result_column
             }
         }
     };
@@ -2668,10 +2665,13 @@ mod tests {
 
         // TODO(Chris): It's possible that this should be more like starting_index: 22 and
         // display_offset: 16, but we'll need to sort this out later
-        assert_eq!(result_column, ColumnInfo {
-            starting_index: 21,
-            display_offset: 17,
-        });
+        assert_eq!(
+            result_column,
+            ColumnInfo {
+                starting_index: 21,
+                display_offset: 17,
+            }
+        );
     }
 
     #[test]
@@ -2688,9 +2688,12 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result_column, ColumnInfo {
-            starting_index: 64,
-            display_offset: 17,
-        });
+        assert_eq!(
+            result_column,
+            ColumnInfo {
+                starting_index: 64,
+                display_offset: 17,
+            }
+        );
     }
 }
