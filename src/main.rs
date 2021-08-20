@@ -883,7 +883,7 @@ struct DrawingInfo {
     second_column: u16,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ColumnInfo {
     starting_index: u16,
     display_offset: u16,
@@ -991,13 +991,14 @@ fn enter_entry(
 
 // Sets the values underlying column_starting_index and column_display_offset to properly set a
 // cursor at the next_position index in a vector of entries.
-// FIXME(Chris): Center the first column's cursor using this function
 fn find_column_pos(
     current_entries_len: usize,
     column_height: u16,
     column: ColumnInfo,
     next_position: usize,
 ) -> crossterm::Result<ColumnInfo> {
+    assert!(next_position <= current_entries_len);
+
     let second_entry_index = column.starting_index + column.display_offset;
 
     // let lower_offset = (column.height * 2 / 3) as usize;
@@ -1008,6 +1009,8 @@ fn find_column_pos(
     let mut result_column = column;
 
     if column_height as usize > current_entries_len {
+        assert_eq!(column.starting_index, 0);
+
         result_column.display_offset = next_position as u16;
     } else if next_position < second_entry_index as usize {
         // Moving up
@@ -1024,7 +1027,6 @@ fn find_column_pos(
         }
     } else if next_position > second_entry_index as usize {
         // Moving down
-
         if next_position <= result_column.starting_index as usize + greater_offset {
             result_column.display_offset = next_position as u16 - result_column.starting_index;
         } else if next_position > result_column.starting_index as usize + greater_offset {
@@ -2226,10 +2228,10 @@ fn find_correct_location(
             if parent_entry_index <= first_bottom_index as usize {
                 (parent_entry_index as u16, 0)
             } else {
-                // FIXME(Chris): Fix bug in which first column can be further down than scrolling
-                // or searching would allow
+                let entries_len = parent_dir.read_dir().unwrap().count();
+
                 let result_column = find_column_pos(
-                    dir.read_dir().unwrap().count(),
+                    entries_len,
                     column_height,
                     // NOTE(Chris): It's not clear that we'd want to use a less-hacky ColumnInfo
                     ColumnInfo {
@@ -2239,8 +2241,12 @@ fn find_correct_location(
                     parent_entry_index,
                 )
                 .unwrap();
+                // eprintln!("result_column: {:?}", result_column);
+                // eprintln!("current_entries_len: {}", entries_len);
+                // eprintln!("column_height: {}", column_height);
+                // eprintln!("next_position: {}", parent_entry_index);
 
-                (result_column.starting_index, result_column.display_offset)
+                (result_column.display_offset, result_column.starting_index)
             }
         }
     };
@@ -2640,4 +2646,51 @@ fn get_sorted_entries<P: AsRef<Path>>(path: P) -> io::Result<Vec<DirEntryInfo>> 
     entries.sort_by(cmp_dir_entry_info);
 
     Ok(entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_column_pos_1() {
+        let result_column = find_column_pos(
+            53,
+            28,
+            // NOTE(Chris): It's not clear that we'd want to use a less-hacky ColumnInfo
+            ColumnInfo {
+                starting_index: 0,
+                display_offset: 0,
+            },
+            38,
+        )
+        .unwrap();
+
+        // TODO(Chris): It's possible that this should be more like starting_index: 22 and
+        // display_offset: 16, but we'll need to sort this out later
+        assert_eq!(result_column, ColumnInfo {
+            starting_index: 21,
+            display_offset: 17,
+        });
+    }
+
+    #[test]
+    fn test_find_column_pos_2() {
+        let result_column = find_column_pos(
+            130,
+            28,
+            // NOTE(Chris): It's not clear that we'd want to use a less-hacky ColumnInfo
+            ColumnInfo {
+                starting_index: 0,
+                display_offset: 0,
+            },
+            81,
+        )
+        .unwrap();
+
+        assert_eq!(result_column, ColumnInfo {
+            starting_index: 64,
+            display_offset: 17,
+        });
+    }
 }
