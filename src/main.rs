@@ -2205,6 +2205,7 @@ fn format_current_dir(dir_states: &DirStates, home_path: &Path) -> String {
 
 // For the list consisting of the entries in parent_entries, find the correct display offset and
 // starting index that will put the cursor on dir
+// FIXME(Chris): Return ColumnInfo rather than tuple
 fn find_correct_location(
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     column_height: u16,
@@ -2225,12 +2226,21 @@ fn find_correct_location(
             if parent_entry_index <= first_bottom_index as usize {
                 (parent_entry_index as u16, 0)
             } else {
-                // FIXME(Chris): Use move_column_pos
+                // FIXME(Chris): Fix bug in which first column can be further down than scrolling
+                // or searching would allow
+                let result_column = find_column_pos(
+                    dir.read_dir().unwrap().count(),
+                    column_height,
+                    // NOTE(Chris): It's not clear that we'd want to use a less-hacky ColumnInfo
+                    ColumnInfo {
+                        starting_index: 0,
+                        display_offset: 0,
+                    },
+                    parent_entry_index,
+                )
+                .unwrap();
 
-                // Center vaguely on parent_entry_index
-                let down_offset = column_height / 2;
-
-                (down_offset, (parent_entry_index as u16) - down_offset)
+                (result_column.starting_index, result_column.display_offset)
             }
         }
     };
