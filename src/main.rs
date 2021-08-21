@@ -1589,7 +1589,6 @@ fn queue_second_column(
     entries: &Vec<DirEntryInfo>,
     second: ColumnInfo,
 ) -> crossterm::Result<()> {
-    // FIXME(Chris): Use DrawingInfo properly
     queue_entries_column(
         &mut w,
         drawing_info.second_column,
@@ -2663,8 +2662,6 @@ mod tests {
         )
         .unwrap();
 
-        // TODO(Chris): It's possible that this should be more like starting_index: 22 and
-        // display_offset: 16, but we'll need to sort this out later
         assert_eq!(
             result_column,
             ColumnInfo {
