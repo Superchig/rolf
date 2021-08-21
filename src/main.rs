@@ -241,6 +241,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
             let mut stdout_lock = w.lock();
 
+            // FIXME(Chris): Implement error display
+
             match event {
                 Event::Key(event) => match event.code {
                     KeyCode::Char(ch) => {
@@ -1632,17 +1634,14 @@ fn queue_third_column(
                 &display_entry,
             )?;
         } else if file_type.is_file() {
+            // FIXME(Chris): Preview text files asynchronously
             queue_third_column_file(
                 &mut w,
                 &runtime,
                 &mut handles,
                 &display_entry,
                 &available_execs,
-                drawing_info.win_pixels,
-                drawing_info.width,
-                drawing_info.height,
-                drawing_info.column_height,
-                drawing_info.column_bot_y,
+                drawing_info,
                 left_x,
                 right_x,
             )?;
@@ -1669,11 +1668,7 @@ fn queue_third_column(
                             &mut handles,
                             &display_entry,
                             &available_execs,
-                            drawing_info.win_pixels,
-                            drawing_info.width,
-                            drawing_info.height,
-                            drawing_info.column_height,
-                            drawing_info.column_bot_y,
+                            drawing_info,
                             left_x,
                             right_x,
                         )?;
@@ -1746,15 +1741,11 @@ fn queue_third_column_file(
     handles: &mut HandlesVec,
     display_entry: &DirEntryInfo,
     available_execs: &HashMap<&str, std::path::PathBuf>,
-    win_pixels: WindowPixels,
-    width: u16,
-    height: u16,
-    column_height: u16,
-    column_bot_y: u16,
+    drawing_info: DrawingInfo,
     left_x: u16,
     right_x: u16,
 ) -> crossterm::Result<()> {
-    queue_blank_column(&mut w, left_x, right_x, column_height)?;
+    queue_blank_column(&mut w, left_x, right_x, drawing_info.column_height)?;
 
     let third_file = display_entry.dir_entry.path();
 
@@ -1780,11 +1771,11 @@ fn queue_third_column_file(
                         w.flush()?;
 
                         let preview_image_handle = runtime.spawn(preview_image_or_video(
-                            win_pixels.clone(),
+                            drawing_info.win_pixels.clone(),
                             third_file.clone(),
                             ext.to_string(),
-                            width,
-                            height,
+                            drawing_info.width,
+                            drawing_info.height,
                             left_x,
                             Arc::clone(&can_display_image),
                         ));
@@ -1814,7 +1805,7 @@ fn queue_third_column_file(
                                 queue!(&mut w, terminal::DisableLineWrap)?;
 
                                 for ch in text.as_bytes() {
-                                    if curr_y > column_bot_y {
+                                    if curr_y > drawing_info.column_bot_y {
                                         break;
                                     }
 
@@ -1839,10 +1830,10 @@ fn queue_third_column_file(
 
                                 // Clear the right-most edge of the terminal, since it might
                                 // have been drawn over when printing file contents
-                                for curr_y in 1..=column_bot_y {
+                                for curr_y in 1..=drawing_info.column_bot_y {
                                     queue!(
                                         &mut w,
-                                        cursor::MoveTo(width, curr_y),
+                                        cursor::MoveTo(drawing_info.width, curr_y),
                                         style::Print(' ')
                                     )?;
                                 }
