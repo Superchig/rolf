@@ -1435,6 +1435,7 @@ fn queue_bottom_info_line(
 }
 
 // Handle for a task which displays an image
+// FIXME(Chris): Rename this struct if it's being used to handle more than rendering images
 struct ImageHandle {
     handle: JoinHandle<crossterm::Result<()>>,
     can_display_image: Arc<Mutex<bool>>,
@@ -1634,7 +1635,6 @@ fn queue_third_column(
                 &display_entry,
             )?;
         } else if file_type.is_file() {
-            // FIXME(Chris): Preview text files asynchronously
             queue_third_column_file(
                 &mut w,
                 &runtime,
@@ -1788,56 +1788,34 @@ fn queue_third_column_file(
                     _ => match available_execs.get("highlight") {
                         None => (),
                         Some(highlight) => {
-                            // TODO(Chris): Actually show that something went wrong
-                            let output = Command::new(highlight)
-                                .arg("-O")
-                                .arg("ansi")
-                                .arg("--max-size=500K")
-                                .arg(&third_file)
-                                .output()
-                                .unwrap();
+                            // TODO(Chris): Refactor out this section of code (copied from image
+                            // rendering) into a function of some kind
+                            let can_display_image = Arc::new(Mutex::new(true));
 
-                            // TODO(Chris): Handle case when file is not valid utf8
-                            if let Ok(text) = std::str::from_utf8(&output.stdout) {
-                                let mut curr_y = 1; // Columns start at y = 1
-                                queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
+                            queue!(
+                                w,
+                                style::SetAttribute(Attribute::Reset),
+                                style::SetAttribute(Attribute::Reverse),
+                                cursor::MoveTo(left_x, 1),
+                                style::Print("Loading..."),
+                                style::SetAttribute(Attribute::Reset),
+                            )?;
 
-                                queue!(&mut w, terminal::DisableLineWrap)?;
+                            w.flush()?;
 
-                                for ch in text.as_bytes() {
-                                    if curr_y > drawing_info.column_bot_y {
-                                        break;
-                                    }
+                            let preview_image_handle = runtime.spawn(preview_source_file(
+                                drawing_info,
+                                third_file,
+                                left_x,
+                                right_x,
+                                Arc::clone(&can_display_image),
+                                highlight.to_path_buf(),
+                            ));
 
-                                    if *ch == b'\n' {
-                                        curr_y += 1;
-
-                                        queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
-                                    } else {
-                                        // NOTE(Chris): We write directly to stdout so as to
-                                        // allow the ANSI escape codes to match the end of a
-                                        // line
-                                        w.write(&[*ch])?;
-                                    }
-                                }
-
-                                queue!(&mut w, terminal::EnableLineWrap)?;
-
-                                // TODO(Chris): Figure out why the right-most edge of the
-                                // terminal sometimes has a character that should be one beyond
-                                // that right-most edge. This bug occurs when right-most edge
-                                // isn't blanked out (as is currently done below).
-
-                                // Clear the right-most edge of the terminal, since it might
-                                // have been drawn over when printing file contents
-                                for curr_y in 1..=drawing_info.column_bot_y {
-                                    queue!(
-                                        &mut w,
-                                        cursor::MoveTo(drawing_info.width, curr_y),
-                                        style::Print(' ')
-                                    )?;
-                                }
-                            }
+                            handles.push(ImageHandle {
+                                handle: preview_image_handle,
+                                can_display_image,
+                            });
                         }
                     },
                 }
@@ -2097,6 +2075,85 @@ async fn preview_image_or_video(
     Ok(())
 }
 
+async fn preview_source_file(
+    drawing_info: DrawingInfo,
+    third_file: PathBuf,
+    left_x: u16,
+    right_x: u16,
+    can_display_image: Arc<Mutex<bool>>,
+    highlight: PathBuf,
+) -> crossterm::Result<()> {
+    // TODO(Chris): Actually show that something went wrong
+    let output = Command::new(highlight)
+        .arg("-O")
+        .arg("ansi")
+        .arg("--max-size=500K")
+        .arg(&third_file)
+        .output()
+        .unwrap();
+
+    let can_display_image = can_display_image.lock().unwrap();
+
+    if *can_display_image {
+        // NOTE(Chris): Since we're locking can_display_image above and stdout here, we should be
+        // wary of deadlock
+        let stdout = io::stdout();
+        let mut w = stdout.lock();
+
+        // Clear the first line, in case there's a Loading... message already there
+        queue!(&mut w, cursor::MoveTo(left_x, 1))?;
+        for _curr_x in left_x..=right_x {
+            queue!(&mut w, style::Print(' '))?;
+        }
+
+        // TODO(Chris): Handle case when file is not valid utf8
+        if let Ok(text) = std::str::from_utf8(&output.stdout) {
+            let mut curr_y = 1; // Columns start at y = 1
+            queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
+
+            queue!(&mut w, terminal::DisableLineWrap)?;
+
+            for ch in text.as_bytes() {
+                if curr_y > drawing_info.column_bot_y {
+                    break;
+                }
+
+                if *ch == b'\n' {
+                    curr_y += 1;
+
+                    queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
+                } else {
+                    // NOTE(Chris): We write directly to stdout so as to
+                    // allow the ANSI escape codes to match the end of a
+                    // line
+                    w.write(&[*ch])?;
+                }
+            }
+
+            queue!(&mut w, terminal::EnableLineWrap)?;
+
+            // TODO(Chris): Figure out why the right-most edge of the
+            // terminal sometimes has a character that should be one beyond
+            // that right-most edge. This bug occurs when right-most edge
+            // isn't blanked out (as is currently done below).
+
+            // Clear the right-most edge of the terminal, since it might
+            // have been drawn over when printing file contents
+            for curr_y in 1..=drawing_info.column_bot_y {
+                queue!(
+                    &mut w,
+                    cursor::MoveTo(drawing_info.width, curr_y),
+                    style::Print(' ')
+                )?;
+            }
+        }
+
+        w.flush()?;
+    }
+
+    Ok(())
+}
+
 fn abort_image_handles(image_handles: &mut Vec<ImageHandle>) {
     while image_handles.len() > 0 {
         let image_handle = image_handles.pop().unwrap();
@@ -2213,7 +2270,10 @@ fn find_correct_location(
                 .unwrap();
 
             if parent_entry_index <= first_bottom_index as usize {
-                ColumnInfo { starting_index: 0, display_offset: parent_entry_index as u16 }
+                ColumnInfo {
+                    starting_index: 0,
+                    display_offset: parent_entry_index as u16,
+                }
             } else {
                 let entries_len = parent_dir.read_dir().unwrap().count();
 

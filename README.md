@@ -29,7 +29,8 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 - [x] Make symlinks actually usable
 - [x] Fix compiler warnings on latest version of Rust stable
 - [x] Search backwards and forwards
-- Display directory preview asynchronously
+- [ ] Display directory preview asynchronously
+- [x] Preview text (source) files asynchronously
 
 # Long-term TODO (May Never Happen)
 - [ ] Add Windows support
