@@ -1735,6 +1735,28 @@ fn queue_third_column_dir(
     Ok(())
 }
 
+// This macro should be used to run asynchronous functions that draw to the screen (specifically,
+// in the third column).
+// The first parameter to the async function referred to be $async_fn_name should be of the type
+// Arc<Mutex<bool>>. All of the arguments to the async function _except for this first one_ should
+// be passed in at the end of the macro invocation.
+macro_rules! spawn_async_draw {
+    ($runtime:ident, $handles:ident, $async_fn_name:ident, $($async_other_args:tt)*) => {
+        let can_display_image = Arc::new(Mutex::new(true));
+        let clone = Arc::clone(&can_display_image);
+
+        let preview_image_handle = $runtime.spawn($async_fn_name(
+                clone,
+                $($async_other_args)*
+        ));
+
+        $handles.push(ImageHandle {
+            handle: preview_image_handle,
+            can_display_image,
+        });
+    }
+}
+
 fn queue_third_column_file(
     mut w: &mut StdoutLock,
     runtime: &Runtime,
@@ -1757,8 +1779,6 @@ fn queue_third_column_file(
 
                 match ext {
                     "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
-                        let can_display_image = Arc::new(Mutex::new(true));
-
                         queue!(
                             w,
                             style::SetAttribute(Attribute::Reset),
@@ -1770,28 +1790,21 @@ fn queue_third_column_file(
 
                         w.flush()?;
 
-                        let preview_image_handle = runtime.spawn(preview_image_or_video(
+                        spawn_async_draw!(
+                            runtime,
+                            handles,
+                            preview_image_or_video,
                             drawing_info.win_pixels.clone(),
                             third_file.clone(),
                             ext.to_string(),
                             drawing_info.width,
                             drawing_info.height,
-                            left_x,
-                            Arc::clone(&can_display_image),
-                        ));
-
-                        handles.push(ImageHandle {
-                            handle: preview_image_handle,
-                            can_display_image,
-                        });
+                            left_x
+                        );
                     }
                     _ => match available_execs.get("highlight") {
                         None => (),
                         Some(highlight) => {
-                            // TODO(Chris): Refactor out this section of code (copied from image
-                            // rendering) into a function of some kind
-                            let can_display_image = Arc::new(Mutex::new(true));
-
                             queue!(
                                 w,
                                 style::SetAttribute(Attribute::Reset),
@@ -1803,19 +1816,16 @@ fn queue_third_column_file(
 
                             w.flush()?;
 
-                            let preview_image_handle = runtime.spawn(preview_source_file(
+                            spawn_async_draw!(
+                                runtime,
+                                handles,
+                                preview_source_file,
                                 drawing_info,
                                 third_file,
                                 left_x,
                                 right_x,
-                                Arc::clone(&can_display_image),
-                                highlight.to_path_buf(),
-                            ));
-
-                            handles.push(ImageHandle {
-                                handle: preview_image_handle,
-                                can_display_image,
-                            });
+                                highlight.to_path_buf()
+                            );
                         }
                     },
                 }
@@ -1829,13 +1839,13 @@ fn queue_third_column_file(
 }
 
 async fn preview_image_or_video(
+    can_display_image: Arc<Mutex<bool>>,
     win_pixels: WindowPixels,
     third_file: PathBuf,
     ext: String,
     width: u16,
     height: u16,
     left_x: u16,
-    can_display_image: Arc<Mutex<bool>>,
 ) -> crossterm::Result<()> {
     let win_px_width = win_pixels.width;
     let win_px_height = win_pixels.height;
@@ -2076,11 +2086,11 @@ async fn preview_image_or_video(
 }
 
 async fn preview_source_file(
+    can_display_image: Arc<Mutex<bool>>,
     drawing_info: DrawingInfo,
     third_file: PathBuf,
     left_x: u16,
     right_x: u16,
-    can_display_image: Arc<Mutex<bool>>,
     highlight: PathBuf,
 ) -> crossterm::Result<()> {
     // TODO(Chris): Actually show that something went wrong
