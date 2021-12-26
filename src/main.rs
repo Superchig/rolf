@@ -1736,6 +1736,16 @@ fn queue_third_column_dir(
         None => (0, 0),
     };
 
+    let col_width = right_x - left_x + 1;
+
+    for curr_y in 1..=column_bot_y {
+        queue!(w, cursor::MoveTo(left_x, curr_y))?;
+
+        for _ in 0..col_width {
+            queue!(w, style::Print(' '))?;
+        }
+    }
+
     queue!(
         w,
         style::SetAttribute(Attribute::Reset),
@@ -2277,6 +2287,7 @@ fn queue_oneline_column(
 
     curr_y += 1;
 
+    // NOTE(Chris): This loop is redundant when this function is used to draw in the third column,
     // Ensure that the bottom of "short buffers" are properly cleared
     while curr_y <= column_bot_y {
         queue!(w, cursor::MoveTo(left_x, curr_y))?;
@@ -2702,6 +2713,8 @@ fn queue_entries_column(
 
     let col_width = right_x - left_x + 1;
 
+    // NOTE(Chris): This loop is redundant when this function is used to draw in the third column,
+    // since that column is cleared in preparation for asynchronous drawing.
     // Ensure that the bottom of "short buffers" are properly cleared
     while curr_y <= bottom_y {
         queue!(w, cursor::MoveTo(left_x, curr_y))?;
