@@ -1726,9 +1726,6 @@ fn queue_third_column_dir(
     runtime: &Runtime,
     handles: &mut HandlesVec,
 ) -> crossterm::Result<()> {
-    // FIXME(Chris): Check if we really need this line.
-    w.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
-
     let third_dir = display_entry.dir_entry.path();
 
     let (display_offset, starting_index) = match left_paths.get(&third_dir) {
