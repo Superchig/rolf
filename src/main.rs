@@ -2617,8 +2617,7 @@ fn queue_blank_column(
 }
 
 fn get_sorted_entries<P: AsRef<Path>>(path: P) -> io::Result<Vec<DirEntryInfo>> {
-    let mut entries = std::fs::read_dir(path)
-        .unwrap()
+    let mut entries = std::fs::read_dir(path)?
         .map(|entry| {
             let dir_entry = entry.unwrap();
             let metadata = std::fs::symlink_metadata(dir_entry.path()).unwrap();
