@@ -1903,6 +1903,7 @@ fn queue_third_column_file(
     Ok(())
 }
 
+// FIXME(Chris): Fix bug in which images are drawn slightly too largely, shifting rows around.
 async fn preview_image_or_video(
     can_display_image: Arc<Mutex<bool>>,
     win_pixels: WindowPixels,
