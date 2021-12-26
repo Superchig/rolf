@@ -912,10 +912,9 @@ fn enter_entry(
     second_entry_index: u16,
     second: &mut ColumnInfo,
 ) -> crossterm::Result<()> {
-    // NOTE(Chris): We don't need to abort image handles here. If we are entering a
-    // directory, then the previous current entry was a directory, and we were never
-    // displaying an image. If we are entering a file, then we aren't changing the current
-    // file, so there's no need to abort the image display.
+    // NOTE(Chris): We only need to abort asynchronous "image" drawing if we're opening a
+    // directory¸ since we're now drawing directory previews asychronously with the same system as
+    // the image drawing.
 
     if dir_states.current_entries.len() <= 0 {
         return Ok(());
@@ -934,6 +933,8 @@ fn enter_entry(
     };
 
     if selected_target_file_type.is_dir() {
+        abort_image_handles(&mut image_handles);
+
         let selected_dir_path = selected_entry_path;
 
         set_current_dir(selected_dir_path, &mut dir_states, &mut match_positions)?;
@@ -1633,6 +1634,8 @@ fn queue_third_column(
                 right_x,
                 drawing_info.column_bot_y,
                 &display_entry,
+                &runtime,
+                &mut handles,
             )?;
         } else if file_type.is_file() {
             queue_third_column_file(
@@ -1660,6 +1663,8 @@ fn queue_third_column(
                             right_x,
                             drawing_info.column_bot_y,
                             &display_entry,
+                            &runtime,
+                            &mut handles,
                         )?;
                     } else if underlying_file_type.is_file() {
                         queue_third_column_file(
@@ -1688,26 +1693,101 @@ fn queue_third_column(
     Ok(())
 }
 
+// This macro should be used to run asynchronous functions that draw to the screen (specifically,
+// in the third column).
+// The first parameter to the async function referred to be $async_fn_name should be of the type
+// Arc<Mutex<bool>>. All of the arguments to the async function _except for this first one_ should
+// be passed in at the end of the macro invocation.
+macro_rules! spawn_async_draw {
+    ($runtime:ident, $handles:ident, $async_fn_name:ident, $($async_other_args:tt)*) => {
+        let can_display_image = Arc::new(Mutex::new(true));
+        let clone = Arc::clone(&can_display_image);
+
+        let preview_image_handle = $runtime.spawn($async_fn_name(
+                clone,
+                $($async_other_args)*
+        ));
+
+        $handles.push(ImageHandle {
+            handle: preview_image_handle,
+            can_display_image,
+        });
+    }
+}
+
 fn queue_third_column_dir(
-    mut w: &mut StdoutLock,
+    w: &mut StdoutLock,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     width: u16,
     left_x: u16,
     right_x: u16,
     column_bot_y: u16,
     display_entry: &DirEntryInfo,
+    runtime: &Runtime,
+    handles: &mut HandlesVec,
 ) -> crossterm::Result<()> {
+    // FIXME(Chris): Check if we really need this line.
     w.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
 
     let third_dir = display_entry.dir_entry.path();
 
-    match get_sorted_entries(&third_dir) {
-        Ok(third_entries) => {
-            let (display_offset, starting_index) = match left_paths.get(&third_dir) {
-                Some(dir_location) => (dir_location.display_offset, dir_location.starting_index),
-                None => (0, 0),
-            };
+    let (display_offset, starting_index) = match left_paths.get(&third_dir) {
+        Some(dir_location) => (dir_location.display_offset, dir_location.starting_index),
+        None => (0, 0),
+    };
 
+    queue!(
+        w,
+        style::SetAttribute(Attribute::Reset),
+        style::SetAttribute(Attribute::Reverse),
+        cursor::MoveTo(left_x, 1),
+        style::Print("Loading..."),
+        style::SetAttribute(Attribute::Reset),
+    )?;
+
+    w.flush()?;
+
+    spawn_async_draw!(
+        runtime,
+        handles,
+        preview_dir,
+        third_dir.clone(),
+        display_offset,
+        starting_index,
+        width,
+        column_bot_y,
+        left_x,
+        right_x
+    );
+
+    Ok(())
+}
+
+async fn preview_dir(
+    can_display_image: Arc<Mutex<bool>>,
+    third_dir: PathBuf,
+    display_offset: u16,
+    starting_index: u16,
+    width: u16,
+    column_bot_y: u16,
+    left_x: u16,
+    right_x: u16,
+) -> io::Result<()> {
+    // NOTE(Chris): Due to the two locks, beware of deadlock!
+
+    let sorted_entries = get_sorted_entries(&third_dir);
+
+    let stdout = io::stdout();
+    let mut w = stdout.lock();
+
+    let can_display_image = can_display_image.lock().unwrap();
+
+    if !*can_display_image {
+        return Ok(());
+    }
+
+    match sorted_entries {
+        Ok(third_entries) => {
             queue_entries_column(
                 &mut w,
                 width / 2 + 1,
@@ -1733,28 +1813,6 @@ fn queue_third_column_dir(
     }
 
     Ok(())
-}
-
-// This macro should be used to run asynchronous functions that draw to the screen (specifically,
-// in the third column).
-// The first parameter to the async function referred to be $async_fn_name should be of the type
-// Arc<Mutex<bool>>. All of the arguments to the async function _except for this first one_ should
-// be passed in at the end of the macro invocation.
-macro_rules! spawn_async_draw {
-    ($runtime:ident, $handles:ident, $async_fn_name:ident, $($async_other_args:tt)*) => {
-        let can_display_image = Arc::new(Mutex::new(true));
-        let clone = Arc::clone(&can_display_image);
-
-        let preview_image_handle = $runtime.spawn($async_fn_name(
-                clone,
-                $($async_other_args)*
-        ));
-
-        $handles.push(ImageHandle {
-            handle: preview_image_handle,
-            can_display_image,
-        });
-    }
 }
 
 fn queue_third_column_file(
