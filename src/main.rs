@@ -1903,7 +1903,6 @@ fn queue_third_column_file(
     Ok(())
 }
 
-// FIXME(Chris): Fix bug in which images are drawn slightly too largely, shifting rows around.
 async fn preview_image_or_video(
     can_display_image: Arc<Mutex<bool>>,
     win_pixels: WindowPixels,
@@ -2079,7 +2078,7 @@ async fn preview_image_or_video(
         img_cells_height = third_column_height;
     }
 
-    if orig_img_cells_width != img_cells_width {
+    if orig_img_cells_width != img_cells_width || orig_img_cells_height != img_cells_height {
         let display_width_px = img_cells_width * (win_px_width as u32) / (width as u32);
         let display_height_px = img_cells_height * (win_px_height as u32) / (height as u32);
 
