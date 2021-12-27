@@ -277,8 +277,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &old_current_dir,
                                 );
 
-                                stdout_lock.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
-
                                 queue_all_columns(
                                     &mut stdout_lock,
                                     &runtime,
@@ -1615,6 +1613,9 @@ fn queue_third_column(
     drawing_info: DrawingInfo,
     change_index: usize,
 ) -> crossterm::Result<()> {
+    // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
+    w.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
+
     let left_x = drawing_info.width / 2 + 1;
     let right_x = drawing_info.width - 2;
 
@@ -2732,10 +2733,6 @@ fn queue_blank_column(
     right_x: u16,
     column_height: u16,
 ) -> crossterm::Result<()> {
-    // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
-    let draw_beginning = b"\x1b_Ga=d;\x1b\\"; // Delete all visible images
-    w.write(draw_beginning)?;
-
     let mut curr_y = 1; // 1 is the starting y for columns
 
     while curr_y <= column_height {
