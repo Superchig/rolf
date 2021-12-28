@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 fn is_digit(b: u8) -> bool {
     // 48 = '0'
     // 57 = '9'
-    48 <= b && b <= 57
+    (48..=57).contains(&b)
 }
 
 // NOTE(Chris): This is adapted from lf's natural less implementation, which can be found in its

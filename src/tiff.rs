@@ -39,7 +39,7 @@ impl IFDEntry {
         };
 
         let value_offset = usizeify_n(
-            &take_bytes(ifd_bytes, &mut ifd_advance, 4),
+            take_bytes(ifd_bytes, &mut ifd_advance, 4),
             byte_order,
             byte_count,
         );

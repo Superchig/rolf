@@ -1,5 +1,3 @@
-use libc;
-
 use std::mem;
 use std::ptr;
 use std::ffi::CStr;
@@ -9,7 +7,7 @@ pub fn get_unix_username(uid: u32) -> Option<String> {
     unsafe {
         let mut result = ptr::null_mut();
         let amt = match libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) {
-            n if n < 0 => 512 as usize,
+            n if n < 0 => 512_usize,
             n => n as usize,
         };
         let mut buf = Vec::with_capacity(amt);
@@ -34,7 +32,7 @@ pub fn get_unix_groupname(gid: u32) -> Option<String> {
     unsafe {
         let mut result = ptr::null_mut();
         let amt = match libc::sysconf(libc::_SC_GETGR_R_SIZE_MAX) {
-            n if n < 0 => 512 as usize,
+            n if n < 0 => 512_usize,
             n => n as usize,
         };
         let mut buf = Vec::with_capacity(amt);
