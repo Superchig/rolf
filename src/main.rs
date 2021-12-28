@@ -1864,7 +1864,7 @@ fn queue_third_column_file(
                         runtime,
                         handles,
                         preview_image_or_video,
-                        drawing_info.win_pixels.clone(),
+                        drawing_info.win_pixels,
                         third_file.clone(),
                         ext.to_string(),
                         drawing_info.width,
