@@ -1,3 +1,9 @@
+#![allow(
+    clippy::absurd_extreme_comparisons,
+    clippy::too_many_arguments,
+    clippy::never_loop
+)]
+
 mod natural_sort; // This declares the existence of the natural_sort module, which searches by
                   // default for natural_sort.rs or natural_sort/mod.rs
 
@@ -11,7 +17,6 @@ use human_size::human_size;
 use natural_sort::cmp_natural;
 use tiff::{usizeify, Endian, EntryTag, EntryType, IFDEntry};
 
-use open;
 use strmode::strmode;
 use which::which;
 
@@ -88,12 +93,11 @@ fn main() -> crossterm::Result<()> {
     terminal::disable_raw_mode()?;
 
     match result {
-        Ok(current_dir) => match last_dir_path {
-            Some(last_dir_path) => {
+        Ok(current_dir) => {
+            if let Some(last_dir_path) = last_dir_path {
                 std::fs::write(last_dir_path, current_dir.to_str().unwrap()).unwrap()
             }
-            None => (),
-        },
+        }
         Err(err) => panic!("{}", err),
     }
 
@@ -252,7 +256,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 abort_image_handles(&mut image_handles);
 
                                 let old_current_dir = dir_states.current_dir.clone();
-                                if dir_states.current_entries.len() > 0 {
+                                if !dir_states.current_entries.is_empty() {
                                     save_location(
                                         &mut left_paths,
                                         &dir_states,
@@ -303,7 +307,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 )?;
                             }
                             'j' => {
-                                if dir_states.current_entries.len() > 0
+                                if !dir_states.current_entries.is_empty()
                                     && (second_entry_index as usize)
                                         < dir_states.current_entries.len() - 1
                                 {
@@ -338,7 +342,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 }
                             }
                             'k' => {
-                                if dir_states.current_entries.len() > 0 {
+                                if !dir_states.current_entries.is_empty() {
                                     abort_image_handles(&mut image_handles);
 
                                     let old_starting_index = second.starting_index;
@@ -383,7 +387,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 // It'd be nice if we could do breaking on blocks to exit this whole
                                 // match statement early, but labeling blocks is still in unstable,
                                 // as seen in https://github.com/rust-lang/rust/issues/48594
-                                if editor != "" {
+                                if !editor.is_empty() {
                                     let selected_entry =
                                         &dir_states.current_entries[second_entry_index as usize];
 
@@ -424,7 +428,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 }
                             }
                             'g' => {
-                                if dir_states.current_entries.len() > 0 {
+                                if !dir_states.current_entries.is_empty() {
                                     abort_image_handles(&mut image_handles);
 
                                     let old_starting_index = second.starting_index;
@@ -464,7 +468,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 }
                             }
                             'G' => {
-                                if dir_states.current_entries.len() > 0 {
+                                if !dir_states.current_entries.is_empty() {
                                     abort_image_handles(&mut image_handles);
 
                                     let old_starting_index = second.starting_index;
@@ -647,7 +651,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     'e' => cursor_index = input_line.len(),
                                     'c' => {
                                         queue_cmd_line_exit(
-                                            &mut &mut stdout_lock,
+                                            &mut stdout_lock,
                                             &dir_states,
                                             drawing_info,
                                             second,
@@ -696,7 +700,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             let spaced_words: Vec<&str> =
                                 trimmed_input_line.split_whitespace().collect();
 
-                            if spaced_words.len() > 0 {
+                            if !spaced_words.is_empty() {
                                 match spaced_words[0] {
                                     "search" => {
                                         if spaced_words.len() == 2 {
@@ -784,7 +788,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 }
 
                                 queue_cmd_line_exit(
-                                    &mut &mut stdout_lock,
+                                    &mut stdout_lock,
                                     &dir_states,
                                     drawing_info,
                                     second,
@@ -820,7 +824,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                         }
                         KeyCode::Esc => {
                             queue_cmd_line_exit(
-                                &mut &mut stdout_lock,
+                                &mut stdout_lock,
                                 &dir_states,
                                 drawing_info,
                                 second,
@@ -899,13 +903,13 @@ fn set_current_dir<P: AsRef<Path>>(
 }
 
 fn enter_entry(
-    mut stdout_lock: &mut StdoutLock,
+    stdout_lock: &mut StdoutLock,
     runtime: &Runtime,
-    mut image_handles: &mut Vec<ImageHandle>,
+    image_handles: &mut Vec<ImageHandle>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
-    mut dir_states: &mut DirStates,
-    mut match_positions: &mut Vec<usize>,
-    mut left_paths: &mut HashMap<std::path::PathBuf, DirLocation>,
+    dir_states: &mut DirStates,
+    match_positions: &mut Vec<usize>,
+    left_paths: &mut HashMap<std::path::PathBuf, DirLocation>,
     drawing_info: DrawingInfo,
     second_entry_index: u16,
     second: &mut ColumnInfo,
@@ -918,7 +922,7 @@ fn enter_entry(
         return Ok(());
     }
 
-    save_location(&mut left_paths, &dir_states, second_entry_index, *second);
+    save_location(left_paths, dir_states, second_entry_index, *second);
 
     let selected_entry_path = &dir_states.current_entries[second_entry_index as usize]
         .dir_entry
@@ -931,11 +935,11 @@ fn enter_entry(
     };
 
     if selected_target_file_type.is_dir() {
-        abort_image_handles(&mut image_handles);
+        abort_image_handles(image_handles);
 
         let selected_dir_path = selected_entry_path;
 
-        set_current_dir(selected_dir_path, &mut dir_states, &mut match_positions)?;
+        set_current_dir(selected_dir_path, dir_states, match_positions)?;
 
         match left_paths.get(selected_dir_path) {
             Some(dir_location) => {
@@ -970,12 +974,12 @@ fn enter_entry(
         };
 
         queue_all_columns(
-            &mut stdout_lock,
-            &runtime,
-            &mut image_handles,
-            &dir_states,
-            &left_paths,
-            &available_execs,
+            stdout_lock,
+            runtime,
+            image_handles,
+            dir_states,
+            left_paths,
+            available_execs,
             drawing_info,
             *second,
         )?;
@@ -1057,10 +1061,10 @@ fn find_column_pos(
 }
 
 fn queue_search_jump(
-    mut stdout_lock: &mut StdoutLock,
-    match_positions: &Vec<usize>,
+    stdout_lock: &mut StdoutLock,
+    match_positions: &[usize],
     runtime: &Runtime,
-    mut image_handles: &mut Vec<ImageHandle>,
+    image_handles: &mut Vec<ImageHandle>,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
@@ -1107,12 +1111,12 @@ fn queue_search_jump(
     )?;
 
     queue_entry_changed(
-        &mut stdout_lock,
-        &runtime,
-        &mut image_handles,
-        &dir_states,
-        &left_paths,
-        &available_execs,
+        stdout_lock,
+        runtime,
+        image_handles,
+        dir_states,
+        left_paths,
+        available_execs,
         drawing_info,
         old_starting_index,
         old_display_offset,
@@ -1124,9 +1128,9 @@ fn queue_search_jump(
 }
 
 fn queue_entry_changed(
-    mut stdout_lock: &mut StdoutLock,
+    stdout_lock: &mut StdoutLock,
     runtime: &Runtime,
-    mut image_handles: &mut Vec<ImageHandle>,
+    image_handles: &mut Vec<ImageHandle>,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
@@ -1137,7 +1141,7 @@ fn queue_entry_changed(
     second_column: u16,
 ) -> crossterm::Result<()> {
     update_entries_column(
-        &mut stdout_lock,
+        stdout_lock,
         second_column,
         drawing_info.width / 2 - 2,
         drawing_info.column_bot_y,
@@ -1148,12 +1152,12 @@ fn queue_entry_changed(
     )?;
 
     queue_third_column(
-        &mut stdout_lock,
-        &runtime,
-        &mut image_handles,
-        &dir_states,
-        &left_paths,
-        &available_execs,
+        stdout_lock,
+        runtime,
+        image_handles,
+        dir_states,
+        left_paths,
+        available_execs,
         drawing_info,
         (second.starting_index + second.display_offset) as usize,
     )?;
@@ -1161,13 +1165,13 @@ fn queue_entry_changed(
     // NOTE(Chris): We flush here, so the current function is more than a "queue_" function
     stdout_lock.flush()?;
 
-    queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
+    queue_bottom_info_line(stdout_lock, drawing_info, second, dir_states)?;
 
     Ok(())
 }
 
 fn queue_cmd_line_exit(
-    mut stdout_lock: &mut StdoutLock,
+    stdout_lock: &mut StdoutLock,
     dir_states: &DirStates,
     drawing_info: DrawingInfo,
     second: ColumnInfo,
@@ -1181,7 +1185,7 @@ fn queue_cmd_line_exit(
         cursor::Hide
     )?;
 
-    queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
+    queue_bottom_info_line(stdout_lock, drawing_info, second, dir_states)?;
 
     stdout_lock.flush()?;
 
@@ -1209,10 +1213,10 @@ fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm:
 
 // Redraw everything except the bottom info line.
 fn redraw_upper(
-    mut stdout_lock: &mut StdoutLock,
-    mut drawing_info: &mut DrawingInfo,
+    stdout_lock: &mut StdoutLock,
+    drawing_info: &mut DrawingInfo,
     runtime: &Runtime,
-    mut image_handles: &mut Vec<ImageHandle>,
+    image_handles: &mut Vec<ImageHandle>,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
@@ -1220,22 +1224,22 @@ fn redraw_upper(
 ) -> crossterm::Result<()> {
     queue!(stdout_lock, terminal::Clear(ClearType::All))?;
 
-    update_drawing_info_from_resize(&mut drawing_info)?;
+    update_drawing_info_from_resize(drawing_info)?;
 
-    queue_first_column(&mut stdout_lock, &dir_states, &left_paths, *drawing_info)?;
+    queue_first_column(stdout_lock, dir_states, left_paths, *drawing_info)?;
     queue_second_column(
-        &mut stdout_lock,
+        stdout_lock,
         *drawing_info,
         &dir_states.current_entries,
         second,
     )?;
     queue_third_column(
         stdout_lock,
-        &runtime,
-        &mut image_handles,
-        &dir_states,
-        &left_paths,
-        &available_execs,
+        runtime,
+        image_handles,
+        dir_states,
+        left_paths,
+        available_execs,
         *drawing_info,
         (second.starting_index + second.display_offset) as usize,
     )?;
@@ -1517,54 +1521,54 @@ fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
 }
 
 fn queue_all_columns(
-    mut stdout_lock: &mut StdoutLock,
+    stdout_lock: &mut StdoutLock,
     runtime: &Runtime,
-    mut image_handles: &mut HandlesVec,
+    image_handles: &mut HandlesVec,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
     drawing_info: DrawingInfo,
     second: ColumnInfo,
 ) -> crossterm::Result<()> {
-    queue_first_column(&mut stdout_lock, &dir_states, &left_paths, drawing_info)?;
+    queue_first_column(stdout_lock, dir_states, left_paths, drawing_info)?;
     queue_second_column(
-        &mut stdout_lock,
+        stdout_lock,
         drawing_info,
         &dir_states.current_entries,
         second,
     )?;
     queue_third_column(
         stdout_lock,
-        &runtime,
-        &mut image_handles,
-        &dir_states,
-        &left_paths,
-        &available_execs,
+        runtime,
+        image_handles,
+        dir_states,
+        left_paths,
+        available_execs,
         drawing_info,
         (second.starting_index + second.display_offset) as usize,
     )?;
 
-    queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
+    queue_bottom_info_line(stdout_lock, drawing_info, second, dir_states)?;
 
     Ok(())
 }
 
 fn queue_first_column(
-    mut w: &mut StdoutLock,
+    w: &mut StdoutLock,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     drawing_info: DrawingInfo,
 ) -> crossterm::Result<()> {
     if let Some(prev_dir) = &dir_states.prev_dir {
         let result_column = find_correct_location(
-            &left_paths,
+            left_paths,
             drawing_info.column_height,
             prev_dir,
             &dir_states.prev_entries,
             &dir_states.current_dir,
         );
         queue_entries_column(
-            &mut w,
+            w,
             1,
             drawing_info.width / 6 - 2,
             drawing_info.column_bot_y,
@@ -1573,7 +1577,7 @@ fn queue_first_column(
         )?;
     } else {
         queue_oneline_column(
-            &mut w,
+            w,
             1,
             drawing_info.width / 6 - 2,
             drawing_info.column_bot_y,
@@ -1586,17 +1590,17 @@ fn queue_first_column(
 // All this function actually does is call queue_entries_column, but it's here to match the naming
 // scheme of queue_first_column and queue_third_column
 fn queue_second_column(
-    mut w: &mut StdoutLock,
+    w: &mut StdoutLock,
     drawing_info: DrawingInfo,
-    entries: &Vec<DirEntryInfo>,
+    entries: &[DirEntryInfo],
     second: ColumnInfo,
 ) -> crossterm::Result<()> {
     queue_entries_column(
-        &mut w,
+        w,
         drawing_info.second_column,
         drawing_info.width / 2 - 2,
         drawing_info.column_bot_y,
-        &entries,
+        entries,
         second,
     )?;
 
@@ -1604,9 +1608,9 @@ fn queue_second_column(
 }
 
 fn queue_third_column(
-    mut w: &mut StdoutLock,
+    w: &mut StdoutLock,
     runtime: &Runtime,
-    mut handles: &mut HandlesVec,
+    handles: &mut HandlesVec,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
@@ -1614,13 +1618,13 @@ fn queue_third_column(
     change_index: usize,
 ) -> crossterm::Result<()> {
     // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
-    w.write(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
+    w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
 
     let left_x = drawing_info.width / 2 + 1;
     let right_x = drawing_info.width - 2;
 
     if dir_states.current_entries.len() <= 0 {
-        queue_blank_column(&mut w, left_x, right_x, drawing_info.column_height)?;
+        queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
     } else {
         let display_entry = &dir_states.current_entries[change_index];
 
@@ -1628,23 +1632,23 @@ fn queue_third_column(
 
         if file_type.is_dir() {
             queue_third_column_dir(
-                &mut w,
-                &left_paths,
+                w,
+                left_paths,
                 drawing_info.width,
                 left_x,
                 right_x,
                 drawing_info.column_bot_y,
-                &display_entry,
-                &runtime,
-                &mut handles,
+                display_entry,
+                runtime,
+                handles,
             )?;
         } else if file_type.is_file() {
             queue_third_column_file(
-                &mut w,
-                &runtime,
-                &mut handles,
-                &display_entry,
-                &available_execs,
+                w,
+                runtime,
+                handles,
+                display_entry,
+                available_execs,
                 drawing_info,
                 left_x,
                 right_x,
@@ -1657,37 +1661,37 @@ fn queue_third_column(
 
                     if underlying_file_type.is_dir() {
                         queue_third_column_dir(
-                            &mut w,
-                            &left_paths,
+                            w,
+                            left_paths,
                             drawing_info.width,
                             left_x,
                             right_x,
                             drawing_info.column_bot_y,
-                            &display_entry,
-                            &runtime,
-                            &mut handles,
+                            display_entry,
+                            runtime,
+                            handles,
                         )?;
                     } else if underlying_file_type.is_file() {
                         queue_third_column_file(
-                            &mut w,
-                            &runtime,
-                            &mut handles,
-                            &display_entry,
-                            &available_execs,
+                            w,
+                            runtime,
+                            handles,
+                            display_entry,
+                            available_execs,
                             drawing_info,
                             left_x,
                             right_x,
                         )?;
                     } else {
-                        queue_blank_column(&mut w, left_x, right_x, drawing_info.column_height)?;
+                        queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
                     }
                 }
                 Err(_) => {
-                    queue_blank_column(&mut w, left_x, right_x, drawing_info.column_height)?;
+                    queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
                 }
             }
         } else {
-            queue_blank_column(&mut w, left_x, right_x, drawing_info.column_height)?;
+            queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
         }
     }
 
@@ -1759,7 +1763,7 @@ fn queue_third_column_dir(
         runtime,
         handles,
         preview_dir,
-        third_dir.clone(),
+        third_dir,
         display_offset,
         starting_index,
         width,
@@ -1824,7 +1828,7 @@ async fn preview_dir(
 }
 
 fn queue_third_column_file(
-    mut w: &mut StdoutLock,
+    w: &mut StdoutLock,
     runtime: &Runtime,
     handles: &mut HandlesVec,
     display_entry: &DirEntryInfo,
@@ -1833,18 +1837,43 @@ fn queue_third_column_file(
     left_x: u16,
     right_x: u16,
 ) -> crossterm::Result<()> {
-    queue_blank_column(&mut w, left_x, right_x, drawing_info.column_height)?;
+    queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
 
     let third_file = display_entry.dir_entry.path();
 
-    match third_file.extension() {
-        Some(os_str_ext) => match os_str_ext.to_str() {
-            Some(ext) => {
-                let ext = ext.to_lowercase();
-                let ext = ext.as_str();
+    if let Some(os_str_ext) = third_file.extension() {
+        if let Some(ext) = os_str_ext.to_str() {
+            let ext = ext.to_lowercase();
+            let ext = ext.as_str();
 
-                match ext {
-                    "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
+            match ext {
+                "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
+                    queue!(
+                        w,
+                        style::SetAttribute(Attribute::Reset),
+                        style::SetAttribute(Attribute::Reverse),
+                        cursor::MoveTo(left_x, 1),
+                        style::Print("Loading..."),
+                        style::SetAttribute(Attribute::Reset),
+                    )?;
+
+                    w.flush()?;
+
+                    spawn_async_draw!(
+                        runtime,
+                        handles,
+                        preview_image_or_video,
+                        drawing_info.win_pixels.clone(),
+                        third_file.clone(),
+                        ext.to_string(),
+                        drawing_info.width,
+                        drawing_info.height,
+                        left_x
+                    );
+                }
+                _ => match available_execs.get("highlight") {
+                    None => (),
+                    Some(highlight) => {
                         queue!(
                             w,
                             style::SetAttribute(Attribute::Reset),
@@ -1859,46 +1888,17 @@ fn queue_third_column_file(
                         spawn_async_draw!(
                             runtime,
                             handles,
-                            preview_image_or_video,
-                            drawing_info.win_pixels.clone(),
-                            third_file.clone(),
-                            ext.to_string(),
-                            drawing_info.width,
-                            drawing_info.height,
-                            left_x
+                            preview_source_file,
+                            drawing_info,
+                            third_file,
+                            left_x,
+                            right_x,
+                            highlight.to_path_buf()
                         );
                     }
-                    _ => match available_execs.get("highlight") {
-                        None => (),
-                        Some(highlight) => {
-                            queue!(
-                                w,
-                                style::SetAttribute(Attribute::Reset),
-                                style::SetAttribute(Attribute::Reverse),
-                                cursor::MoveTo(left_x, 1),
-                                style::Print("Loading..."),
-                                style::SetAttribute(Attribute::Reset),
-                            )?;
-
-                            w.flush()?;
-
-                            spawn_async_draw!(
-                                runtime,
-                                handles,
-                                preview_source_file,
-                                drawing_info,
-                                third_file,
-                                left_x,
-                                right_x,
-                                highlight.to_path_buf()
-                            );
-                        }
-                    },
-                }
+                },
             }
-            None => (),
-        },
-        None => (),
+        }
     }
 
     Ok(())
@@ -1928,7 +1928,7 @@ async fn preview_image_or_video(
                     "csv=p=0",
                     "-show_entries",
                     "format=duration",
-                    &input,
+                    input,
                 ])
                 .output()
                 .unwrap();
@@ -1943,7 +1943,7 @@ async fn preview_image_or_video(
                     "-ss",
                     &format!("{}", video_duration / 2),
                     "-i",
-                    &input,
+                    input,
                     "-frames:v",
                     "1",
                     "-c:v",
@@ -2202,7 +2202,7 @@ async fn preview_source_file(
                     // NOTE(Chris): We write directly to stdout so as to
                     // allow the ANSI escape codes to match the end of a
                     // line
-                    w.write(&[*ch])?;
+                    w.write_all(&[*ch])?;
                 }
             }
 
@@ -2231,7 +2231,7 @@ async fn preview_source_file(
 }
 
 fn abort_image_handles(image_handles: &mut Vec<ImageHandle>) {
-    while image_handles.len() > 0 {
+    while !image_handles.is_empty() {
         let image_handle = image_handles.pop().unwrap();
         let mut can_display_image = image_handle.can_display_image.lock().unwrap();
         *can_display_image = false;
@@ -2317,7 +2317,7 @@ fn format_current_dir(dir_states: &DirStates, home_path: &Path) -> String {
                 .to_str()
                 .unwrap()
         )
-    } else if let None = dir_states.prev_dir {
+    } else if dir_states.prev_dir.is_none() {
         String::from("")
     } else {
         dir_states.current_dir.to_str().unwrap().to_string()
@@ -2329,9 +2329,9 @@ fn format_current_dir(dir_states: &DirStates, home_path: &Path) -> String {
 fn find_correct_location(
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     column_height: u16,
-    parent_dir: &std::path::PathBuf,
-    parent_entries: &Vec<DirEntryInfo>,
-    dir: &std::path::PathBuf,
+    parent_dir: &Path,
+    parent_entries: &[DirEntryInfo],
+    dir: &Path,
 ) -> ColumnInfo {
     return match left_paths.get(parent_dir) {
         Some(dir_location) => ColumnInfo {
@@ -2354,7 +2354,7 @@ fn find_correct_location(
             } else {
                 let entries_len = parent_dir.read_dir().unwrap().count();
 
-                let result_column = find_column_pos(
+                find_column_pos(
                     entries_len,
                     column_height,
                     // NOTE(Chris): It's not clear that we'd want to use a less-hacky ColumnInfo
@@ -2364,13 +2364,7 @@ fn find_correct_location(
                     },
                     parent_entry_index,
                 )
-                .unwrap();
-                // eprintln!("result_column: {:?}", result_column);
-                // eprintln!("current_entries_len: {}", entries_len);
-                // eprintln!("column_height: {}", column_height);
-                // eprintln!("next_position: {}", parent_entry_index);
-
-                result_column
+                .unwrap()
             }
         }
     };
@@ -2468,14 +2462,14 @@ fn cmp_dir_entry(entry1: &DirEntry, entry2: &DirEntry) -> Ordering {
     };
 
     if file_type1.is_dir() && file_type2.is_file() {
-        return Ordering::Less;
+        Ordering::Less
     } else if file_type2.is_dir() && file_type1.is_file() {
-        return Ordering::Greater;
+        Ordering::Greater
     } else {
-        return cmp_natural(
+        cmp_natural(
             entry1.file_name().to_str().unwrap(),
             entry2.file_name().to_str().unwrap(),
-        );
+        )
     }
 }
 
@@ -2506,7 +2500,7 @@ fn update_entries_column(
     left_x: u16,
     right_x: u16,
     column_bot_y: u16,
-    entries: &Vec<DirEntryInfo>,
+    entries: &[DirEntryInfo],
     old_offset: u16,
     old_start_index: u16,
     new: ColumnInfo,
@@ -2519,14 +2513,14 @@ fn update_entries_column(
     queue!(w, style::SetAttribute(Attribute::Reset))?;
 
     // Update the old offset
-    queue_full_entry(w, &entries, left_x, right_x, old_offset, old_start_index)?;
+    queue_full_entry(w, entries, left_x, right_x, old_offset, old_start_index)?;
 
     // Update the new offset
     queue!(w, style::SetAttribute(Attribute::Reverse))?;
 
     queue_full_entry(
         w,
-        &entries,
+        entries,
         left_x,
         right_x,
         new.display_offset,
@@ -2540,7 +2534,7 @@ fn update_entries_column(
 
 fn queue_full_entry(
     w: &mut io::StdoutLock,
-    entries: &Vec<DirEntryInfo>,
+    entries: &[DirEntryInfo],
     left_x: u16,
     right_x: u16,
     display_offset: u16,
@@ -2652,7 +2646,7 @@ fn queue_entries_column(
     left_x: u16,
     right_x: u16,
     bottom_y: u16,
-    entries: &Vec<DirEntryInfo>,
+    entries: &[DirEntryInfo],
     column: ColumnInfo,
 ) -> crossterm::Result<()> {
     let mut curr_y = 1; // 1 is the starting y for columns
@@ -2694,7 +2688,7 @@ fn queue_entries_column(
 
             queue_full_entry(
                 w,
-                &entries,
+                entries,
                 left_x,
                 right_x,
                 curr_y - 1,
