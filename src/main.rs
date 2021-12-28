@@ -26,7 +26,8 @@ use std::fs::{DirEntry, Metadata};
 use std::io::{self, StdoutLock, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::vec::Vec;
 
 use std::os::unix::fs::MetadataExt;
@@ -1441,7 +1442,7 @@ fn queue_bottom_info_line(
 // FIXME(Chris): Rename this struct if it's being used to handle more than rendering images
 struct ImageHandle {
     handle: JoinHandle<crossterm::Result<()>>,
-    can_display_image: Arc<Mutex<bool>>,
+    can_display_image: Arc<AtomicBool>,
 }
 
 // Should get the hostname in a POSIX-compliant way.
@@ -1705,7 +1706,7 @@ fn queue_third_column(
 // be passed in at the end of the macro invocation.
 macro_rules! spawn_async_draw {
     ($runtime:ident, $handles:ident, $async_fn_name:ident, $($async_other_args:tt)*) => {
-        let can_display_image = Arc::new(Mutex::new(true));
+        let can_display_image = Arc::new(AtomicBool::new(true));
         let clone = Arc::clone(&can_display_image);
 
         let preview_image_handle = $runtime.spawn($async_fn_name(
@@ -1776,7 +1777,7 @@ fn queue_third_column_dir(
 }
 
 async fn preview_dir(
-    can_display_image: Arc<Mutex<bool>>,
+    can_display_image: Arc<AtomicBool>,
     third_dir: PathBuf,
     display_offset: u16,
     starting_index: u16,
@@ -1792,9 +1793,9 @@ async fn preview_dir(
     let stdout = io::stdout();
     let mut w = stdout.lock();
 
-    let can_display_image = can_display_image.lock().unwrap();
+    let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
 
-    if !*can_display_image {
+    if !can_display_image {
         return Ok(());
     }
 
@@ -1905,7 +1906,7 @@ fn queue_third_column_file(
 }
 
 async fn preview_image_or_video(
-    can_display_image: Arc<Mutex<bool>>,
+    can_display_image: Arc<AtomicBool>,
     win_pixels: WindowPixels,
     third_file: PathBuf,
     ext: String,
@@ -2109,9 +2110,9 @@ async fn preview_image_or_video(
 
     // This scope exists to eventually unlock the mutex
     {
-        let can_display_image = can_display_image.lock().unwrap();
+        let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
 
-        if *can_display_image {
+        if can_display_image {
             let path = store_in_tmp_file(raw_img)?;
 
             // execute!(
@@ -2152,7 +2153,7 @@ async fn preview_image_or_video(
 }
 
 async fn preview_source_file(
-    can_display_image: Arc<Mutex<bool>>,
+    can_display_image: Arc<AtomicBool>,
     drawing_info: DrawingInfo,
     third_file: PathBuf,
     left_x: u16,
@@ -2168,9 +2169,9 @@ async fn preview_source_file(
         .output()
         .unwrap();
 
-    let can_display_image = can_display_image.lock().unwrap();
+    let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
 
-    if *can_display_image {
+    if can_display_image {
         // NOTE(Chris): Since we're locking can_display_image above and stdout here, we should be
         // wary of deadlock
         let stdout = io::stdout();
@@ -2233,8 +2234,7 @@ async fn preview_source_file(
 fn abort_image_handles(image_handles: &mut Vec<ImageHandle>) {
     while !image_handles.is_empty() {
         let image_handle = image_handles.pop().unwrap();
-        let mut can_display_image = image_handle.can_display_image.lock().unwrap();
-        *can_display_image = false;
+        image_handle.can_display_image.store(false, std::sync::atomic::Ordering::Release);
         image_handle.handle.abort();
     }
 }
