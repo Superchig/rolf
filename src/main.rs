@@ -2345,7 +2345,7 @@ fn find_correct_location(
                 .position(|entry| entry.dir_entry.path() == *dir)
                 .unwrap();
 
-            if parent_entry_index <= first_bottom_index as usize {
+            if parent_entry_index < first_bottom_index as usize {
                 ColumnInfo {
                     starting_index: 0,
                     display_offset: parent_entry_index as u16,
