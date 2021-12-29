@@ -52,7 +52,7 @@ use crossterm::{
 // TODO(Chris): Make this configurable rather than hard-coding the constant
 const SCROLL_OFFSET: u16 = 10;
 
-type HandlesVec = Vec<ImageHandle>;
+type HandlesVec = Vec<DrawHandle>;
 
 fn main() -> crossterm::Result<()> {
     let mut w = io::stdout();
@@ -906,7 +906,7 @@ fn set_current_dir<P: AsRef<Path>>(
 fn enter_entry(
     stdout_lock: &mut StdoutLock,
     runtime: &Runtime,
-    image_handles: &mut Vec<ImageHandle>,
+    image_handles: &mut Vec<DrawHandle>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
     dir_states: &mut DirStates,
     match_positions: &mut Vec<usize>,
@@ -1065,7 +1065,7 @@ fn queue_search_jump(
     stdout_lock: &mut StdoutLock,
     match_positions: &[usize],
     runtime: &Runtime,
-    image_handles: &mut Vec<ImageHandle>,
+    image_handles: &mut Vec<DrawHandle>,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
@@ -1131,7 +1131,7 @@ fn queue_search_jump(
 fn queue_entry_changed(
     stdout_lock: &mut StdoutLock,
     runtime: &Runtime,
-    image_handles: &mut Vec<ImageHandle>,
+    image_handles: &mut Vec<DrawHandle>,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
@@ -1217,7 +1217,7 @@ fn redraw_upper(
     stdout_lock: &mut StdoutLock,
     drawing_info: &mut DrawingInfo,
     runtime: &Runtime,
-    image_handles: &mut Vec<ImageHandle>,
+    image_handles: &mut Vec<DrawHandle>,
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
@@ -1439,10 +1439,9 @@ fn queue_bottom_info_line(
 }
 
 // Handle for a task which displays an image
-// FIXME(Chris): Rename this struct if it's being used to handle more than rendering images
-struct ImageHandle {
+struct DrawHandle {
     handle: JoinHandle<crossterm::Result<()>>,
-    can_display_image: Arc<AtomicBool>,
+    can_draw: Arc<AtomicBool>,
 }
 
 // Should get the hostname in a POSIX-compliant way.
@@ -1706,17 +1705,17 @@ fn queue_third_column(
 // be passed in at the end of the macro invocation.
 macro_rules! spawn_async_draw {
     ($runtime:ident, $handles:ident, $async_fn_name:ident, $($async_other_args:tt)*) => {
-        let can_display_image = Arc::new(AtomicBool::new(true));
-        let clone = Arc::clone(&can_display_image);
+        let can_draw = Arc::new(AtomicBool::new(true));
+        let clone = Arc::clone(&can_draw);
 
         let preview_image_handle = $runtime.spawn($async_fn_name(
                 clone,
                 $($async_other_args)*
         ));
 
-        $handles.push(ImageHandle {
+        $handles.push(DrawHandle {
             handle: preview_image_handle,
-            can_display_image,
+            can_draw,
         });
     }
 }
@@ -2231,10 +2230,10 @@ async fn preview_source_file(
     Ok(())
 }
 
-fn abort_image_handles(image_handles: &mut Vec<ImageHandle>) {
+fn abort_image_handles(image_handles: &mut Vec<DrawHandle>) {
     while !image_handles.is_empty() {
         let image_handle = image_handles.pop().unwrap();
-        image_handle.can_display_image.store(false, std::sync::atomic::Ordering::Release);
+        image_handle.can_draw.store(false, std::sync::atomic::Ordering::Release);
         image_handle.handle.abort();
     }
 }
