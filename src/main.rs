@@ -26,8 +26,8 @@ use std::fs::{DirEntry, Metadata};
 use std::io::{self, StdoutLock, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::vec::Vec;
 
 use std::os::unix::fs::MetadataExt;
@@ -651,7 +651,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     'a' => cursor_index = 0,
                                     'e' => cursor_index = input_line.len(),
                                     'c' => {
-                                        queue_cmd_line_exit(
+                                        queue_cleanup_cmd_line_exit(
                                             &mut stdout_lock,
                                             &dir_states,
                                             drawing_info,
@@ -785,10 +785,29 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             )?;
                                         }
                                     }
-                                    _ => (),
+                                    _ => {
+                                        queue!(
+                                            stdout_lock,
+                                            terminal::Clear(ClearType::CurrentLine),
+                                            cursor::Hide,
+                                            cursor::MoveToColumn(0),
+                                            style::SetForegroundColor(Color::Grey),
+                                            style::SetBackgroundColor(Color::DarkRed),
+                                            style::Print(format!(
+                                                "invalid command: {}",
+                                                spaced_words[0]
+                                            )),
+                                            style::SetForegroundColor(Color::Reset),
+                                            style::SetBackgroundColor(Color::Reset),
+                                        )?;
+
+                                        cleanup_cmd_line_exit(&mut stdout_lock, &mut input_line)?;
+
+                                        break;
+                                    }
                                 }
 
-                                queue_cmd_line_exit(
+                                queue_cleanup_cmd_line_exit(
                                     &mut stdout_lock,
                                     &dir_states,
                                     drawing_info,
@@ -824,7 +843,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             }
                         }
                         KeyCode::Esc => {
-                            queue_cmd_line_exit(
+                            queue_cleanup_cmd_line_exit(
                                 &mut stdout_lock,
                                 &dir_states,
                                 drawing_info,
@@ -1171,15 +1190,13 @@ fn queue_entry_changed(
     Ok(())
 }
 
-fn queue_cmd_line_exit(
+fn queue_cleanup_cmd_line_exit(
     stdout_lock: &mut StdoutLock,
     dir_states: &DirStates,
     drawing_info: DrawingInfo,
     second: ColumnInfo,
     input_line: &mut String,
 ) -> crossterm::Result<()> {
-    input_line.clear();
-
     queue!(
         stdout_lock,
         terminal::Clear(ClearType::CurrentLine),
@@ -1188,7 +1205,14 @@ fn queue_cmd_line_exit(
 
     queue_bottom_info_line(stdout_lock, drawing_info, second, dir_states)?;
 
+    cleanup_cmd_line_exit(stdout_lock, input_line)?;
+
+    Ok(())
+}
+
+fn cleanup_cmd_line_exit(stdout_lock: &mut StdoutLock, input_line: &mut String) -> io::Result<()> {
     stdout_lock.flush()?;
+    input_line.clear();
 
     Ok(())
 }
