@@ -2233,7 +2233,9 @@ async fn preview_source_file(
 fn abort_image_handles(image_handles: &mut Vec<DrawHandle>) {
     while !image_handles.is_empty() {
         let image_handle = image_handles.pop().unwrap();
-        image_handle.can_draw.store(false, std::sync::atomic::Ordering::Release);
+        image_handle
+            .can_draw
+            .store(false, std::sync::atomic::Ordering::Release);
         image_handle.handle.abort();
     }
 }
