@@ -246,7 +246,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
             let mut stdout_lock = w.lock();
 
-            // FIXME(Chris): Implement error display
+            // FIXME(Chris): Implement one-item rename
 
             match event {
                 Event::Key(event) => match event.code {
