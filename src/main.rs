@@ -139,8 +139,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     let mut dir_states = DirStates::new()?;
 
-    let mut is_first_iteration = true;
-
     let mut second = ColumnInfo {
         starting_index: 0,
         display_offset: 0,
@@ -171,80 +169,80 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     update_drawing_info_from_resize(&mut drawing_info)?;
 
+    // Queue everything for the first time
+    {
+        let mut stdout_lock = w.lock();
+        queue_all_columns(
+            &mut stdout_lock,
+            &runtime,
+            &mut image_handles,
+            &dir_states,
+            &left_paths,
+            &available_execs,
+            drawing_info,
+            second,
+        )?;
+    }
+
     // Main input loop
     loop {
-        // Gather all the data before rendering things with stdout_lock
-
-        let second_bottom_index = second.starting_index + drawing_info.column_height;
-
-        let current_dir_display = format_current_dir(&dir_states, home_path);
-
-        let second_entry_index = second.starting_index + second.display_offset;
-
-        let curr_entry;
-        let file_stem = if dir_states.current_entries.len() <= 0 {
-            ""
-        } else {
-            curr_entry = dir_states.current_entries[second_entry_index as usize]
-                .dir_entry
-                .file_name();
-            curr_entry.to_str().unwrap()
-        };
-
-        // TODO(Chris): Use the unicode-segmentation package to count graphemes
-        let remaining_width = drawing_info.width as usize
-            - (user_host_display.len() + 1 + current_dir_display.len() + 1);
-
-        // Add 1 because of the ':' that is displayed after user_host_display
-        // Add 1 again because of the '/' that is displayed at the end of current_dir_display
-        let file_stem = if file_stem.len() > remaining_width {
-            // format!("{}~", &file_stem[..remaining_width - 2])
-            String::from(&file_stem[..remaining_width])
-        } else {
-            String::from(file_stem)
-        };
-
-        // TODO(Chris): Check if we're currently using the kitty terminal (or anything which
-        // supports its image protocol)
-
-        {
-            let mut stdout_lock = w.lock();
-
-            queue!(
-                stdout_lock,
-                cursor::MoveTo(0, 0),
-                terminal::Clear(ClearType::CurrentLine),
-                style::SetForegroundColor(Color::DarkGreen),
-                style::SetAttribute(Attribute::Bold),
-                style::Print(&user_host_display),
-                style::SetForegroundColor(Color::White),
-                style::Print(":"),
-                style::SetForegroundColor(Color::DarkBlue),
-                style::Print(format!("{}/", current_dir_display)),
-                style::SetForegroundColor(Color::White),
-                style::Print(file_stem),
-            )?;
-
-            if is_first_iteration {
-                queue_all_columns(
-                    &mut stdout_lock,
-                    &runtime,
-                    &mut image_handles,
-                    &dir_states,
-                    &left_paths,
-                    &available_execs,
-                    drawing_info,
-                    second,
-                )?;
-
-                is_first_iteration = false;
-            }
-
-            stdout_lock.flush()?;
-        }
-
         match input_mode {
             InputMode::Normal => {
+                // Gather all the data before rendering things with stdout_lock
+
+                let second_bottom_index = second.starting_index + drawing_info.column_height;
+
+                let second_entry_index = second.starting_index + second.display_offset;
+
+                let current_dir_display = format_current_dir(&dir_states, home_path);
+
+                let curr_entry;
+                let file_stem = if dir_states.current_entries.len() <= 0 {
+                    ""
+                } else {
+                    curr_entry = dir_states.current_entries[second_entry_index as usize]
+                        .dir_entry
+                        .file_name();
+                    curr_entry.to_str().unwrap()
+                };
+
+                // TODO(Chris): Use the unicode-segmentation package to count graphemes
+                let remaining_width = drawing_info.width as usize
+                    - (user_host_display.len() + 1 + current_dir_display.len() + 1);
+
+                // Add 1 because of the ':' that is displayed after user_host_display
+                // Add 1 again because of the '/' that is displayed at the end of current_dir_display
+                let file_stem = if file_stem.len() > remaining_width {
+                    // format!("{}~", &file_stem[..remaining_width - 2])
+                    String::from(&file_stem[..remaining_width])
+                } else {
+                    String::from(file_stem)
+                };
+
+                // TODO(Chris): Check if we're currently using the kitty terminal (or anything which
+                // supports its image protocol)
+
+                {
+                    let mut stdout_lock = w.lock();
+
+                    queue!(
+                        stdout_lock,
+                        cursor::MoveTo(0, 0),
+                        terminal::Clear(ClearType::CurrentLine),
+                        style::SetForegroundColor(Color::DarkGreen),
+                        style::SetAttribute(Attribute::Bold),
+                        style::Print(&user_host_display),
+                        style::SetForegroundColor(Color::White),
+                        style::Print(":"),
+                        style::SetForegroundColor(Color::DarkBlue),
+                        style::Print(format!("{}/", current_dir_display)),
+                        style::SetForegroundColor(Color::White),
+                        style::Print(file_stem),
+                    )?;
+
+                    stdout_lock.flush()?;
+                }
+
                 let event = event::read()?;
 
                 let mut stdout_lock = w.lock();
@@ -709,8 +707,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     trimmed_input_line.split_whitespace().collect();
 
                                 if !spaced_words.is_empty() {
-                                    // FIXME(Chris): Refactor the renaming and command inputs to use
-                                    // some sort of modal input system
                                     let mut should_exit = true;
 
                                     match spaced_words[0] {
@@ -904,9 +900,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     }
 
                     assert!(cursor_index <= input_line.len());
-
-                    // FIXME(Chris): Render prompt correctly, including placing the cursor at the
-                    // correct position
 
                     if prompt.is_empty() {
                         queue!(
