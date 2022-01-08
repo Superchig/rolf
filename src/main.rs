@@ -156,6 +156,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     let mut input_line = String::new();
 
+    let mut prompt = String::new();
+
     let user_host_display = format!("{}@{}", user_name, host_name);
 
     let mut drawing_info = DrawingInfo {
@@ -245,8 +247,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
             let event = event::read()?;
 
             let mut stdout_lock = w.lock();
-
-            // FIXME(Chris): Implement one-item rename
 
             match event {
                 Event::Key(event) => match event.code {
@@ -657,6 +657,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             drawing_info,
                                             second,
                                             &mut input_line,
+                                            &mut prompt,
                                         )?;
 
                                         break;
@@ -702,6 +703,10 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 trimmed_input_line.split_whitespace().collect();
 
                             if !spaced_words.is_empty() {
+                                // FIXME(Chris): Refactor the renaming and command inputs to use
+                                // some sort of modal input system
+                                let mut should_exit = true;
+
                                 match spaced_words[0] {
                                     "search" => {
                                         if spaced_words.len() == 2 {
@@ -785,6 +790,15 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             )?;
                                         }
                                     }
+                                    // FIXME(Chris): Implement one-item rename
+                                    "rename" => {
+                                        prompt.push_str("Rename: ");
+
+                                        input_line.clear();
+                                        cursor_index = 0;
+
+                                        should_exit = false;
+                                    }
                                     _ => {
                                         queue!(
                                             stdout_lock,
@@ -801,21 +815,24 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             style::SetBackgroundColor(Color::Reset),
                                         )?;
 
-                                        cleanup_cmd_line_exit(&mut stdout_lock, &mut input_line)?;
+                                        cleanup_cmd_line_exit(&mut stdout_lock, &mut input_line, &mut prompt)?;
 
                                         break;
                                     }
                                 }
 
-                                queue_cleanup_cmd_line_exit(
-                                    &mut stdout_lock,
-                                    &dir_states,
-                                    drawing_info,
-                                    second,
-                                    &mut input_line,
-                                )?;
+                                if should_exit {
+                                    queue_cleanup_cmd_line_exit(
+                                        &mut stdout_lock,
+                                        &dir_states,
+                                        drawing_info,
+                                        second,
+                                        &mut input_line,
+                                        &mut prompt,
+                                    )?;
 
-                                break;
+                                    break;
+                                }
                             }
                         }
                         KeyCode::Left => {
@@ -849,6 +866,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 drawing_info,
                                 second,
                                 &mut input_line,
+                                &mut prompt,
                             )?;
 
                             break;
@@ -872,13 +890,29 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                 assert!(cursor_index <= input_line.len());
 
-                queue!(
-                    &mut stdout_lock,
-                    cursor::MoveTo(0, drawing_info.height - 1),
-                    terminal::Clear(ClearType::CurrentLine),
-                    style::Print(format!(":{}", input_line)),
-                    cursor::MoveTo((1 + cursor_index) as u16, drawing_info.height - 1),
-                )?;
+                // FIXME(Chris): Render prompt correctly, including placing the cursor at the
+                // correct position
+
+                if prompt.is_empty() {
+                    queue!(
+                        &mut stdout_lock,
+                        cursor::MoveTo(0, drawing_info.height - 1),
+                        terminal::Clear(ClearType::CurrentLine),
+                        style::Print(format!(":{}", input_line)),
+                        cursor::MoveTo((1 + cursor_index) as u16, drawing_info.height - 1),
+                    )?;
+                } else {
+                    queue!(
+                        &mut stdout_lock,
+                        cursor::MoveTo(0, drawing_info.height - 1),
+                        terminal::Clear(ClearType::CurrentLine),
+                        style::Print(format!("{}{}", prompt, input_line)),
+                        cursor::MoveTo(
+                            (prompt.len() + cursor_index) as u16,
+                            drawing_info.height - 1
+                        ),
+                    )?;
+                }
 
                 stdout_lock.flush()?;
             }
@@ -1196,6 +1230,7 @@ fn queue_cleanup_cmd_line_exit(
     drawing_info: DrawingInfo,
     second: ColumnInfo,
     input_line: &mut String,
+    prompt: &mut String,
 ) -> crossterm::Result<()> {
     queue!(
         stdout_lock,
@@ -1205,14 +1240,19 @@ fn queue_cleanup_cmd_line_exit(
 
     queue_bottom_info_line(stdout_lock, drawing_info, second, dir_states)?;
 
-    cleanup_cmd_line_exit(stdout_lock, input_line)?;
+    cleanup_cmd_line_exit(stdout_lock, input_line, prompt)?;
 
     Ok(())
 }
 
-fn cleanup_cmd_line_exit(stdout_lock: &mut StdoutLock, input_line: &mut String) -> io::Result<()> {
+fn cleanup_cmd_line_exit(
+    stdout_lock: &mut StdoutLock,
+    input_line: &mut String,
+    prompt: &mut String,
+) -> io::Result<()> {
     stdout_lock.flush()?;
     input_line.clear();
+    prompt.clear();
 
     Ok(())
 }
