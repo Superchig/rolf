@@ -609,28 +609,50 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                 }
             }
             InputMode::Command => {
+                // FIXME(Chris): Refactor the obtaining of a prompted input line into its own
+                // function. Start by moving this whole command-line block into its own function
+                // and then modifying that function to return an inputted line (while moving the
+                // actual handling of that line back to this command-line block), and then making
+                // that function take a prompt as input.
+
                 let mut cursor_index = input_line.len(); // Where a new character will next be entered
 
                 {
                     let mut stdout_lock = w.lock();
 
-                    queue!(
-                        &mut stdout_lock,
-                        style::SetAttribute(Attribute::Reset),
-                        cursor::Show,
-                        cursor::MoveTo(0, drawing_info.height - 1),
-                        terminal::Clear(ClearType::CurrentLine),
-                        style::Print(':'),
-                        cursor::MoveTo(1, drawing_info.height - 1),
-                        style::Print(&input_line),
-                        cursor::MoveTo(1 + cursor_index as u16, drawing_info.height - 1),
-                    )?;
-
-                    stdout_lock.flush()?;
+                    execute!(&mut stdout_lock, cursor::Show)?;
                 }
 
                 // Command line input loop
                 loop {
+                    // Use this scope when displaying the input prompt and current line
+                    {
+                        let mut stdout_lock = w.lock();
+
+                        if prompt.is_empty() {
+                            queue!(
+                                &mut stdout_lock,
+                                cursor::MoveTo(0, drawing_info.height - 1),
+                                terminal::Clear(ClearType::CurrentLine),
+                                style::Print(format!(":{}", input_line)),
+                                cursor::MoveTo((1 + cursor_index) as u16, drawing_info.height - 1),
+                            )?;
+                        } else {
+                            queue!(
+                                &mut stdout_lock,
+                                cursor::MoveTo(0, drawing_info.height - 1),
+                                terminal::Clear(ClearType::CurrentLine),
+                                style::Print(format!("{}{}", prompt, input_line)),
+                                cursor::MoveTo(
+                                    (prompt.len() + cursor_index) as u16,
+                                    drawing_info.height - 1
+                                ),
+                            )?;
+                        }
+
+                        stdout_lock.flush()?;
+                    }
+
                     let event = event::read()?;
 
                     let mut stdout_lock = w.lock();
@@ -900,29 +922,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     }
 
                     assert!(cursor_index <= input_line.len());
-
-                    if prompt.is_empty() {
-                        queue!(
-                            &mut stdout_lock,
-                            cursor::MoveTo(0, drawing_info.height - 1),
-                            terminal::Clear(ClearType::CurrentLine),
-                            style::Print(format!(":{}", input_line)),
-                            cursor::MoveTo((1 + cursor_index) as u16, drawing_info.height - 1),
-                        )?;
-                    } else {
-                        queue!(
-                            &mut stdout_lock,
-                            cursor::MoveTo(0, drawing_info.height - 1),
-                            terminal::Clear(ClearType::CurrentLine),
-                            style::Print(format!("{}{}", prompt, input_line)),
-                            cursor::MoveTo(
-                                (prompt.len() + cursor_index) as u16,
-                                drawing_info.height - 1
-                            ),
-                        )?;
-                    }
-
-                    stdout_lock.flush()?;
                 }
             }
         }
