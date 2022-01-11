@@ -22,7 +22,7 @@ use which::which;
 
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
-use std::fs::{DirEntry, Metadata};
+use std::fs::{DirEntry, Metadata, self};
 use std::io::{self, StdoutLock, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -625,8 +625,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                 // command line. Thus, we only need to do anything when an input line is actually
                 // returned.
                 if let Some(line_from_user) = line_from_user {
-                    let mut stdout_lock = w.lock();
-
                     let trimmed_input_line = line_from_user.trim();
                     let spaced_words: Vec<&str> = trimmed_input_line.split_whitespace().collect();
 
@@ -657,6 +655,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         .collect();
 
                                     should_search_forwards = true;
+
+                                    let mut stdout_lock = w.lock();
 
                                     queue_search_jump(
                                         &mut stdout_lock,
@@ -699,6 +699,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                                     should_search_forwards = false;
 
+                                    let mut stdout_lock = w.lock();
+
                                     queue_search_jump(
                                         &mut stdout_lock,
                                         &match_positions,
@@ -716,9 +718,23 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             }
                             // FIXME(Chris): Implement one-item rename
                             "rename" => {
-                                // prompt.push_str("Rename: ");
+                                // let new_name = get_cmd_line_input(
+                                //     w,
+                                //     "Rename: ",
+                                //     &mut input_line,
+                                //     &mut drawing_info,
+                                //     &dir_states,
+                                //     &mut second,
+                                //     &mut input_mode,
+                                //     &runtime,
+                                //     &mut image_handles,
+                                //     &mut left_paths,
+                                //     &available_execs,
+                                // )?;
                             }
                             _ => {
+                                let mut stdout_lock = w.lock();
+
                                 queue!(
                                     stdout_lock,
                                     terminal::Clear(ClearType::CurrentLine),
