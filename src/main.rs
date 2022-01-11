@@ -152,8 +152,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     let mut input_line = String::new();
 
-    let mut prompt = String::new();
-
     let mut input_mode = InputMode::Normal;
 
     let user_host_display = format!("{}@{}", user_name, host_name);
@@ -609,319 +607,132 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                 }
             }
             InputMode::Command => {
-                // FIXME(Chris): Refactor the obtaining of a prompted input line into its own
-                // function. Start by moving this whole command-line block into its own function
-                // and then modifying that function to return an inputted line (while moving the
-                // actual handling of that line back to this command-line block), and then making
-                // that function take a prompt as input.
+                let line_from_user = get_cmd_line_input(
+                    w,
+                    ":",
+                    &mut input_line,
+                    &mut drawing_info,
+                    &dir_states,
+                    &mut second,
+                    &mut input_mode,
+                    &runtime,
+                    &mut image_handles,
+                    &mut left_paths,
+                    &available_execs,
+                )?;
 
-                let mut cursor_index = input_line.len(); // Where a new character will next be entered
-
-                {
+                // If there was no input line returned, then the user aborted the use of the
+                // command line. Thus, we only need to do anything when an input line is actually
+                // returned.
+                if let Some(line_from_user) = line_from_user {
                     let mut stdout_lock = w.lock();
 
-                    execute!(&mut stdout_lock, cursor::Show)?;
-                }
+                    let trimmed_input_line = line_from_user.trim();
+                    let spaced_words: Vec<&str> = trimmed_input_line.split_whitespace().collect();
 
-                // Command line input loop
-                loop {
-                    // Use this scope when displaying the input prompt and current line
-                    {
-                        let mut stdout_lock = w.lock();
+                    if !spaced_words.is_empty() {
+                        match spaced_words[0] {
+                            "search" => {
+                                if spaced_words.len() == 2 {
+                                    let search_term = spaced_words[1];
 
-                        if prompt.is_empty() {
-                            queue!(
-                                &mut stdout_lock,
-                                cursor::MoveTo(0, drawing_info.height - 1),
-                                terminal::Clear(ClearType::CurrentLine),
-                                style::Print(format!(":{}", input_line)),
-                                cursor::MoveTo((1 + cursor_index) as u16, drawing_info.height - 1),
-                            )?;
-                        } else {
-                            queue!(
-                                &mut stdout_lock,
-                                cursor::MoveTo(0, drawing_info.height - 1),
-                                terminal::Clear(ClearType::CurrentLine),
-                                style::Print(format!("{}{}", prompt, input_line)),
-                                cursor::MoveTo(
-                                    (prompt.len() + cursor_index) as u16,
-                                    drawing_info.height - 1
-                                ),
-                            )?;
-                        }
-
-                        stdout_lock.flush()?;
-                    }
-
-                    let event = event::read()?;
-
-                    let mut stdout_lock = w.lock();
-
-                    match event {
-                        Event::Key(event) => match event.code {
-                            KeyCode::Char(ch) => {
-                                if event.modifiers.contains(KeyModifiers::CONTROL) {
-                                    match ch {
-                                        'b' => {
-                                            if cursor_index > 0 {
-                                                cursor_index -= 1;
+                                    match_positions = dir_states
+                                        .current_entries
+                                        .iter()
+                                        .enumerate()
+                                        .filter_map(|(index, entry_info)| {
+                                            if entry_info
+                                                .dir_entry
+                                                .file_name()
+                                                .to_str()
+                                                .unwrap()
+                                                .to_lowercase()
+                                                .contains(&search_term.to_lowercase())
+                                            {
+                                                Some(index)
+                                            } else {
+                                                None
                                             }
-                                        }
-                                        'f' => {
-                                            if cursor_index < input_line.len() {
-                                                cursor_index += 1;
+                                        })
+                                        .collect();
+
+                                    should_search_forwards = true;
+
+                                    queue_search_jump(
+                                        &mut stdout_lock,
+                                        &match_positions,
+                                        &runtime,
+                                        &mut image_handles,
+                                        &dir_states,
+                                        &left_paths,
+                                        &available_execs,
+                                        should_search_forwards,
+                                        drawing_info,
+                                        &mut second,
+                                        drawing_info.second_column,
+                                    )?;
+                                }
+                            }
+                            "search-back" => {
+                                if spaced_words.len() == 2 {
+                                    let search_term = spaced_words[1];
+
+                                    match_positions = dir_states
+                                        .current_entries
+                                        .iter()
+                                        .enumerate()
+                                        .filter_map(|(index, entry_info)| {
+                                            if entry_info
+                                                .dir_entry
+                                                .file_name()
+                                                .to_str()
+                                                .unwrap()
+                                                .to_lowercase()
+                                                .contains(&search_term.to_lowercase())
+                                            {
+                                                Some(index)
+                                            } else {
+                                                None
                                             }
-                                        }
-                                        'a' => cursor_index = 0,
-                                        'e' => cursor_index = input_line.len(),
-                                        'c' => {
-                                            queue_cleanup_cmd_line_exit(
-                                                &mut stdout_lock,
-                                                &dir_states,
-                                                drawing_info,
-                                                second,
-                                                &mut input_line,
-                                                &mut prompt,
-                                                &mut input_mode,
-                                            )?;
+                                        })
+                                        .collect();
 
-                                            break;
-                                        }
-                                        'k' => {
-                                            input_line =
-                                                input_line.chars().take(cursor_index).collect();
-                                        }
-                                        _ => (),
-                                    }
-                                } else if event.modifiers.contains(KeyModifiers::ALT) {
-                                    match ch {
-                                        'b' => {
-                                            cursor_index = line_edit::find_prev_word_pos(
-                                                &input_line,
-                                                cursor_index,
-                                            );
-                                        }
-                                        'f' => {
-                                            cursor_index = line_edit::find_next_word_pos(
-                                                &input_line,
-                                                cursor_index,
-                                            );
-                                        }
-                                        'd' => {
-                                            let ending_index = line_edit::find_next_word_pos(
-                                                &input_line,
-                                                cursor_index,
-                                            );
-                                            input_line
-                                                .replace_range(cursor_index..ending_index, "");
-                                        }
-                                        _ => (),
-                                    }
-                                } else {
-                                    input_line.insert(cursor_index, ch);
+                                    should_search_forwards = false;
 
-                                    cursor_index += 1;
+                                    queue_search_jump(
+                                        &mut stdout_lock,
+                                        &match_positions,
+                                        &runtime,
+                                        &mut image_handles,
+                                        &dir_states,
+                                        &left_paths,
+                                        &available_execs,
+                                        should_search_forwards,
+                                        drawing_info,
+                                        &mut second,
+                                        drawing_info.second_column,
+                                    )?;
                                 }
                             }
-                            KeyCode::Enter => {
-                                let trimmed_input_line = input_line.trim();
-                                let spaced_words: Vec<&str> =
-                                    trimmed_input_line.split_whitespace().collect();
-
-                                if !spaced_words.is_empty() {
-                                    let mut should_exit = true;
-
-                                    match spaced_words[0] {
-                                        "search" => {
-                                            if spaced_words.len() == 2 {
-                                                let search_term = spaced_words[1];
-
-                                                match_positions = dir_states
-                                                    .current_entries
-                                                    .iter()
-                                                    .enumerate()
-                                                    .filter_map(|(index, entry_info)| {
-                                                        if entry_info
-                                                            .dir_entry
-                                                            .file_name()
-                                                            .to_str()
-                                                            .unwrap()
-                                                            .to_lowercase()
-                                                            .contains(&search_term.to_lowercase())
-                                                        {
-                                                            Some(index)
-                                                        } else {
-                                                            None
-                                                        }
-                                                    })
-                                                    .collect();
-
-                                                should_search_forwards = true;
-
-                                                queue_search_jump(
-                                                    &mut stdout_lock,
-                                                    &match_positions,
-                                                    &runtime,
-                                                    &mut image_handles,
-                                                    &dir_states,
-                                                    &left_paths,
-                                                    &available_execs,
-                                                    should_search_forwards,
-                                                    drawing_info,
-                                                    &mut second,
-                                                    drawing_info.second_column,
-                                                )?;
-                                            }
-                                        }
-                                        "search-back" => {
-                                            if spaced_words.len() == 2 {
-                                                let search_term = spaced_words[1];
-
-                                                match_positions = dir_states
-                                                    .current_entries
-                                                    .iter()
-                                                    .enumerate()
-                                                    .filter_map(|(index, entry_info)| {
-                                                        if entry_info
-                                                            .dir_entry
-                                                            .file_name()
-                                                            .to_str()
-                                                            .unwrap()
-                                                            .to_lowercase()
-                                                            .contains(&search_term.to_lowercase())
-                                                        {
-                                                            Some(index)
-                                                        } else {
-                                                            None
-                                                        }
-                                                    })
-                                                    .collect();
-
-                                                should_search_forwards = false;
-
-                                                queue_search_jump(
-                                                    &mut stdout_lock,
-                                                    &match_positions,
-                                                    &runtime,
-                                                    &mut image_handles,
-                                                    &dir_states,
-                                                    &left_paths,
-                                                    &available_execs,
-                                                    should_search_forwards,
-                                                    drawing_info,
-                                                    &mut second,
-                                                    drawing_info.second_column,
-                                                )?;
-                                            }
-                                        }
-                                        // FIXME(Chris): Implement one-item rename
-                                        "rename" => {
-                                            prompt.push_str("Rename: ");
-
-                                            input_line.clear();
-                                            cursor_index = 0;
-
-                                            should_exit = false;
-                                        }
-                                        _ => {
-                                            queue!(
-                                                stdout_lock,
-                                                terminal::Clear(ClearType::CurrentLine),
-                                                cursor::Hide,
-                                                cursor::MoveToColumn(0),
-                                                style::SetForegroundColor(Color::Grey),
-                                                style::SetBackgroundColor(Color::DarkRed),
-                                                style::Print(format!(
-                                                    "invalid command: {}",
-                                                    spaced_words[0]
-                                                )),
-                                                style::SetForegroundColor(Color::Reset),
-                                                style::SetBackgroundColor(Color::Reset),
-                                            )?;
-
-                                            cleanup_cmd_line_exit(
-                                                &mut stdout_lock,
-                                                &mut input_line,
-                                                &mut prompt,
-                                                &mut input_mode,
-                                            )?;
-
-                                            break;
-                                        }
-                                    }
-
-                                    if should_exit {
-                                        queue_cleanup_cmd_line_exit(
-                                            &mut stdout_lock,
-                                            &dir_states,
-                                            drawing_info,
-                                            second,
-                                            &mut input_line,
-                                            &mut prompt,
-                                            &mut input_mode,
-                                        )?;
-
-                                        break;
-                                    }
-                                }
+                            // FIXME(Chris): Implement one-item rename
+                            "rename" => {
+                                // prompt.push_str("Rename: ");
                             }
-                            KeyCode::Left => {
-                                if cursor_index > 0 {
-                                    cursor_index -= 1;
-                                }
-                            }
-                            KeyCode::Right => {
-                                if cursor_index < input_line.len() {
-                                    cursor_index += 1;
-                                }
-                            }
-                            KeyCode::Backspace => {
-                                if cursor_index > 0 {
-                                    if event.modifiers.contains(KeyModifiers::ALT) {
-                                        let ending_index = cursor_index;
-                                        cursor_index = line_edit::find_prev_word_pos(
-                                            &input_line,
-                                            cursor_index,
-                                        );
-                                        input_line.replace_range(cursor_index..ending_index, "");
-                                    } else {
-                                        input_line.remove(cursor_index - 1);
-
-                                        cursor_index -= 1;
-                                    }
-                                }
-                            }
-                            KeyCode::Esc => {
-                                queue_cleanup_cmd_line_exit(
-                                    &mut stdout_lock,
-                                    &dir_states,
-                                    drawing_info,
-                                    second,
-                                    &mut input_line,
-                                    &mut prompt,
-                                    &mut input_mode,
+                            _ => {
+                                queue!(
+                                    stdout_lock,
+                                    terminal::Clear(ClearType::CurrentLine),
+                                    cursor::Hide,
+                                    cursor::MoveToColumn(0),
+                                    style::SetForegroundColor(Color::Grey),
+                                    style::SetBackgroundColor(Color::DarkRed),
+                                    style::Print(format!("invalid command: {}", spaced_words[0])),
+                                    style::SetForegroundColor(Color::Reset),
+                                    style::SetBackgroundColor(Color::Reset),
                                 )?;
-
-                                break;
                             }
-                            _ => (),
-                        },
-                        Event::Mouse(_) => (),
-                        Event::Resize(_, _) => {
-                            redraw_upper(
-                                &mut stdout_lock,
-                                &mut drawing_info,
-                                &runtime,
-                                &mut image_handles,
-                                &dir_states,
-                                &left_paths,
-                                &available_execs,
-                                second,
-                            )?;
                         }
                     }
-
-                    assert!(cursor_index <= input_line.len());
                 }
             }
         }
@@ -956,6 +767,192 @@ struct DrawingInfo {
 struct ColumnInfo {
     starting_index: u16,
     display_offset: u16,
+}
+
+fn get_cmd_line_input(
+    w: &mut io::Stdout,
+    prompt: &str,
+    input_line: &mut String,
+    drawing_info: &mut DrawingInfo,
+    dir_states: &DirStates,
+    second: &mut ColumnInfo,
+    input_mode: &mut InputMode,
+    runtime: &Runtime,
+    image_handles: &mut Vec<DrawHandle>,
+    left_paths: &mut HashMap<std::path::PathBuf, DirLocation>,
+    available_execs: &HashMap<&str, std::path::PathBuf>,
+) -> io::Result<Option<String>> {
+    let mut cursor_index = input_line.len(); // Where a new character will next be entered
+
+    {
+        let mut stdout_lock = w.lock();
+
+        execute!(
+            &mut stdout_lock,
+            cursor::Show,
+            style::SetAttribute(Attribute::Reset)
+        )?;
+    }
+
+    // Command line input loop
+    loop {
+        // Use this scope when displaying the input prompt and current line
+        {
+            let mut stdout_lock = w.lock();
+
+            if prompt.is_empty() {
+                queue!(
+                    &mut stdout_lock,
+                    cursor::MoveTo(0, drawing_info.height - 1),
+                    terminal::Clear(ClearType::CurrentLine),
+                    style::Print(format!(":{}", input_line)),
+                    cursor::MoveTo((1 + cursor_index) as u16, drawing_info.height - 1),
+                )?;
+            } else {
+                queue!(
+                    &mut stdout_lock,
+                    cursor::MoveTo(0, drawing_info.height - 1),
+                    terminal::Clear(ClearType::CurrentLine),
+                    style::Print(format!("{}{}", prompt, input_line)),
+                    cursor::MoveTo(
+                        (prompt.len() + cursor_index) as u16,
+                        drawing_info.height - 1
+                    ),
+                )?;
+            }
+
+            stdout_lock.flush()?;
+        }
+
+        let event = event::read()?;
+
+        let mut stdout_lock = w.lock();
+
+        match event {
+            Event::Key(event) => match event.code {
+                KeyCode::Char(ch) => {
+                    if event.modifiers.contains(KeyModifiers::CONTROL) {
+                        match ch {
+                            'b' => {
+                                if cursor_index > 0 {
+                                    cursor_index -= 1;
+                                }
+                            }
+                            'f' => {
+                                if cursor_index < input_line.len() {
+                                    cursor_index += 1;
+                                }
+                            }
+                            'a' => cursor_index = 0,
+                            'e' => cursor_index = input_line.len(),
+                            'c' => {
+                                // TODO(Chris): Consider refactoring the queue_... call and the
+                                // resulting Ok(Some(...)) in a function
+                                let result = queue_cleanup_cmd_line_exit(
+                                    &mut stdout_lock,
+                                    dir_states,
+                                    *drawing_info,
+                                    *second,
+                                    input_line,
+                                    input_mode,
+                                )?;
+
+                                return Ok(Some(result));
+                            }
+                            'k' => {
+                                *input_line = input_line.chars().take(cursor_index).collect();
+                            }
+                            _ => (),
+                        }
+                    } else if event.modifiers.contains(KeyModifiers::ALT) {
+                        match ch {
+                            'b' => {
+                                cursor_index =
+                                    line_edit::find_prev_word_pos(input_line, cursor_index);
+                            }
+                            'f' => {
+                                cursor_index =
+                                    line_edit::find_next_word_pos(input_line, cursor_index);
+                            }
+                            'd' => {
+                                let ending_index =
+                                    line_edit::find_next_word_pos(input_line, cursor_index);
+                                input_line.replace_range(cursor_index..ending_index, "");
+                            }
+                            _ => (),
+                        }
+                    } else {
+                        input_line.insert(cursor_index, ch);
+
+                        cursor_index += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    let result = queue_cleanup_cmd_line_exit(
+                        &mut stdout_lock,
+                        dir_states,
+                        *drawing_info,
+                        *second,
+                        input_line,
+                        input_mode,
+                    )?;
+
+                    return Ok(Some(result));
+                }
+                KeyCode::Left => {
+                    if cursor_index > 0 {
+                        cursor_index -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    if cursor_index < input_line.len() {
+                        cursor_index += 1;
+                    }
+                }
+                KeyCode::Backspace => {
+                    if cursor_index > 0 {
+                        if event.modifiers.contains(KeyModifiers::ALT) {
+                            let ending_index = cursor_index;
+                            cursor_index = line_edit::find_prev_word_pos(input_line, cursor_index);
+                            input_line.replace_range(cursor_index..ending_index, "");
+                        } else {
+                            input_line.remove(cursor_index - 1);
+
+                            cursor_index -= 1;
+                        }
+                    }
+                }
+                KeyCode::Esc => {
+                    let result = queue_cleanup_cmd_line_exit(
+                        &mut stdout_lock,
+                        dir_states,
+                        *drawing_info,
+                        *second,
+                        input_line,
+                        input_mode,
+                    )?;
+
+                    return Ok(Some(result));
+                }
+                _ => (),
+            },
+            Event::Mouse(_) => (),
+            Event::Resize(_, _) => {
+                redraw_upper(
+                    &mut stdout_lock,
+                    drawing_info,
+                    runtime,
+                    image_handles,
+                    dir_states,
+                    left_paths,
+                    available_execs,
+                    *second,
+                )?;
+            }
+        }
+
+        assert!(cursor_index <= input_line.len());
+    }
 }
 
 fn set_current_dir<P: AsRef<Path>>(
@@ -1243,9 +1240,10 @@ fn queue_cleanup_cmd_line_exit(
     drawing_info: DrawingInfo,
     second: ColumnInfo,
     input_line: &mut String,
-    prompt: &mut String,
     input_mode: &mut InputMode,
-) -> crossterm::Result<()> {
+) -> crossterm::Result<String> {
+    let result = input_line.clone();
+
     queue!(
         stdout_lock,
         terminal::Clear(ClearType::CurrentLine),
@@ -1254,20 +1252,18 @@ fn queue_cleanup_cmd_line_exit(
 
     queue_bottom_info_line(stdout_lock, drawing_info, second, dir_states)?;
 
-    cleanup_cmd_line_exit(stdout_lock, input_line, prompt, input_mode)?;
+    cleanup_cmd_line_exit(stdout_lock, input_line, input_mode)?;
 
-    Ok(())
+    Ok(result)
 }
 
 fn cleanup_cmd_line_exit(
     stdout_lock: &mut StdoutLock,
     input_line: &mut String,
-    prompt: &mut String,
     input_mode: &mut InputMode,
 ) -> io::Result<()> {
     stdout_lock.flush()?;
     input_line.clear();
-    prompt.clear();
     *input_mode = InputMode::Normal;
 
     Ok(())
