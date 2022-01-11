@@ -22,7 +22,7 @@ use which::which;
 
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
-use std::fs::{DirEntry, Metadata, self};
+use std::fs::{self, DirEntry, Metadata};
 use std::io::{self, StdoutLock, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -184,13 +184,13 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     // Main input loop
     loop {
+        let second_entry_index = second.starting_index + second.display_offset;
+
         match input_mode {
             InputMode::Normal => {
                 // Gather all the data before rendering things with stdout_lock
 
                 let second_bottom_index = second.starting_index + drawing_info.column_height;
-
-                let second_entry_index = second.starting_index + second.display_offset;
 
                 let current_dir_display = format_current_dir(&dir_states, home_path);
 
@@ -716,21 +716,34 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     )?;
                                 }
                             }
-                            // FIXME(Chris): Implement one-item rename
+                            // FIXME(Chris): Implement file motion tracking for one-item rename
                             "rename" => {
-                                // let new_name = get_cmd_line_input(
-                                //     w,
-                                //     "Rename: ",
-                                //     &mut input_line,
-                                //     &mut drawing_info,
-                                //     &dir_states,
-                                //     &mut second,
-                                //     &mut input_mode,
-                                //     &runtime,
-                                //     &mut image_handles,
-                                //     &mut left_paths,
-                                //     &available_execs,
-                                // )?;
+                                // Get the full path of the current file
+                                let current_file = &dir_states.current_entries[second_entry_index as usize].dir_entry;
+                                let current_file_path = current_file.path();
+
+                                // TODO(Chris): Get rid of these unwrap calls (at least the OsStr
+                                // to str conversion one)
+                                input_line.push_str(current_file_path.file_name().unwrap().to_str().unwrap());
+
+                                let new_name = get_cmd_line_input(
+                                    w,
+                                    "Rename: ",
+                                    &mut input_line,
+                                    &mut drawing_info,
+                                    &dir_states,
+                                    &mut second,
+                                    &mut input_mode,
+                                    &runtime,
+                                    &mut image_handles,
+                                    &mut left_paths,
+                                    &available_execs,
+                                )?;
+
+                                if let Some(new_name) = new_name {
+                                    let new_file_path = current_file_path.parent().unwrap().join(PathBuf::from(new_name));
+                                    fs::rename(current_file_path, new_file_path)?;
+                                }
                             }
                             _ => {
                                 let mut stdout_lock = w.lock();
