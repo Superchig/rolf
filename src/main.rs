@@ -182,6 +182,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
         )?;
     }
 
+    // FIXME(Chris): Fix bug in which directories beginning with 's' are placed alongside files
+
     // Main input loop
     loop {
         let second_entry_index = second.starting_index + second.display_offset;
@@ -634,25 +636,10 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 if spaced_words.len() == 2 {
                                     let search_term = spaced_words[1];
 
-                                    match_positions = dir_states
-                                        .current_entries
-                                        .iter()
-                                        .enumerate()
-                                        .filter_map(|(index, entry_info)| {
-                                            if entry_info
-                                                .dir_entry
-                                                .file_name()
-                                                .to_str()
-                                                .unwrap()
-                                                .to_lowercase()
-                                                .contains(&search_term.to_lowercase())
-                                            {
-                                                Some(index)
-                                            } else {
-                                                None
-                                            }
-                                        })
-                                        .collect();
+                                    match_positions = find_match_positions(
+                                        &dir_states.current_entries,
+                                        search_term,
+                                    );
 
                                     should_search_forwards = true;
 
@@ -677,25 +664,10 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 if spaced_words.len() == 2 {
                                     let search_term = spaced_words[1];
 
-                                    match_positions = dir_states
-                                        .current_entries
-                                        .iter()
-                                        .enumerate()
-                                        .filter_map(|(index, entry_info)| {
-                                            if entry_info
-                                                .dir_entry
-                                                .file_name()
-                                                .to_str()
-                                                .unwrap()
-                                                .to_lowercase()
-                                                .contains(&search_term.to_lowercase())
-                                            {
-                                                Some(index)
-                                            } else {
-                                                None
-                                            }
-                                        })
-                                        .collect();
+                                    match_positions = find_match_positions(
+                                        &dir_states.current_entries,
+                                        search_term,
+                                    );
 
                                     should_search_forwards = false;
 
@@ -716,15 +688,18 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     )?;
                                 }
                             }
-                            // FIXME(Chris): Implement file motion tracking for one-item rename
                             "rename" => {
                                 // Get the full path of the current file
-                                let current_file = &dir_states.current_entries[second_entry_index as usize].dir_entry;
+                                let current_file = &dir_states.current_entries
+                                    [second_entry_index as usize]
+                                    .dir_entry;
                                 let current_file_path = current_file.path();
 
                                 // TODO(Chris): Get rid of these unwrap calls (at least the OsStr
                                 // to str conversion one)
-                                input_line.push_str(current_file_path.file_name().unwrap().to_str().unwrap());
+                                input_line.push_str(
+                                    current_file_path.file_name().unwrap().to_str().unwrap(),
+                                );
 
                                 let new_name = get_cmd_line_input(
                                     w,
@@ -741,8 +716,38 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 )?;
 
                                 if let Some(new_name) = new_name {
-                                    let new_file_path = current_file_path.parent().unwrap().join(PathBuf::from(new_name));
+                                    let new_file_path = current_file_path
+                                        .parent()
+                                        .unwrap()
+                                        .join(PathBuf::from(&new_name));
                                     fs::rename(current_file_path, new_file_path)?;
+
+                                    set_current_dir(
+                                        dir_states.current_dir.clone(),
+                                        &mut dir_states,
+                                        &mut match_positions,
+                                    )?;
+
+                                    match_positions = find_match_positions(
+                                        &dir_states.current_entries,
+                                        &new_name,
+                                    );
+
+                                    let mut stdout_lock = w.lock();
+
+                                    queue_search_jump(
+                                        &mut stdout_lock,
+                                        &match_positions,
+                                        &runtime,
+                                        &mut image_handles,
+                                        &dir_states,
+                                        &left_paths,
+                                        &available_execs,
+                                        should_search_forwards,
+                                        drawing_info,
+                                        &mut second,
+                                        drawing_info.second_column,
+                                    )?;
                                 }
                             }
                             _ => {
@@ -796,6 +801,27 @@ struct DrawingInfo {
 struct ColumnInfo {
     starting_index: u16,
     display_offset: u16,
+}
+
+fn find_match_positions(current_entries: &[DirEntryInfo], search_term: &str) -> Vec<usize> {
+    current_entries
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry_info)| {
+            if entry_info
+                .dir_entry
+                .file_name()
+                .to_str()
+                .unwrap()
+                .to_lowercase()
+                .contains(&search_term.to_lowercase())
+            {
+                Some(index)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn get_cmd_line_input(
@@ -2545,6 +2571,8 @@ fn cmp_dir_entry_info(entry_info_1: &DirEntryInfo, entry_info_2: &DirEntryInfo) 
 // lf seems to do this with symlinks as well.
 // TODO(Chris): Get rid of all the zany unwrap() calls in this function, since it's not supposed to
 // fail
+// FIXME(Chris): Optimize out the gathering of metadata here, unless we need to follow a symlink
+// since it should already be stored in a DirEntryInfo
 fn cmp_dir_entry(entry1: &DirEntry, entry2: &DirEntry) -> Ordering {
     let file_type1 = match std::fs::metadata(entry1.path()) {
         Ok(metadata) => metadata.file_type(),
