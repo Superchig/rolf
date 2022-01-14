@@ -182,8 +182,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
         )?;
     }
 
-    // FIXME(Chris): Fix bug in which directories beginning with 's' are placed alongside files
-
     // Main input loop
     loop {
         let second_entry_index = second.starting_index + second.display_offset;
@@ -2595,9 +2593,9 @@ fn cmp_dir_entry(entry1: &DirEntry, entry2: &DirEntry) -> Ordering {
         }
     };
 
-    if file_type1.is_dir() && file_type2.is_file() {
+    if file_type1.is_dir() && (file_type2.is_file() || file_type2.is_symlink()) {
         Ordering::Less
-    } else if file_type2.is_dir() && file_type1.is_file() {
+    } else if file_type2.is_dir() && (file_type1.is_file() || file_type1.is_symlink()) {
         Ordering::Greater
     } else {
         cmp_natural(
