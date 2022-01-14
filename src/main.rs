@@ -2560,10 +2560,6 @@ struct DirEntryInfo {
     metadata: Metadata,
 }
 
-fn cmp_dir_entry_info(entry_info_1: &DirEntryInfo, entry_info_2: &DirEntryInfo) -> Ordering {
-    cmp_dir_entry(&entry_info_1.dir_entry, &entry_info_2.dir_entry)
-}
-
 // Sorts std::fs::DirEntry by file type first (with directory coming before files),
 // then by file name. Symlinks are ignored in favor of the original files' file types.
 // lf seems to do this with symlinks as well.
@@ -2571,7 +2567,9 @@ fn cmp_dir_entry_info(entry_info_1: &DirEntryInfo, entry_info_2: &DirEntryInfo) 
 // fail
 // FIXME(Chris): Optimize out the gathering of metadata here, unless we need to follow a symlink
 // since it should already be stored in a DirEntryInfo
-fn cmp_dir_entry(entry1: &DirEntry, entry2: &DirEntry) -> Ordering {
+fn cmp_dir_entry_info(entry_info_1: &DirEntryInfo, entry_info_2: &DirEntryInfo) -> Ordering {
+    let entry1 = &entry_info_1.dir_entry;
+    let entry2 = &entry_info_2.dir_entry;
     let file_type1 = match std::fs::metadata(entry1.path()) {
         Ok(metadata) => metadata.file_type(),
         Err(err) => {
