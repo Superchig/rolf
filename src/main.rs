@@ -182,6 +182,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
         )?;
     }
 
+    // FIXME(Chris): Implement file selection
+
     // Main input loop
     loop {
         let second_entry_index = second.starting_index + second.display_offset;
@@ -2555,9 +2557,37 @@ impl DirStates {
 }
 
 #[derive(Debug)]
+enum RecordedFileType {
+    File,
+    Directory,
+    FileSymlink,
+    DirectorySymlink,
+    InvalidSymlink,
+    Other,
+}
+
+#[derive(Debug)]
 struct DirEntryInfo {
     dir_entry: DirEntry,
     metadata: Metadata,
+    file_type: RecordedFileType,
+}
+
+enum BroadFileType {
+    File,
+    Directory,
+}
+
+fn broaden_file_type(file_type: &RecordedFileType) -> BroadFileType {
+    match file_type {
+        RecordedFileType::File
+        | RecordedFileType::FileSymlink
+        | RecordedFileType::InvalidSymlink
+        | RecordedFileType::Other => BroadFileType::File,
+        RecordedFileType::Directory | RecordedFileType::DirectorySymlink => {
+            BroadFileType::Directory
+        }
+    }
 }
 
 // Sorts std::fs::DirEntry by file type first (with directory coming before files),
@@ -2565,41 +2595,17 @@ struct DirEntryInfo {
 // lf seems to do this with symlinks as well.
 // TODO(Chris): Get rid of all the zany unwrap() calls in this function, since it's not supposed to
 // fail
-// FIXME(Chris): Optimize out the gathering of metadata here, unless we need to follow a symlink
-// since it should already be stored in a DirEntryInfo
 fn cmp_dir_entry_info(entry_info_1: &DirEntryInfo, entry_info_2: &DirEntryInfo) -> Ordering {
-    let entry1 = &entry_info_1.dir_entry;
-    let entry2 = &entry_info_2.dir_entry;
-    let file_type1 = match std::fs::metadata(entry1.path()) {
-        Ok(metadata) => metadata.file_type(),
-        Err(err) => {
-            match err.kind() {
-                // Just use name of symbolic link
-                io::ErrorKind::NotFound => entry1.metadata().unwrap().file_type(),
-                _ => panic!("{}", err),
-            }
-        }
-    };
-    let file_type2 = match std::fs::metadata(entry2.path()) {
-        Ok(metadata) => metadata.file_type(),
-        Err(err) => {
-            match err.kind() {
-                // Just use name of symbolic link
-                io::ErrorKind::NotFound => entry2.metadata().unwrap().file_type(),
-                _ => panic!("{}", err),
-            }
-        }
-    };
+    let broad_ft_1 = broaden_file_type(&entry_info_1.file_type);
+    let broad_ft_2 = broaden_file_type(&entry_info_2.file_type);
 
-    if file_type1.is_dir() && (file_type2.is_file() || file_type2.is_symlink()) {
-        Ordering::Less
-    } else if file_type2.is_dir() && (file_type1.is_file() || file_type1.is_symlink()) {
-        Ordering::Greater
-    } else {
-        cmp_natural(
-            entry1.file_name().to_str().unwrap(),
-            entry2.file_name().to_str().unwrap(),
-        )
+    match (broad_ft_1, broad_ft_2) {
+        (BroadFileType::Directory, BroadFileType::File) => Ordering::Less,
+        (BroadFileType::File, BroadFileType::Directory) => Ordering::Greater,
+        _ => cmp_natural(
+            entry_info_1.dir_entry.file_name().to_str().unwrap(),
+            entry_info_2.dir_entry.file_name().to_str().unwrap(),
+        ),
     }
 }
 
@@ -2879,11 +2885,44 @@ fn get_sorted_entries<P: AsRef<Path>>(path: P) -> io::Result<Vec<DirEntryInfo>> 
     let mut entries = std::fs::read_dir(path)?
         .map(|entry| {
             let dir_entry = entry.unwrap();
-            let metadata = std::fs::symlink_metadata(dir_entry.path()).unwrap();
+            let entry_path = dir_entry.path();
+            let metadata = std::fs::symlink_metadata(&entry_path).unwrap();
+
+            let file_type = {
+                let curr_file_type = metadata.file_type();
+
+                if curr_file_type.is_file() {
+                    RecordedFileType::File
+                } else if curr_file_type.is_dir() {
+                    RecordedFileType::Directory
+                } else if curr_file_type.is_symlink() {
+                    match fs::canonicalize(&entry_path) {
+                        Ok(canonical_path) => {
+                            let canonical_metadata = fs::metadata(canonical_path).unwrap();
+                            let canonical_file_type = canonical_metadata.file_type();
+
+                            if canonical_file_type.is_file() {
+                                RecordedFileType::FileSymlink
+                            } else if canonical_file_type.is_dir() {
+                                RecordedFileType::DirectorySymlink
+                            } else {
+                                RecordedFileType::Other
+                            }
+                        }
+                        Err(err) => match err.kind() {
+                            io::ErrorKind::NotFound => RecordedFileType::InvalidSymlink,
+                            _ => Err(err).unwrap(),
+                        },
+                    }
+                } else {
+                    RecordedFileType::Other
+                }
+            };
 
             DirEntryInfo {
                 dir_entry,
                 metadata,
+                file_type,
             }
         })
         .collect::<Vec<DirEntryInfo>>();
