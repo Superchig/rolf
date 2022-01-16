@@ -23,7 +23,7 @@ use which::which;
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
 use std::fs::{self, DirEntry, Metadata};
-use std::io::{self, StdoutLock, Write};
+use std::io::{self, BufRead, StdoutLock, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
@@ -121,9 +121,9 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     let mut available_execs: HashMap<&str, std::path::PathBuf> = HashMap::new();
 
-    available_execs.insert("highlight", which("highlight").unwrap());
+    insert_executable(&mut available_execs, "highlight");
 
-    available_execs.insert("ffmpeg", which("ffmpeg").unwrap());
+    insert_executable(&mut available_execs, "ffmpeg");
 
     let home_path = Path::new(&home_name[..]);
 
@@ -801,6 +801,21 @@ struct DrawingInfo {
 struct ColumnInfo {
     starting_index: u16,
     display_offset: u16,
+}
+
+fn insert_executable<'a>(
+    available_execs: &mut HashMap<&'a str, std::path::PathBuf>,
+    executable_name: &'a str,
+) {
+    match which(executable_name) {
+        Ok(path) => {
+            available_execs.insert(executable_name, path);
+        }
+        Err(which::Error::CannotFindBinaryPath) => (), // Do nothing when binary not found
+        Err(err) => {
+            panic!("{}", err);
+        }
+    }
 }
 
 fn find_match_positions(current_entries: &[DirEntryInfo], search_term: &str) -> Vec<usize> {
@@ -2003,7 +2018,28 @@ fn queue_third_column_file(
                     );
                 }
                 _ => match available_execs.get("highlight") {
-                    None => (),
+                    None => {
+                        queue!(
+                            w,
+                            style::SetAttribute(Attribute::Reset),
+                            style::SetAttribute(Attribute::Reverse),
+                            cursor::MoveTo(left_x, 1),
+                            style::Print("Loading..."),
+                            style::SetAttribute(Attribute::Reset),
+                        )?;
+
+                        w.flush()?;
+
+                        spawn_async_draw!(
+                            runtime,
+                            handles,
+                            preview_uncolored_file,
+                            drawing_info,
+                            third_file,
+                            left_x,
+                            right_x
+                        );
+                    }
                     Some(highlight) => {
                         queue!(
                             w,
@@ -2030,6 +2066,64 @@ fn queue_third_column_file(
                 },
             }
         }
+    }
+
+    Ok(())
+}
+
+async fn preview_uncolored_file(
+    can_draw_preview: Arc<AtomicBool>,
+    drawing_info: DrawingInfo,
+    third_file: PathBuf,
+    left_x: u16,
+    right_x: u16,
+) -> io::Result<()> {
+    let can_display_image = can_draw_preview.load(std::sync::atomic::Ordering::Acquire);
+
+    if can_display_image {
+        let file = fs::File::open(third_file)?;
+        let stdout = io::stdout();
+        let mut w = stdout.lock();
+
+        let mut curr_y = 1; // Columns start at y = 1
+
+        queue!(
+            &mut w,
+            style::SetAttribute(Attribute::Reset),
+            terminal::DisableLineWrap
+        )?;
+
+        // Clear the first line, in case there's a Loading... message already there
+        queue!(&mut w, cursor::MoveTo(left_x, 1))?;
+        for _curr_x in left_x..=right_x {
+            queue!(&mut w, style::Print(' '))?;
+        }
+
+        for line in io::BufReader::new(file)
+            .lines()
+            .take(drawing_info.column_height as usize)
+            .flatten()
+        {
+            queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
+
+            writeln!(&mut w, "{}", line)?;
+
+            curr_y += 1;
+        }
+
+        // Clear the right-most edge of the terminal, since it might
+        // have been drawn over when printing file contents
+        for curr_y in 1..=drawing_info.column_bot_y {
+            queue!(
+                &mut w,
+                cursor::MoveTo(drawing_info.width, curr_y),
+                style::Print(' ')
+            )?;
+        }
+
+        queue!(&mut w, terminal::EnableLineWrap)?;
+
+        w.flush()?;
     }
 
     Ok(())
@@ -2314,6 +2408,8 @@ async fn preview_source_file(
         }
 
         // TODO(Chris): Handle case when file is not valid utf8
+        // FIXME(Chris): Refactor multiline string preview into its own function, since it's used
+        // moree than once
         if let Ok(text) = std::str::from_utf8(&output.stdout) {
             let mut curr_y = 1; // Columns start at y = 1
             queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;

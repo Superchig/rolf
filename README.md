@@ -18,7 +18,7 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 - [ ] Allow key rebindings
 - [x] Use [highlight](http://www.andre-simon.de/doku/highlight/highlight.php)
       for text file highlighting
-- [ ] Make [highlight](http://www.andre-simon.de/doku/highlight/highlight.php)
+- [x] Make [highlight](http://www.andre-simon.de/doku/highlight/highlight.php)
       an optional dependency.
 - [x] Implement part of command-line
   - [x] Implement some basic GNU readline keybindings
