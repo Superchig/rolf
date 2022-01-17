@@ -2408,8 +2408,6 @@ async fn preview_source_file(
         }
 
         // TODO(Chris): Handle case when file is not valid utf8
-        // FIXME(Chris): Refactor multiline string preview into its own function, since it's used
-        // moree than once
         if let Ok(text) = std::str::from_utf8(&output.stdout) {
             let mut curr_y = 1; // Columns start at y = 1
             queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
