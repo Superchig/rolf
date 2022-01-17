@@ -53,6 +53,7 @@ use crossterm::{
 const SCROLL_OFFSET: u16 = 10;
 
 type HandlesVec = Vec<DrawHandle>;
+type SelectionsMap = HashMap<PathBuf, usize>;
 
 fn main() -> crossterm::Result<()> {
     let mut w = io::stdout();
@@ -156,6 +157,9 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
     let user_host_display = format!("{}@{}", user_name, host_name);
 
+    // Keys are paths, values are indices in their directory
+    let mut selections: SelectionsMap = HashMap::new();
+
     let mut drawing_info = DrawingInfo {
         win_pixels: get_win_pixels()?,
         width: 0,
@@ -179,6 +183,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
             &available_execs,
             drawing_info,
             second,
+            &mut selections,
         )?;
     }
 
@@ -290,6 +295,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &available_execs,
                                         drawing_info,
                                         second,
+                                        &mut selections,
                                     )?;
                                 }
                                 'l' => {
@@ -304,6 +310,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         drawing_info,
                                         second_entry_index,
                                         &mut second,
+                                        &mut selections,
                                     )?;
                                 }
                                 'j' => {
@@ -338,6 +345,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             old_display_offset,
                                             second,
                                             drawing_info.second_column,
+                                            &mut selections,
                                         )?;
                                     }
                                 }
@@ -368,6 +376,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             old_display_offset,
                                             second,
                                             drawing_info.second_column,
+                                            &mut selections,
                                         )?;
                                     }
                                 }
@@ -426,6 +435,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             &available_execs,
                                             drawing_info,
                                             second,
+                                            &mut selections,
                                         )?;
                                     }
                                 }
@@ -448,6 +458,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             old_display_offset,
                                             old_starting_index,
                                             second,
+                                            &mut selections,
                                         )?;
 
                                         queue_third_column(
@@ -460,6 +471,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             drawing_info,
                                             (second.starting_index + second.display_offset)
                                                 as usize,
+                                            &mut selections,
                                         )?;
 
                                         queue_bottom_info_line(
@@ -500,6 +512,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             old_display_offset,
                                             old_starting_index,
                                             second,
+                                            &mut selections,
                                         )?;
 
                                         queue_third_column(
@@ -512,6 +525,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             drawing_info,
                                             (second.starting_index + second.display_offset)
                                                 as usize,
+                                            &mut selections,
                                         )?;
 
                                         queue_bottom_info_line(
@@ -552,6 +566,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         drawing_info,
                                         &mut second,
                                         drawing_info.second_column,
+                                        &mut selections,
                                     )?;
                                 }
                                 'N' => {
@@ -567,6 +582,31 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         drawing_info,
                                         &mut second,
                                         drawing_info.second_column,
+                                        &mut selections,
+                                    )?;
+                                }
+                                ' ' => {
+                                    let selected_entry =
+                                        &dir_states.current_entries[second_entry_index as usize];
+
+                                    let entry_path = selected_entry.dir_entry.path();
+
+                                    let remove = selections.remove(&entry_path);
+                                    if remove.is_none() {
+                                        selections.insert(entry_path, second_entry_index as usize);
+                                    }
+
+                                    let mut stdout_lock = w.lock();
+
+                                    queue_full_entry(
+                                        &mut stdout_lock,
+                                        &dir_states.current_entries,
+                                        drawing_info.second_column,
+                                        drawing_info.width / 2 - 2,
+                                        second.display_offset,
+                                        second.starting_index,
+                                        &mut selections,
+                                        true,
                                     )?;
                                 }
                                 _ => (),
@@ -583,6 +623,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             drawing_info,
                             second_entry_index,
                             &mut second,
+                            &mut selections,
                         )?,
                         _ => (),
                     },
@@ -597,6 +638,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             &left_paths,
                             &available_execs,
                             second,
+                            &mut selections,
                         )?;
 
                         queue_bottom_info_line(
@@ -621,6 +663,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     &mut image_handles,
                     &mut left_paths,
                     &available_execs,
+                    &mut selections,
                 )?;
 
                 // If there was no input line returned, then the user aborted the use of the
@@ -657,6 +700,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         drawing_info,
                                         &mut second,
                                         drawing_info.second_column,
+                                        &mut selections,
                                     )?;
                                 }
                             }
@@ -685,6 +729,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         drawing_info,
                                         &mut second,
                                         drawing_info.second_column,
+                                        &mut selections,
                                     )?;
                                 }
                             }
@@ -713,6 +758,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     &mut image_handles,
                                     &mut left_paths,
                                     &available_execs,
+                                    &mut selections,
                                 )?;
 
                                 if let Some(new_name) = new_name {
@@ -747,6 +793,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         drawing_info,
                                         &mut second,
                                         drawing_info.second_column,
+                                        &mut selections,
                                     )?;
                                 }
                             }
@@ -851,6 +898,7 @@ fn get_cmd_line_input(
     image_handles: &mut Vec<DrawHandle>,
     left_paths: &mut HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
+    selections: &mut SelectionsMap,
 ) -> io::Result<Option<String>> {
     let mut cursor_index = input_line.len(); // Where a new character will next be entered
 
@@ -1017,6 +1065,7 @@ fn get_cmd_line_input(
                     left_paths,
                     available_execs,
                     *second,
+                    selections,
                 )?;
             }
         }
@@ -1047,6 +1096,7 @@ fn enter_entry(
     drawing_info: DrawingInfo,
     second_entry_index: u16,
     second: &mut ColumnInfo,
+    selections: &mut SelectionsMap,
 ) -> crossterm::Result<()> {
     // NOTE(Chris): We only need to abort asynchronous "image" drawing if we're opening a
     // directory¸ since we're now drawing directory previews asychronously with the same system as
@@ -1116,6 +1166,7 @@ fn enter_entry(
             available_execs,
             drawing_info,
             *second,
+            selections,
         )?;
     } else if selected_target_file_type.is_file() {
         // Should we display some sort of error message according to the exit status
@@ -1206,6 +1257,7 @@ fn queue_search_jump(
     drawing_info: DrawingInfo,
     second: &mut ColumnInfo,
     second_column: u16,
+    selections: &mut SelectionsMap,
 ) -> crossterm::Result<()> {
     if match_positions.len() <= 0 {
         return Ok(());
@@ -1256,6 +1308,7 @@ fn queue_search_jump(
         old_display_offset,
         *second,
         second_column,
+        selections,
     )?;
 
     Ok(())
@@ -1273,6 +1326,7 @@ fn queue_entry_changed(
     old_display_offset: u16,
     second: ColumnInfo,
     second_column: u16,
+    selections: &mut SelectionsMap,
 ) -> crossterm::Result<()> {
     update_entries_column(
         stdout_lock,
@@ -1283,6 +1337,7 @@ fn queue_entry_changed(
         old_display_offset,
         old_starting_index,
         second,
+        selections,
     )?;
 
     queue_third_column(
@@ -1294,6 +1349,7 @@ fn queue_entry_changed(
         available_execs,
         drawing_info,
         (second.starting_index + second.display_offset) as usize,
+        selections,
     )?;
 
     // NOTE(Chris): We flush here, so the current function is more than a "queue_" function
@@ -1368,17 +1424,25 @@ fn redraw_upper(
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
     second: ColumnInfo,
+    selections: &mut SelectionsMap,
 ) -> crossterm::Result<()> {
     queue!(stdout_lock, terminal::Clear(ClearType::All))?;
 
     update_drawing_info_from_resize(drawing_info)?;
 
-    queue_first_column(stdout_lock, dir_states, left_paths, *drawing_info)?;
+    queue_first_column(
+        stdout_lock,
+        dir_states,
+        left_paths,
+        *drawing_info,
+        selections,
+    )?;
     queue_second_column(
         stdout_lock,
         *drawing_info,
         &dir_states.current_entries,
         second,
+        selections,
     )?;
     queue_third_column(
         stdout_lock,
@@ -1389,6 +1453,7 @@ fn redraw_upper(
         available_execs,
         *drawing_info,
         (second.starting_index + second.display_offset) as usize,
+        selections,
     )?;
 
     Ok(())
@@ -1675,13 +1740,21 @@ fn queue_all_columns(
     available_execs: &HashMap<&str, std::path::PathBuf>,
     drawing_info: DrawingInfo,
     second: ColumnInfo,
+    selections: &mut SelectionsMap,
 ) -> crossterm::Result<()> {
-    queue_first_column(stdout_lock, dir_states, left_paths, drawing_info)?;
+    queue_first_column(
+        stdout_lock,
+        dir_states,
+        left_paths,
+        drawing_info,
+        selections,
+    )?;
     queue_second_column(
         stdout_lock,
         drawing_info,
         &dir_states.current_entries,
         second,
+        selections,
     )?;
     queue_third_column(
         stdout_lock,
@@ -1692,6 +1765,7 @@ fn queue_all_columns(
         available_execs,
         drawing_info,
         (second.starting_index + second.display_offset) as usize,
+        selections,
     )?;
 
     queue_bottom_info_line(stdout_lock, drawing_info, second, dir_states)?;
@@ -1704,6 +1778,7 @@ fn queue_first_column(
     dir_states: &DirStates,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
     drawing_info: DrawingInfo,
+    selections: &mut SelectionsMap,
 ) -> crossterm::Result<()> {
     if let Some(prev_dir) = &dir_states.prev_dir {
         let result_column = find_correct_location(
@@ -1720,6 +1795,7 @@ fn queue_first_column(
             drawing_info.column_bot_y,
             &dir_states.prev_entries,
             result_column,
+            selections,
         )?;
     } else {
         queue_oneline_column(
@@ -1740,6 +1816,7 @@ fn queue_second_column(
     drawing_info: DrawingInfo,
     entries: &[DirEntryInfo],
     second: ColumnInfo,
+    selections: &mut SelectionsMap,
 ) -> crossterm::Result<()> {
     queue_entries_column(
         w,
@@ -1748,6 +1825,7 @@ fn queue_second_column(
         drawing_info.column_bot_y,
         entries,
         second,
+        selections,
     )?;
 
     Ok(())
@@ -1762,12 +1840,15 @@ fn queue_third_column(
     available_execs: &HashMap<&str, std::path::PathBuf>,
     drawing_info: DrawingInfo,
     change_index: usize,
+    selections: &mut SelectionsMap,
 ) -> crossterm::Result<()> {
     // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
     w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
 
     let left_x = drawing_info.width / 2 + 1;
     let right_x = drawing_info.width - 2;
+
+    queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
 
     if dir_states.current_entries.len() <= 0 {
         queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
@@ -1787,6 +1868,7 @@ fn queue_third_column(
                 display_entry,
                 runtime,
                 handles,
+                selections,
             )?;
         } else if file_type.is_file() {
             queue_third_column_file(
@@ -1816,6 +1898,7 @@ fn queue_third_column(
                             display_entry,
                             runtime,
                             handles,
+                            selections,
                         )?;
                     } else if underlying_file_type.is_file() {
                         queue_third_column_file(
@@ -1876,6 +1959,7 @@ fn queue_third_column_dir(
     display_entry: &DirEntryInfo,
     runtime: &Runtime,
     handles: &mut HandlesVec,
+    selections: &mut SelectionsMap,
 ) -> crossterm::Result<()> {
     let third_dir = display_entry.dir_entry.path();
 
@@ -1894,6 +1978,8 @@ fn queue_third_column_dir(
         }
     }
 
+    // TODO(Chris): Refactor out to its own function, since this exact code is used at least 3
+    // times
     queue!(
         w,
         style::SetAttribute(Attribute::Reset),
@@ -1915,7 +2001,8 @@ fn queue_third_column_dir(
         width,
         column_bot_y,
         left_x,
-        right_x
+        right_x,
+        selections.clone(),
     );
 
     Ok(())
@@ -1930,6 +2017,7 @@ async fn preview_dir(
     column_bot_y: u16,
     left_x: u16,
     right_x: u16,
+    mut selections: SelectionsMap,
 ) -> io::Result<()> {
     // NOTE(Chris): Due to the two locks, beware of deadlock!
 
@@ -1956,6 +2044,7 @@ async fn preview_dir(
                     starting_index,
                     display_offset,
                 },
+                &mut selections,
             )?;
         }
         Err(err) => {
@@ -2734,20 +2823,28 @@ fn update_entries_column(
     old_offset: u16,
     old_start_index: u16,
     new: ColumnInfo,
+    selections: &mut SelectionsMap,
 ) -> crossterm::Result<()> {
     if new.starting_index != old_start_index {
-        queue_entries_column(w, left_x, right_x, column_bot_y, entries, new)?;
+        queue_entries_column(w, left_x, right_x, column_bot_y, entries, new, selections)?;
         return Ok(());
     }
 
     queue!(w, style::SetAttribute(Attribute::Reset))?;
 
     // Update the old offset
-    queue_full_entry(w, entries, left_x, right_x, old_offset, old_start_index)?;
+    queue_full_entry(
+        w,
+        entries,
+        left_x,
+        right_x,
+        old_offset,
+        old_start_index,
+        selections,
+        false,
+    )?;
 
     // Update the new offset
-    queue!(w, style::SetAttribute(Attribute::Reverse))?;
-
     queue_full_entry(
         w,
         entries,
@@ -2755,13 +2852,16 @@ fn update_entries_column(
         right_x,
         new.display_offset,
         new.starting_index,
+        selections,
+        true,
     )?;
-
-    queue!(w, style::SetAttribute(Attribute::NoReverse))?;
 
     Ok(())
 }
 
+// NOTE(Chris): This draws outside of the left_x -> right_x line, drawing markers of selection to
+// at left_x - 1.
+// FIXME(Chris)P: Remove mut from &mut SelectionsMap if possible.
 fn queue_full_entry(
     w: &mut io::StdoutLock,
     entries: &[DirEntryInfo],
@@ -2769,6 +2869,8 @@ fn queue_full_entry(
     right_x: u16,
     display_offset: u16,
     starting_index: u16,
+    selections: &mut SelectionsMap,
+    highlighted: bool,
 ) -> crossterm::Result<()> {
     let new_entry_index = starting_index + display_offset;
     let new_entry_info = &entries[new_entry_index as usize];
@@ -2805,9 +2907,30 @@ fn queue_full_entry(
     let file_name = file_name.to_str().unwrap();
     let mut curr_x = left_x; // This is the cell which we are about to print into
 
+    if selections.contains_key(&new_entry_info.dir_entry.path()) {
+        queue!(
+            w,
+            cursor::MoveTo(left_x - 1, display_offset + 1),
+            style::SetBackgroundColor(Color::DarkMagenta),
+            style::Print(' '),
+            style::SetBackgroundColor(Color::Reset),
+        )?;
+    } else {
+        queue!(
+            w,
+            cursor::MoveTo(left_x - 1, display_offset + 1),
+            style::SetBackgroundColor(Color::Reset),
+            style::Print(' ')
+        )?;
+    }
+
+    if highlighted {
+        queue!(w, style::SetAttribute(Attribute::Reverse))?;
+    }
+
     queue!(
         w,
-        cursor::MoveTo(left_x, display_offset + 1),
+        cursor::MoveTo(curr_x, display_offset + 1),
         style::Print(' ')
     )?; // 1 is the starting y for columns
     curr_x += 1;
@@ -2868,6 +2991,10 @@ fn queue_full_entry(
         queue!(w, style::SetAttribute(Attribute::NormalIntensity))?;
     }
 
+    if highlighted {
+        queue!(w, style::SetAttribute(Attribute::NoReverse))?;
+    }
+
     Ok(())
 }
 
@@ -2878,6 +3005,7 @@ fn queue_entries_column(
     bottom_y: u16,
     entries: &[DirEntryInfo],
     column: ColumnInfo,
+    selections: &mut SelectionsMap,
 ) -> crossterm::Result<()> {
     let mut curr_y = 1; // 1 is the starting y for columns
 
@@ -2912,10 +3040,6 @@ fn queue_entries_column(
 
             let is_curr_entry = curr_y - 1 == column.display_offset;
 
-            if is_curr_entry {
-                queue!(w, style::SetAttribute(Attribute::Reverse))?;
-            }
-
             queue_full_entry(
                 w,
                 entries,
@@ -2923,11 +3047,9 @@ fn queue_entries_column(
                 right_x,
                 curr_y - 1,
                 column.starting_index,
+                selections,
+                is_curr_entry,
             )?;
-
-            if is_curr_entry {
-                queue!(w, style::SetAttribute(Attribute::Reset))?;
-            }
 
             curr_y += 1;
         }
@@ -2938,8 +3060,9 @@ fn queue_entries_column(
     // NOTE(Chris): This loop is redundant when this function is used to draw in the third column,
     // since that column is cleared in preparation for asynchronous drawing.
     // Ensure that the bottom of "short buffers" are properly cleared
+    // FIXME(Chris): Refactor left_x to mean the "old" left_x - 1
     while curr_y <= bottom_y {
-        queue!(w, cursor::MoveTo(left_x, curr_y))?;
+        queue!(w, cursor::MoveTo(left_x - 1, curr_y))?;
 
         for _ in 0..col_width {
             queue!(w, style::Print(' '))?;
@@ -2957,6 +3080,9 @@ fn queue_blank_column(
     right_x: u16,
     column_height: u16,
 ) -> crossterm::Result<()> {
+    // FIXME(Chris): Refactor left_x to properly mean one cell left of what it currently means
+    // applying this consistently to all queue...
+    let left_x = left_x - 1;
     let mut curr_y = 1; // 1 is the starting y for columns
 
     while curr_y <= column_height {
