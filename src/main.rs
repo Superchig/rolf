@@ -3023,7 +3023,7 @@ fn queue_entries_column(
         queue!(
             w,
             cursor::MoveTo(left_x, curr_y),
-            style::Print(" "),
+            style::Print("  "),
             style::SetAttribute(Attribute::Reverse),
             style::SetForegroundColor(Color::White),
             style::Print("empty"),
@@ -3031,7 +3031,7 @@ fn queue_entries_column(
             style::Print(" "),
         )?;
 
-        let mut curr_x = left_x + 7; // Length of " empty "
+        let mut curr_x = left_x + 8; // Length of "  empty "
 
         while curr_x <= right_x {
             queue!(w, style::Print(' '))?;
