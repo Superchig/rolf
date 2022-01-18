@@ -1416,11 +1416,11 @@ fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm:
         height,
         column_bot_y,
         column_height,
-        first_left_x: 1,
+        first_left_x: 0,
         first_right_x: width / 6 - 2,
-        second_left_x: width / 6 + 1,
+        second_left_x: width / 6,
         second_right_x: width / 2 - 2,
-        third_left_x: width / 2 + 1,
+        third_left_x: width / 2,
         third_right_x: width - 2,
     };
 
@@ -2913,12 +2913,13 @@ fn queue_full_entry(
     let display_offset = display_offset;
     let file_name = new_entry_info.dir_entry.file_name();
     let file_name = file_name.to_str().unwrap();
-    let mut curr_x = left_x; // This is the cell which we are about to print into
+    let inner_left_x = left_x + 1;
+    let mut curr_x = inner_left_x; // This is the cell which we are about to print into.
 
     if selections.contains_key(&new_entry_info.dir_entry.path()) {
         queue!(
             w,
-            cursor::MoveTo(left_x - 1, display_offset + 1),
+            cursor::MoveTo(left_x, display_offset + 1),
             style::SetBackgroundColor(Color::DarkMagenta),
             style::Print(' '),
             style::SetBackgroundColor(Color::Reset),
@@ -2926,7 +2927,7 @@ fn queue_full_entry(
     } else {
         queue!(
             w,
-            cursor::MoveTo(left_x - 1, display_offset + 1),
+            cursor::MoveTo(left_x, display_offset + 1),
             style::SetBackgroundColor(Color::Reset),
             style::Print(' ')
         )?;
@@ -3068,9 +3069,8 @@ fn queue_entries_column(
     // NOTE(Chris): This loop is redundant when this function is used to draw in the third column,
     // since that column is cleared in preparation for asynchronous drawing.
     // Ensure that the bottom of "short buffers" are properly cleared
-    // FIXME(Chris): Refactor left_x to mean the "old" left_x - 1
     while curr_y <= bottom_y {
-        queue!(w, cursor::MoveTo(left_x - 1, curr_y))?;
+        queue!(w, cursor::MoveTo(left_x, curr_y))?;
 
         for _ in 0..=col_width {
             queue!(w, style::Print(' '))?;
@@ -3088,9 +3088,6 @@ fn queue_blank_column(
     right_x: u16,
     column_height: u16,
 ) -> crossterm::Result<()> {
-    // FIXME(Chris): Refactor left_x to properly mean one cell left of what it currently means
-    // applying this consistently to all queue...
-    let left_x = left_x - 1;
     let mut curr_y = 1; // 1 is the starting y for columns
 
     while curr_y <= column_height {
