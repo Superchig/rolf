@@ -2440,14 +2440,6 @@ async fn preview_image_or_video(
 
     w.flush()?;
 
-    // queue!(
-    //     w,
-    //     cursor::MoveTo(left_x, 21),
-    //     style::Print("preview_image has finished.")
-    // )?;
-
-    w.flush()?;
-
     Ok(())
 }
 
