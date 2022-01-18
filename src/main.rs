@@ -166,7 +166,12 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
         height: 0,
         column_bot_y: 0,
         column_height: 0,
-        second_column: 0,
+        first_left_x: 0,
+        first_right_x: 0,
+        second_left_x: 0,
+        second_right_x: 0,
+        third_left_x: 0,
+        third_right_x: 0,
     };
 
     update_drawing_info_from_resize(&mut drawing_info)?;
@@ -343,7 +348,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             old_starting_index,
                                             old_display_offset,
                                             second,
-                                            drawing_info.second_column,
+                                            drawing_info.second_left_x,
                                             &selections,
                                         )?;
                                     }
@@ -374,7 +379,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             old_starting_index,
                                             old_display_offset,
                                             second,
-                                            drawing_info.second_column,
+                                            drawing_info.second_left_x,
                                             &selections,
                                         )?;
                                     }
@@ -450,8 +455,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                                         update_entries_column(
                                             &mut stdout_lock,
-                                            drawing_info.second_column,
-                                            drawing_info.width / 2 - 2,
+                                            drawing_info.second_left_x,
+                                            drawing_info.second_right_x,
                                             drawing_info.column_bot_y,
                                             &dir_states.current_entries,
                                             old_display_offset,
@@ -504,8 +509,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                                         update_entries_column(
                                             &mut stdout_lock,
-                                            drawing_info.second_column,
-                                            drawing_info.width / 2 - 2,
+                                            drawing_info.second_left_x,
+                                            drawing_info.second_right_x,
                                             drawing_info.column_bot_y,
                                             &dir_states.current_entries,
                                             old_display_offset,
@@ -564,7 +569,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         should_search_forwards,
                                         drawing_info,
                                         &mut second,
-                                        drawing_info.second_column,
+                                        drawing_info.second_left_x,
                                         &selections,
                                     )?;
                                 }
@@ -580,7 +585,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         !should_search_forwards,
                                         drawing_info,
                                         &mut second,
-                                        drawing_info.second_column,
+                                        drawing_info.second_left_x,
                                         &selections,
                                     )?;
                                 }
@@ -600,8 +605,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                     queue_full_entry(
                                         &mut stdout_lock,
                                         &dir_states.current_entries,
-                                        drawing_info.second_column,
-                                        drawing_info.width / 2 - 2,
+                                        drawing_info.second_left_x,
+                                        drawing_info.second_right_x,
                                         second.display_offset,
                                         second.starting_index,
                                         &selections,
@@ -698,7 +703,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         should_search_forwards,
                                         drawing_info,
                                         &mut second,
-                                        drawing_info.second_column,
+                                        drawing_info.second_left_x,
                                         &selections,
                                     )?;
                                 }
@@ -727,7 +732,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         should_search_forwards,
                                         drawing_info,
                                         &mut second,
-                                        drawing_info.second_column,
+                                        drawing_info.second_left_x,
                                         &selections,
                                     )?;
                                 }
@@ -791,7 +796,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         should_search_forwards,
                                         drawing_info,
                                         &mut second,
-                                        drawing_info.second_column,
+                                        drawing_info.second_left_x,
                                         &selections,
                                     )?;
                                 }
@@ -839,8 +844,12 @@ struct DrawingInfo {
     height: u16,
     column_bot_y: u16,
     column_height: u16,
-    // The left-most x position of the second column
-    second_column: u16,
+    first_right_x: u16,
+    first_left_x: u16,
+    second_left_x: u16,
+    second_right_x: u16,
+    third_left_x: u16,
+    third_right_x: u16,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1330,7 +1339,7 @@ fn queue_entry_changed(
     update_entries_column(
         stdout_lock,
         second_column,
-        drawing_info.width / 2 - 2,
+        drawing_info.second_right_x,
         drawing_info.column_bot_y,
         &dir_states.current_entries,
         old_display_offset,
@@ -1407,7 +1416,12 @@ fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm:
         height,
         column_bot_y,
         column_height,
-        second_column: width / 6 + 1,
+        first_left_x: 1,
+        first_right_x: width / 6 - 2,
+        second_left_x: width / 6 + 1,
+        second_right_x: width / 2 - 2,
+        third_left_x: width / 2 + 1,
+        third_right_x: width - 2,
     };
 
     Ok(())
@@ -1789,8 +1803,8 @@ fn queue_first_column(
         );
         queue_entries_column(
             w,
-            1,
-            drawing_info.width / 6 - 2,
+            drawing_info.first_left_x,
+            drawing_info.first_right_x,
             drawing_info.column_bot_y,
             &dir_states.prev_entries,
             result_column,
@@ -1799,8 +1813,8 @@ fn queue_first_column(
     } else {
         queue_oneline_column(
             w,
-            1,
-            drawing_info.width / 6 - 2,
+            drawing_info.first_left_x,
+            drawing_info.first_right_x,
             drawing_info.column_bot_y,
             "",
         )?;
@@ -1819,8 +1833,8 @@ fn queue_second_column(
 ) -> crossterm::Result<()> {
     queue_entries_column(
         w,
-        drawing_info.second_column,
-        drawing_info.width / 2 - 2,
+        drawing_info.second_left_x,
+        drawing_info.second_right_x,
         drawing_info.column_bot_y,
         entries,
         second,
@@ -1844,8 +1858,9 @@ fn queue_third_column(
     // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
     w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
 
-    let left_x = drawing_info.width / 2 + 1;
-    let right_x = drawing_info.width - 2;
+    let left_x = drawing_info.third_left_x;
+    let right_x = drawing_info.third_right_x;
+    // let right_x = drawing_info.width / 2 + 20;
 
     queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
 
@@ -1860,7 +1875,6 @@ fn queue_third_column(
             queue_third_column_dir(
                 w,
                 left_paths,
-                drawing_info.width,
                 left_x,
                 right_x,
                 drawing_info.column_bot_y,
@@ -1890,7 +1904,6 @@ fn queue_third_column(
                         queue_third_column_dir(
                             w,
                             left_paths,
-                            drawing_info.width,
                             left_x,
                             right_x,
                             drawing_info.column_bot_y,
@@ -1951,7 +1964,6 @@ macro_rules! spawn_async_draw {
 fn queue_third_column_dir(
     w: &mut StdoutLock,
     left_paths: &HashMap<std::path::PathBuf, DirLocation>,
-    width: u16,
     left_x: u16,
     right_x: u16,
     column_bot_y: u16,
@@ -1997,7 +2009,6 @@ fn queue_third_column_dir(
         third_dir,
         display_offset,
         starting_index,
-        width,
         column_bot_y,
         left_x,
         right_x,
@@ -2012,7 +2023,6 @@ async fn preview_dir(
     third_dir: PathBuf,
     display_offset: u16,
     starting_index: u16,
-    width: u16,
     column_bot_y: u16,
     left_x: u16,
     right_x: u16,
@@ -2035,8 +2045,8 @@ async fn preview_dir(
         Ok(third_entries) => {
             queue_entries_column(
                 &mut w,
-                width / 2 + 1,
-                width - 2,
+                left_x,
+                right_x,
                 column_bot_y,
                 &third_entries,
                 ColumnInfo {
