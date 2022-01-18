@@ -1991,14 +1991,7 @@ fn queue_third_column_dir(
 
     // TODO(Chris): Refactor out to its own function, since this exact code is used at least 3
     // times
-    queue!(
-        w,
-        style::SetAttribute(Attribute::Reset),
-        style::SetAttribute(Attribute::Reverse),
-        cursor::MoveTo(left_x, 1),
-        style::Print("Loading..."),
-        style::SetAttribute(Attribute::Reset),
-    )?;
+    queue_loading_msg(w, left_x)?;
 
     w.flush()?;
 
@@ -2014,6 +2007,19 @@ fn queue_third_column_dir(
         right_x,
         selections.clone(),
     );
+
+    Ok(())
+}
+
+fn queue_loading_msg(w: &mut StdoutLock, left_x: u16) -> io::Result<()> {
+    queue!(
+        w,
+        style::SetAttribute(Attribute::Reset),
+        style::SetAttribute(Attribute::Reverse),
+        cursor::MoveTo(left_x + 2, 1), // Add 2 to match lf's output "Loading..." placement
+        style::Print("Loading..."),
+        style::SetAttribute(Attribute::Reset),
+    )?;
 
     Ok(())
 }
@@ -2092,14 +2098,7 @@ fn queue_third_column_file(
 
             match ext {
                 "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
-                    queue!(
-                        w,
-                        style::SetAttribute(Attribute::Reset),
-                        style::SetAttribute(Attribute::Reverse),
-                        cursor::MoveTo(left_x, 1),
-                        style::Print("Loading..."),
-                        style::SetAttribute(Attribute::Reset),
-                    )?;
+                    queue_loading_msg(w, left_x)?;
 
                     w.flush()?;
 
@@ -2117,14 +2116,7 @@ fn queue_third_column_file(
                 }
                 _ => match available_execs.get("highlight") {
                     None => {
-                        queue!(
-                            w,
-                            style::SetAttribute(Attribute::Reset),
-                            style::SetAttribute(Attribute::Reverse),
-                            cursor::MoveTo(left_x, 1),
-                            style::Print("Loading..."),
-                            style::SetAttribute(Attribute::Reset),
-                        )?;
+                        queue_loading_msg(w, left_x)?;
 
                         w.flush()?;
 
@@ -2139,14 +2131,7 @@ fn queue_third_column_file(
                         );
                     }
                     Some(highlight) => {
-                        queue!(
-                            w,
-                            style::SetAttribute(Attribute::Reset),
-                            style::SetAttribute(Attribute::Reverse),
-                            cursor::MoveTo(left_x, 1),
-                            style::Print("Loading..."),
-                            style::SetAttribute(Attribute::Reset),
-                        )?;
+                        queue_loading_msg(w, left_x)?;
 
                         w.flush()?;
 
@@ -2482,6 +2467,8 @@ async fn preview_source_file(
     right_x: u16,
     highlight: PathBuf,
 ) -> crossterm::Result<()> {
+    let inner_left_x = left_x + 2;
+
     // TODO(Chris): Actually show that something went wrong
     let output = Command::new(highlight)
         .arg("-O")
@@ -2500,15 +2487,15 @@ async fn preview_source_file(
         let mut w = stdout.lock();
 
         // Clear the first line, in case there's a Loading... message already there
-        queue!(&mut w, cursor::MoveTo(left_x, 1))?;
-        for _curr_x in left_x..=right_x {
+        queue!(&mut w, cursor::MoveTo(inner_left_x, 1))?;
+        for _curr_x in inner_left_x..=right_x {
             queue!(&mut w, style::Print(' '))?;
         }
 
         // TODO(Chris): Handle case when file is not valid utf8
         if let Ok(text) = std::str::from_utf8(&output.stdout) {
             let mut curr_y = 1; // Columns start at y = 1
-            queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
+            queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
 
             queue!(&mut w, terminal::DisableLineWrap)?;
 
@@ -2520,7 +2507,7 @@ async fn preview_source_file(
                 if *ch == b'\n' {
                     curr_y += 1;
 
-                    queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
+                    queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
                 } else {
                     // NOTE(Chris): We write directly to stdout so as to
                     // allow the ANSI escape codes to match the end of a
