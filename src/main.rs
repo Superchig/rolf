@@ -2096,12 +2096,12 @@ fn queue_third_column_file(
             let ext = ext.to_lowercase();
             let ext = ext.as_str();
 
+            queue_loading_msg(w, left_x)?;
+
+            w.flush()?;
+
             match ext {
                 "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
-                    queue_loading_msg(w, left_x)?;
-
-                    w.flush()?;
-
                     spawn_async_draw!(
                         runtime,
                         handles,
@@ -2116,10 +2116,6 @@ fn queue_third_column_file(
                 }
                 _ => match available_execs.get("highlight") {
                     None => {
-                        queue_loading_msg(w, left_x)?;
-
-                        w.flush()?;
-
                         spawn_async_draw!(
                             runtime,
                             handles,
@@ -2131,10 +2127,6 @@ fn queue_third_column_file(
                         );
                     }
                     Some(highlight) => {
-                        queue_loading_msg(w, left_x)?;
-
-                        w.flush()?;
-
                         spawn_async_draw!(
                             runtime,
                             handles,
