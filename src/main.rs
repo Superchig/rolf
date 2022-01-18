@@ -183,7 +183,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
             &available_execs,
             drawing_info,
             second,
-            &mut selections,
+            &selections,
         )?;
     }
 
@@ -294,7 +294,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         &available_execs,
                                         drawing_info,
                                         second,
-                                        &mut selections,
+                                        &selections,
                                     )?;
                                 }
                                 'l' => {
@@ -309,7 +309,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         drawing_info,
                                         second_entry_index,
                                         &mut second,
-                                        &mut selections,
+                                        &selections,
                                     )?;
                                 }
                                 'j' => {
@@ -344,7 +344,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             old_display_offset,
                                             second,
                                             drawing_info.second_column,
-                                            &mut selections,
+                                            &selections,
                                         )?;
                                     }
                                 }
@@ -375,7 +375,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             old_display_offset,
                                             second,
                                             drawing_info.second_column,
-                                            &mut selections,
+                                            &selections,
                                         )?;
                                     }
                                 }
@@ -434,7 +434,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             &available_execs,
                                             drawing_info,
                                             second,
-                                            &mut selections,
+                                            &selections,
                                         )?;
                                     }
                                 }
@@ -457,7 +457,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             old_display_offset,
                                             old_starting_index,
                                             second,
-                                            &mut selections,
+                                            &selections,
                                         )?;
 
                                         queue_third_column(
@@ -511,7 +511,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                             old_display_offset,
                                             old_starting_index,
                                             second,
-                                            &mut selections,
+                                            &selections,
                                         )?;
 
                                         queue_third_column(
@@ -565,7 +565,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         drawing_info,
                                         &mut second,
                                         drawing_info.second_column,
-                                        &mut selections,
+                                        &selections,
                                     )?;
                                 }
                                 'N' => {
@@ -581,7 +581,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         drawing_info,
                                         &mut second,
                                         drawing_info.second_column,
-                                        &mut selections,
+                                        &selections,
                                     )?;
                                 }
                                 ' ' => {
@@ -622,7 +622,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             drawing_info,
                             second_entry_index,
                             &mut second,
-                            &mut selections,
+                            &selections,
                         )?,
                         _ => (),
                     },
@@ -699,7 +699,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         drawing_info,
                                         &mut second,
                                         drawing_info.second_column,
-                                        &mut selections,
+                                        &selections,
                                     )?;
                                 }
                             }
@@ -728,7 +728,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         drawing_info,
                                         &mut second,
                                         drawing_info.second_column,
-                                        &mut selections,
+                                        &selections,
                                     )?;
                                 }
                             }
@@ -792,7 +792,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                         drawing_info,
                                         &mut second,
                                         drawing_info.second_column,
-                                        &mut selections,
+                                        &selections,
                                     )?;
                                 }
                             }
@@ -1095,7 +1095,7 @@ fn enter_entry(
     drawing_info: DrawingInfo,
     second_entry_index: u16,
     second: &mut ColumnInfo,
-    selections: &mut SelectionsMap,
+    selections: &SelectionsMap,
 ) -> crossterm::Result<()> {
     // NOTE(Chris): We only need to abort asynchronous "image" drawing if we're opening a
     // directory¸ since we're now drawing directory previews asychronously with the same system as
@@ -1256,7 +1256,7 @@ fn queue_search_jump(
     drawing_info: DrawingInfo,
     second: &mut ColumnInfo,
     second_column: u16,
-    selections: &mut SelectionsMap,
+    selections: &SelectionsMap,
 ) -> crossterm::Result<()> {
     if match_positions.len() <= 0 {
         return Ok(());
@@ -1325,7 +1325,7 @@ fn queue_entry_changed(
     old_display_offset: u16,
     second: ColumnInfo,
     second_column: u16,
-    selections: &mut SelectionsMap,
+    selections: &SelectionsMap,
 ) -> crossterm::Result<()> {
     update_entries_column(
         stdout_lock,
@@ -1739,7 +1739,7 @@ fn queue_all_columns(
     available_execs: &HashMap<&str, std::path::PathBuf>,
     drawing_info: DrawingInfo,
     second: ColumnInfo,
-    selections: &mut SelectionsMap,
+    selections: &SelectionsMap,
 ) -> crossterm::Result<()> {
     queue_first_column(
         stdout_lock,
@@ -2822,7 +2822,7 @@ fn update_entries_column(
     old_offset: u16,
     old_start_index: u16,
     new: ColumnInfo,
-    selections: &mut SelectionsMap,
+    selections: &SelectionsMap,
 ) -> crossterm::Result<()> {
     if new.starting_index != old_start_index {
         queue_entries_column(w, left_x, right_x, column_bot_y, entries, new, selections)?;
