@@ -3064,7 +3064,7 @@ fn queue_entries_column(
     while curr_y <= bottom_y {
         queue!(w, cursor::MoveTo(left_x - 1, curr_y))?;
 
-        for _ in 0..col_width {
+        for _ in 0..=col_width {
             queue!(w, style::Print(' '))?;
         }
 
