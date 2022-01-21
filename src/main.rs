@@ -193,6 +193,8 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     }
 
     // FIXME(Chris): Implement file selection
+    // FIXME(Chris): Implement "generic" image reader
+    // FIXME(Chris): Implement some form of config file to store image reader path
 
     // Main input loop
     loop {
@@ -217,11 +219,11 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                 };
 
                 // TODO(Chris): Use the unicode-segmentation package to count graphemes
+                // Add 1 because of the ':' that is displayed after user_host_display
+                // Add 1 again because of the '/' that is displayed at the end of current_dir_display
                 let remaining_width = drawing_info.width as usize
                     - (user_host_display.len() + 1 + current_dir_display.len() + 1);
 
-                // Add 1 because of the ':' that is displayed after user_host_display
-                // Add 1 again because of the '/' that is displayed at the end of current_dir_display
                 let file_stem = if file_stem.len() > remaining_width {
                     String::from(&file_stem[..remaining_width])
                 } else {
