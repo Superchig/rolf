@@ -31,6 +31,8 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 - [x] Search backwards and forwards
 - [x] Display directory preview asynchronously
 - [x] Preview text (source) files asynchronously
+- [ ] Build successfully on Windows
+- [ ] Display images successfully on Windows (with capable terminal)
 
 # Long-term TODO (May Never Happen)
 - [ ] Add Windows support
