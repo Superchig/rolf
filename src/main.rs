@@ -31,15 +31,10 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::vec::Vec;
 
-use std::os::unix::fs::MetadataExt;
-
 use image::GenericImageView;
 
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
-
-use chrono::offset::TimeZone;
-use chrono::prelude::{DateTime, Local, NaiveDateTime};
 
 use crossterm::{
     cursor,
@@ -1486,19 +1481,6 @@ fn queue_bottom_info_line(
 
     let updated_second_entry_index = second.starting_index + second.display_offset;
 
-    let updated_curr_entry = &dir_states.current_entries[(updated_second_entry_index) as usize];
-
-    let naive = NaiveDateTime::from_timestamp(
-        updated_curr_entry.metadata.mtime(),
-        27, // Apparently 27 leap seconds have passed since 1972
-    );
-
-    let date_time: DateTime<Local> =
-        DateTime::from_utc(naive, Local.offset_from_local_datetime(&naive).unwrap());
-
-    // let display_date = date_time.format("%a %b %d %H:%M:%S %Y");
-    let display_date = date_time.format("%c");
-
     let extra_perms = os_abstract::get_extra_perms(
         &dir_states.current_entries[updated_second_entry_index as usize].metadata,
     );
@@ -1556,16 +1538,6 @@ fn queue_bottom_info_line(
         queue!(colored_mode, style::SetForegroundColor(Color::Reset),)?;
 
         colored_mode
-    };
-
-    let colored_display_date = {
-        let mut colored_display_date = vec![];
-        queue!(
-            colored_display_date,
-            style::SetForegroundColor(Color::DarkBlue),
-            style::Print(&display_date),
-        )?;
-        colored_display_date
     };
 
     // stdout_lock.flush()?;
@@ -1627,13 +1599,14 @@ fn queue_bottom_info_line(
         )?;
     }
 
-    queue!(
-        stdout_lock,
-        style::Print(format!(
-            " {}",
-            std::str::from_utf8(&colored_display_date).unwrap(),
-        )),
-    )?;
+    if let Some(modify_date_time) = extra_perms.modify_date_time {
+        queue!(
+            stdout_lock,
+            style::SetForegroundColor(Color::DarkBlue),
+            style::Print(" "),
+            style::Print(&modify_date_time),
+        )?;
+    }
 
     let display_position = format!(
         "{}/{}",

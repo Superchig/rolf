@@ -11,4 +11,5 @@ pub struct ExtraPermissions {
     pub group_name: Option<String>,
     pub hard_link_count: Option<u64>,
     pub size: Option<u64>,
+    pub modify_date_time: Option<String>
 }
