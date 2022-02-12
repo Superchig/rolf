@@ -1669,6 +1669,8 @@ fn get_hostname() -> io::Result<String> {
     }
 }
 
+// FIXME(Chris): Move this function to the os_abstract module
+
 // A Linux-specific, possibly-safe wrapper around an ioctl call with TIOCGWINSZ.
 // Gets the width and height of the terminal in pixels.
 fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
