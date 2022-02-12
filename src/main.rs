@@ -9,6 +9,7 @@ mod natural_sort; // This declares the existence of the natural_sort module, whi
 
 mod human_size;
 mod line_edit;
+mod os_abstract;
 mod strmode;
 mod tiff;
 mod unix_users;
@@ -31,7 +32,6 @@ use std::sync::Arc;
 use std::vec::Vec;
 
 use std::os::unix::fs::MetadataExt;
-use std::os::unix::fs::PermissionsExt;
 
 use image::GenericImageView;
 
@@ -1488,10 +1488,6 @@ fn queue_bottom_info_line(
 
     let updated_curr_entry = &dir_states.current_entries[(updated_second_entry_index) as usize];
 
-    let permissions = &dir_states.current_entries[updated_second_entry_index as usize]
-        .metadata
-        .permissions();
-
     let naive = NaiveDateTime::from_timestamp(
         updated_curr_entry.metadata.mtime(),
         27, // Apparently 27 leap seconds have passed since 1972
@@ -1503,10 +1499,14 @@ fn queue_bottom_info_line(
     // let display_date = date_time.format("%a %b %d %H:%M:%S %Y");
     let display_date = date_time.format("%c");
 
+    let mode_str = os_abstract::get_strmode(
+        &dir_states.current_entries[updated_second_entry_index as usize].metadata,
+    );
+
     let colored_mode = {
         let mut colored_mode = vec![];
         queue!(colored_mode, style::SetAttribute(Attribute::Bold))?;
-        for (index, byte) in strmode(permissions.mode()).bytes().enumerate() {
+        for (index, byte) in mode_str.bytes().enumerate() {
             if index > 3 {
                 queue!(colored_mode, style::SetAttribute(Attribute::Reset))?;
             }
@@ -1583,6 +1583,12 @@ fn queue_bottom_info_line(
 
     // stdout_lock.flush()?;
 
+    // TODO(Chris): Display user/group names in white if they are not the current user/the current
+    // user is not in the group
+    
+    // FIXME(Chris): Refactor this to only display related items for get_unix_username and
+    // get_unix_groupname when they actually return a String value
+
     queue!(
         stdout_lock,
         style::SetAttribute(Attribute::Reset),
@@ -1632,34 +1638,6 @@ fn queue_bottom_info_line(
         style::SetForegroundColor(Color::Reset),
         style::Print(display_position),
     )?;
-
-    // queue!(
-    //     stdout_lock,
-    //     style::SetAttribute(Attribute::Reset),
-    //     cursor::MoveTo(0, height - 1),
-    //     terminal::Clear(ClearType::CurrentLine),
-    //     style::Print(format!(
-    //         "{} {:2} {} {} {:4} {}",
-    //         strmode(permissions.mode()),
-    //         updated_curr_entry.metadata.nlink(),
-    //         unix_users::get_unix_username(updated_curr_entry.metadata.uid()).unwrap(),
-    //         unix_users::get_unix_groupname(updated_curr_entry.metadata.gid()).unwrap(),
-    //         human_size(updated_curr_entry.metadata.size()),
-    //         display_date,
-    //     )),
-    // )?;
-
-    // let display_position = format!(
-    //     "{}/{}",
-    //     updated_second_entry_index + 1,
-    //     dir_states.current_entries.len()
-    // );
-
-    // queue!(
-    //     stdout_lock,
-    //     cursor::MoveTo(width - (display_position.len() as u16), height - 1),
-    //     style::Print(display_position),
-    // )?;
 
     Ok(())
 }
