@@ -1681,7 +1681,7 @@ fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
         };
 
         // NOTE(Chris): From Linux's man ioctl_tty
-        const TIOCGWINSZ: u64 = 21523;
+        const TIOCGWINSZ: u64 = libc::TIOCGWINSZ;
 
         // 0 is the file descriptor for stdin
         // NOTE(Chris): This only works if stdin is a tty. If it is not (e.g. zsh widgets), then
