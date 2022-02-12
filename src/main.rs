@@ -1499,9 +1499,11 @@ fn queue_bottom_info_line(
     // let display_date = date_time.format("%a %b %d %H:%M:%S %Y");
     let display_date = date_time.format("%c");
 
-    let mode_str = os_abstract::get_strmode(
+    let extra_perms = os_abstract::get_extra_perms(
         &dir_states.current_entries[updated_second_entry_index as usize].metadata,
     );
+
+    let mode_str = &extra_perms.mode;
 
     let colored_mode = {
         let mut colored_mode = vec![];
@@ -1556,21 +1558,6 @@ fn queue_bottom_info_line(
         colored_mode
     };
 
-    let colored_size = {
-        let mut colored_size = vec![];
-        queue!(
-            colored_size,
-            style::SetForegroundColor(Color::DarkGreen),
-            style::SetAttribute(Attribute::Bold),
-            style::Print(format!(
-                "{:4}",
-                human_size(updated_curr_entry.metadata.size())
-            )),
-            style::SetAttribute(Attribute::Reset),
-        )?;
-        colored_size
-    };
-
     let colored_display_date = {
         let mut colored_display_date = vec![];
         queue!(
@@ -1585,7 +1572,7 @@ fn queue_bottom_info_line(
 
     // TODO(Chris): Display user/group names in white if they are not the current user/the current
     // user is not in the group
-    
+
     // FIXME(Chris): Refactor this to only display related items for get_unix_username and
     // get_unix_groupname when they actually return a String value
 
@@ -1595,30 +1582,55 @@ fn queue_bottom_info_line(
         cursor::MoveTo(0, drawing_info.height - 1),
         terminal::Clear(ClearType::CurrentLine),
         style::Print(std::str::from_utf8(&colored_mode).unwrap()),
-        style::PrintStyledContent(
-            format!(" {:2}", updated_curr_entry.metadata.nlink())
-                .with(Color::DarkRed)
-                .attribute(Attribute::Bold)
-        ),
-        style::PrintStyledContent(
-            format!(
-                " {}",
-                unix_users::get_unix_username(updated_curr_entry.metadata.uid()).unwrap()
-            )
-            .with(Color::DarkYellow)
-            .attribute(Attribute::Bold)
-        ),
-        style::PrintStyledContent(
-            format!(
-                " {}",
-                unix_users::get_unix_groupname(updated_curr_entry.metadata.gid()).unwrap()
-            )
-            .with(Color::DarkYellow)
-            .attribute(Attribute::Bold)
-        ),
+    )?;
+
+    if let Some(hard_link_count) = extra_perms.hard_link_count {
+        queue!(
+            stdout_lock,
+            style::PrintStyledContent(
+                format!(" {:2}", hard_link_count)
+                    .with(Color::DarkRed)
+                    .attribute(Attribute::Bold)
+            ),
+        )?;
+    }
+
+    if let Some(user_name) = extra_perms.user_name {
+        queue!(
+            stdout_lock,
+            style::PrintStyledContent(
+                format!(" {}", user_name)
+                    .with(Color::DarkYellow)
+                    .attribute(Attribute::Bold)
+            ),
+        )?;
+    }
+
+    if let Some(group_name) = extra_perms.group_name {
+        queue!(
+            stdout_lock,
+            style::PrintStyledContent(
+                format!(" {}", group_name)
+                    .with(Color::DarkYellow)
+                    .attribute(Attribute::Bold)
+            ),
+        )?;
+    }
+
+    if let Some(size) = extra_perms.size {
+        queue!(
+            stdout_lock,
+            style::SetForegroundColor(Color::DarkGreen),
+            style::SetAttribute(Attribute::Bold),
+            style::Print(format!(" {:4}", human_size(size))),
+            style::SetAttribute(Attribute::Reset),
+        )?;
+    }
+
+    queue!(
+        stdout_lock,
         style::Print(format!(
-            " {} {}",
-            std::str::from_utf8(&colored_size).unwrap(),
+            " {}",
             std::str::from_utf8(&colored_display_date).unwrap(),
         )),
     )?;
