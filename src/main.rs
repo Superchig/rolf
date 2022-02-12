@@ -12,6 +12,7 @@ mod line_edit;
 mod os_abstract;
 mod strmode;
 mod tiff;
+#[cfg(unix)]
 mod unix_users;
 
 use human_size::human_size;
@@ -1544,9 +1545,6 @@ fn queue_bottom_info_line(
 
     // TODO(Chris): Display user/group names in white if they are not the current user/the current
     // user is not in the group
-
-    // FIXME(Chris): Refactor this to only display related items for get_unix_username and
-    // get_unix_groupname when they actually return a String value
 
     queue!(
         stdout_lock,
