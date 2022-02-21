@@ -1,9 +1,13 @@
 #[cfg(unix)]
 mod unix;
+#[cfg(windows)]
+mod windows;
 
 #[cfg(unix)]
 // pub use self::unix::get_strmode;
 pub use self::unix::*;
+#[cfg(windows)]
+pub use self::windows::*;
 
 pub struct ExtraPermissions {
     pub mode: String, // The mode string "drwxr-xr-x"
