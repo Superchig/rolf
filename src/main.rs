@@ -15,6 +15,7 @@ mod tiff;
 #[cfg(unix)]
 mod unix_users;
 
+use os_abstract::WindowPixels;
 use human_size::human_size;
 use natural_sort::cmp_natural;
 use tiff::{usizeify, Endian, EntryTag, EntryType, IFDEntry};
@@ -157,7 +158,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     let mut selections: SelectionsMap = HashMap::new();
 
     let mut drawing_info = DrawingInfo {
-        win_pixels: get_win_pixels()?,
+        win_pixels: os_abstract::get_win_pixels()?,
         width: 0,
         height: 0,
         column_bot_y: 0,
@@ -1409,7 +1410,7 @@ fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm:
     let column_height = height - 2;
 
     *drawing_info = DrawingInfo {
-        win_pixels: get_win_pixels()?,
+        win_pixels: os_abstract::get_win_pixels()?,
         width,
         height,
         column_bot_y,
@@ -1667,45 +1668,6 @@ fn get_hostname() -> io::Result<String> {
             }
         }
     }
-}
-
-// FIXME(Chris): Move this function to the os_abstract module
-
-// A Linux-specific, possibly-safe wrapper around an ioctl call with TIOCGWINSZ.
-// Gets the width and height of the terminal in pixels.
-fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
-    let win_pixels = unsafe {
-        let mut winsize = libc::winsize {
-            ws_col: 0,
-            ws_row: 0,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
-
-        // NOTE(Chris): From Linux's man ioctl_tty
-        const TIOCGWINSZ: u64 = libc::TIOCGWINSZ;
-
-        // NOTE(Chris): This only works if stdin is a tty. If it is not (e.g. zsh widgets), then
-        // you may have to redirect the tty to stdin.
-        // Example:
-        // rf() { rolf < $TTY }
-        let err = libc::ioctl(libc::STDIN_FILENO, TIOCGWINSZ, &mut winsize);
-        if err != 0 {
-            let errno_location = libc::__errno_location();
-            let errno = (*errno_location) as i32;
-
-            return Err(io::Error::from_raw_os_error(errno));
-
-            // panic!("Failed to get the size of terminal window in pixels.");
-        }
-
-        WindowPixels {
-            width: winsize.ws_xpixel,
-            height: winsize.ws_ypixel,
-        }
-    };
-
-    Ok(win_pixels)
 }
 
 fn queue_all_columns(
@@ -2510,12 +2472,6 @@ fn store_in_tmp_file(buf: &[u8]) -> std::result::Result<std::path::PathBuf, io::
     tmpfile.write_all(buf)?;
     tmpfile.flush()?;
     Ok(path)
-}
-
-#[derive(Debug, Clone, Copy)]
-struct WindowPixels {
-    width: u16,
-    height: u16,
 }
 
 // Queues a third column with a single highlighted line

@@ -13,3 +13,9 @@ pub struct ExtraPermissions {
     pub size: Option<u64>,
     pub modify_date_time: Option<String>
 }
+
+#[derive(Debug, Clone, Copy)]
+pub struct WindowPixels {
+    pub width: u16,
+    pub height: u16,
+}
