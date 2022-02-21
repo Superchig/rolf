@@ -13,6 +13,7 @@ pub fn get_strmode(metadata: &Metadata) -> String {
     "wow".to_string()
 }
 
+// FIXME(Chris): Actually implement correctly
 pub fn get_extra_perms(metadata: &Metadata) -> ExtraPermissions {
     // let naive = NaiveDateTime::from_timestamp(
     //     metadata.mtime(),
@@ -41,6 +42,7 @@ pub fn get_extra_perms(metadata: &Metadata) -> ExtraPermissions {
     }
 }
 
+// FIXME(Chris): Actually implement correctly
 // A possibly-safe wrapper around an ioctl call with TIOCGWINSZ.
 // Gets the width and height of the terminal in pixels.
 pub fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
@@ -81,4 +83,19 @@ pub fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
         width: 100,
         height: 100,
     })
+}
+
+// FIXME(Chris): Actually implement correctly
+pub fn get_hostname() -> io::Result<String> {
+    Ok("host".to_string())
+}
+
+// FIXME(Chris): Actually implement correctly
+pub fn get_home_name() -> String {
+    "C:\\Users\\chigg\\.cargo".to_string()
+}
+
+// FIXME(Chris): Actually implement correctly
+pub fn get_user_name() -> String {
+    "user".to_string()
 }

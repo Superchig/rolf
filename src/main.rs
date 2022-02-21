@@ -105,10 +105,7 @@ fn main() -> crossterm::Result<()> {
 
 // Returns the path to the last dir
 fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
-    let user_name = match std::env::var("USER") {
-        Ok(val) => val,
-        Err(e) => panic!("Could not read $USER environment variable: {}", e),
-    };
+    let user_name = os_abstract::get_user_name();
 
     let host_name = os_abstract::get_hostname().unwrap();
 
@@ -2569,7 +2566,7 @@ impl DirStates {
             prev_entries: Vec::with_capacity(0),
         };
 
-        dir_states.set_current_dir(std::env::var("PWD").unwrap())?;
+        dir_states.set_current_dir(std::env::current_dir().unwrap())?;
 
         Ok(dir_states)
     }

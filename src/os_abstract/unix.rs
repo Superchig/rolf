@@ -115,3 +115,7 @@ pub fn get_hostname() -> io::Result<String> {
 pub fn get_home_name() -> String {
     std::env::var("HOME").unwrap()
 }
+
+pub fn get_user_name() -> String {
+    std::env::var("USER").unwrap()
+}
