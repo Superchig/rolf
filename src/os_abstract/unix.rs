@@ -12,6 +12,8 @@ use std::os::unix::fs::PermissionsExt;
 
 use super::ExtraPermissions;
 
+use libc::c_int;
+
 pub fn get_strmode(metadata: &Metadata) -> String {
     let permissions = metadata.permissions();
 
@@ -57,8 +59,7 @@ pub fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
         // rf() { rolf < $TTY }
         let err = libc::ioctl(libc::STDIN_FILENO, TIOCGWINSZ, &mut winsize);
         if err != 0 {
-            let errno_location = libc::__errno_location();
-            let errno = (*errno_location) as i32;
+            let errno = errno();
 
             return Err(io::Error::from_raw_os_error(errno));
 
@@ -76,4 +77,15 @@ pub fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
 
 pub fn get_home_name() -> String {
     std::env::var("HOME").unwrap()
+}
+
+unsafe fn errno() -> i32 {
+    let errno_location = errno_location();
+    (*errno_location) as i32
+}
+
+extern "C" {
+    #[cfg_attr(target_os = "macos", link_name = "__error")]
+    #[cfg_attr(target_os = "linux", link_name = "__errno_location")]
+    fn errno_location() -> *mut c_int;
 }
