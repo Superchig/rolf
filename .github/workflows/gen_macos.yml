@@ -1,0 +1,44 @@
+# This workflow just makes a macOS build. It doesn't (yet) make this build distributable.
+# We may be able to use https://github.com/wez/wezterm/actions/runs/1911320345/workflow
+# and https://github.com/wez/wezterm/blob/main/ci/deploy.sh as references.
+
+name: macOS build (non-distributable)
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the main branch
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "pre-release"
+  pre-release:
+    # The type of runner that the job will run on
+    runs-on: macos-11
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+      
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v1
+      
+      - name: Make a macOS 11 build
+        run: cargo build --release --locked
+      
+      - name: Create distributable archive
+        run: |
+          ARCHIVE_DIR=macos-11
+          mkdir "$ARCHIVE_DIR"
+          cp -t "$ARCHIVE_DIR" target/release/rolf
+          chmod +x "$ARCHIVE_DIR"/rolf
+          cp -t "$ARCHIVE_DIR" LICENSE
+          echo "$GITHUB_SHA" > "$ARCHIVE_DIR"/prerelease-commit-sha
+          tar czf "$ARCHIVE_DIR".tar.gz "$ARCHIVE_DIR"
