@@ -16,6 +16,7 @@ tokio = { version = "1", features = ["rt-multi-thread"] } # To asynchronously lo
 base64 = "0.13" # To encode file names for the kitty graphics protocol
 tempfile = "3.2" # To store image data in temporary files for kitty
 chrono = "0.4" # To convert the Unix timestamp into a timezone-aware date
+whoami = "1.2.1"
 
 # All dependencies (but not this crate itself or any workspace member)
 # will be compiled with -Copt-level=3 . This includes build dependencies.

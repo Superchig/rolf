@@ -85,17 +85,6 @@ pub fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
     })
 }
 
-// FIXME(Chris): Actually implement correctly
-pub fn get_hostname() -> io::Result<String> {
-    Ok("host".to_string())
-}
-
-// FIXME(Chris): Actually implement correctly
 pub fn get_home_name() -> String {
-    "C:\\Users\\chigg\\.cargo".to_string()
-}
-
-// FIXME(Chris): Actually implement correctly
-pub fn get_user_name() -> String {
-    "user".to_string()
+    std::env::var("USERPROFILE").unwrap()
 }
