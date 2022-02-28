@@ -21,6 +21,8 @@ use natural_sort::cmp_natural;
 use tiff::{usizeify, Endian, EntryTag, EntryType, IFDEntry};
 
 use which::which;
+#[cfg(unix)]
+use strmode::strmode;
 
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
