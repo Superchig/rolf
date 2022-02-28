@@ -1,22 +1,16 @@
+use windows::Win32::Foundation::{BOOL, FILETIME, SYSTEMTIME};
+use windows::Win32::System::Time::FileTimeToSystemTime;
+
 use crate::WindowPixels;
-// use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use std::io;
 
 use std::fs::Metadata;
+use std::mem::MaybeUninit;
 use std::os::windows::fs::MetadataExt;
 
 use super::ExtraPermissions;
 
-// FIXME(Chris): Actually implement correctly
 pub fn get_extra_perms(metadata: &Metadata) -> ExtraPermissions {
-    // let naive = NaiveDateTime::from_timestamp(
-    //     metadata.mtime(),
-    //     27, // Apparently 27 leap seconds have passed since 1972
-    // );
-
-    // let date_time: DateTime<Local> =
-    //     DateTime::from_utc(naive, Local.offset_from_local_datetime(&naive).unwrap());
-
     let mode = {
         let mut result = String::new();
 
@@ -59,13 +53,45 @@ pub fn get_extra_perms(metadata: &Metadata) -> ExtraPermissions {
         result
     };
 
+    // Converted from Windows FILETIME struct automatically
+    let last_write_time = metadata.last_write_time();
+
+    // https://docs.microsoft.com/en-us/windows/win32/api/minwinbase/ns-minwinbase-filetime
+    // https://docs.microsoft.com/en-us/windows/win32/api/timezoneapi/nf-timezoneapi-filetimetosystemtime
+    // https://docs.microsoft.com/en-us/windows/win32/api/minwinbase/ns-minwinbase-systemtime
+    let file_time = unsafe {
+        let mut result: SYSTEMTIME = MaybeUninit::zeroed().assume_init();
+        let err =
+            FileTimeToSystemTime(&last_write_time as *const _ as *const FILETIME, &mut result);
+
+        if err == BOOL(0) {
+            panic!(
+                "Failed to convert file time to system time with error code: {}",
+                err.0
+            );
+        } else {
+            result
+        }
+    };
+
+    let modify_date_time = format!(
+        "{} {} {:2} {:>2}:{:0>2}:{:0>2} {}",
+        week_day(file_time.wDayOfWeek),
+        month(file_time.wMonth),
+        file_time.wDay,
+        file_time.wHour,
+        file_time.wMinute,
+        file_time.wSecond,
+        file_time.wYear,
+    );
+
     ExtraPermissions {
         mode,
         user_name: None,
         group_name: None,
         hard_link_count: None,
         size: None,
-        modify_date_time: None,
+        modify_date_time: Some(modify_date_time),
     }
 }
 
@@ -114,4 +140,35 @@ pub fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
 
 pub fn get_home_name() -> String {
     std::env::var("USERPROFILE").unwrap()
+}
+
+fn week_day(day: u16) -> &'static str {
+    match day {
+        0 => "Sun",
+        1 => "Mon",
+        2 => "Tue",
+        3 => "Wed",
+        4 => "Thu",
+        5 => "Fri",
+        6 => "Sat",
+        _ => unreachable!(),
+    }
+}
+
+fn month(month_val: u16) -> &'static str {
+    match month_val {
+        1 => "Jan",
+        2 => "Feb",
+        3 => "Mar",
+        4 => "Apr",
+        5 => "May",
+        6 => "Jun",
+        7 => "Jul",
+        8 => "Aug",
+        9 => "Sep",
+        10 => "Oct",
+        11 => "Nov",
+        12 => "Dec",
+        _ => unreachable!(),
+    }
 }

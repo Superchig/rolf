@@ -1487,7 +1487,11 @@ fn queue_bottom_info_line(
 
     let colored_mode = {
         let mut colored_mode = vec![];
-        queue!(colored_mode, style::SetAttribute(Attribute::Bold))?;
+        // The Windows mode string is only 6 characters long, so this avoids the Windows mode
+        // string.
+        if mode_str.len() > 6 { 
+            queue!(colored_mode, style::SetAttribute(Attribute::Bold))?;
+        }
         for (index, byte) in mode_str.bytes().enumerate() {
             if index > 3 {
                 queue!(colored_mode, style::SetAttribute(Attribute::Reset))?;
