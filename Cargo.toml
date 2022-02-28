@@ -18,6 +18,9 @@ tempfile = "3.2" # To store image data in temporary files for kitty
 chrono = "0.4" # To convert the Unix timestamp into a timezone-aware date
 whoami = "1.2.1"
 
+[target.'cfg(windows)'.dependencies]
+windows = "0.32.0"
+
 # All dependencies (but not this crate itself or any workspace member)
 # will be compiled with -Copt-level=3 . This includes build dependencies.
 [profile.dev.package."*"]

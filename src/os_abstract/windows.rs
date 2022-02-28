@@ -1,5 +1,5 @@
 use crate::WindowPixels;
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+// use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use std::io;
 
 use std::fs::Metadata;
@@ -7,8 +7,8 @@ use std::fs::Metadata;
 use super::ExtraPermissions;
 
 // FIXME(Chris): Actually implement this correctly
-pub fn get_strmode(metadata: &Metadata) -> String {
-    let permissions = metadata.permissions();
+pub fn get_strmode(_metadata: &Metadata) -> String {
+    // let permissions = metadata.permissions();
 
     "wow".to_string()
 }

@@ -20,14 +20,13 @@ use human_size::human_size;
 use natural_sort::cmp_natural;
 use tiff::{usizeify, Endian, EntryTag, EntryType, IFDEntry};
 
-use strmode::strmode;
 use which::which;
 
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
 use std::fs::{self, DirEntry, Metadata};
 use std::io::{self, BufRead, StdoutLock, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf, self};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -105,9 +104,9 @@ fn main() -> crossterm::Result<()> {
 
 // Returns the path to the last dir
 fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
-    let user_name = os_abstract::get_user_name();
+    let user_name = whoami::username();
 
-    let host_name = os_abstract::get_hostname().unwrap();
+    let host_name = whoami::hostname();
 
     let home_name = os_abstract::get_home_name();
 
@@ -237,7 +236,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                         style::SetForegroundColor(Color::White),
                         style::Print(":"),
                         style::SetForegroundColor(Color::DarkBlue),
-                        style::Print(format!("{}/", current_dir_display)),
+                        style::Print(format!("{}{}", current_dir_display, path::MAIN_SEPARATOR)),
                         style::SetForegroundColor(Color::White),
                         style::Print(file_stem),
                     )?;
@@ -2480,7 +2479,8 @@ fn format_current_dir(dir_states: &DirStates, home_path: &Path) -> String {
     } else if dir_states.current_dir.starts_with(home_path) {
         // "~"
         format!(
-            "~/{}",
+            "~{}{}",
+            path::MAIN_SEPARATOR,
             dir_states
                 .current_dir
                 .strip_prefix(home_path)
@@ -2955,10 +2955,14 @@ fn queue_blank_column(
 
 fn get_sorted_entries<P: AsRef<Path>>(path: P) -> io::Result<Vec<DirEntryInfo>> {
     let mut entries = std::fs::read_dir(path)?
-        .map(|entry| {
+        .filter_map(|entry| {
             let dir_entry = entry.unwrap();
             let entry_path = dir_entry.path();
-            let metadata = std::fs::symlink_metadata(&entry_path).unwrap();
+            let metadata = match std::fs::symlink_metadata(&entry_path) {
+                Ok(metadata) => metadata,
+                // TODO(Chris): Handles error in this case in more detail
+                Err(_) => return None,
+            };
 
             let file_type = {
                 let curr_file_type = metadata.file_type();
@@ -2991,11 +2995,11 @@ fn get_sorted_entries<P: AsRef<Path>>(path: P) -> io::Result<Vec<DirEntryInfo>> 
                 }
             };
 
-            DirEntryInfo {
+            Some(DirEntryInfo {
                 dir_entry,
                 metadata,
                 file_type,
-            }
+            })
         })
         .collect::<Vec<DirEntryInfo>>();
 
