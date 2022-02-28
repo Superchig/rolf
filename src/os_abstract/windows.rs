@@ -3,15 +3,9 @@ use crate::WindowPixels;
 use std::io;
 
 use std::fs::Metadata;
+use std::os::windows::fs::MetadataExt;
 
 use super::ExtraPermissions;
-
-// FIXME(Chris): Actually implement this correctly
-pub fn get_strmode(_metadata: &Metadata) -> String {
-    // let permissions = metadata.permissions();
-
-    "wow".to_string()
-}
 
 // FIXME(Chris): Actually implement correctly
 pub fn get_extra_perms(metadata: &Metadata) -> ExtraPermissions {
@@ -23,17 +17,50 @@ pub fn get_extra_perms(metadata: &Metadata) -> ExtraPermissions {
     // let date_time: DateTime<Local> =
     //     DateTime::from_utc(naive, Local.offset_from_local_datetime(&naive).unwrap());
 
-    // ExtraPermissions {
-    //     mode: get_strmode(metadata),
-    //     user_name: unix_users::get_unix_groupname(metadata.gid()),
-    //     group_name: unix_users::get_unix_username(metadata.uid()),
-    //     hard_link_count: Some(metadata.nlink()),
-    //     size: Some(metadata.size()),
-    //     modify_date_time: Some(date_time.format("%c").to_string()),
-    // }
+    let mode = {
+        let mut result = String::new();
+
+        let perms = metadata.permissions();
+        let file_attributes = metadata.file_attributes();
+
+        if metadata.is_dir() {
+            result.push_str("d-");
+        } else if metadata.is_file() {
+            result.push_str("-a");
+        }
+
+        if perms.readonly() {
+            result.push('r');
+        } else {
+            result.push('-');
+        }
+
+        // Check if file is hidden
+        // https://docs.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants
+        if file_attributes & 2 != 0 {
+            result.push('h');
+        } else {
+            result.push('-');
+        }
+
+        // Check if file is used exclusively by operating system
+        if file_attributes & 4 != 0 {
+            result.push('s');
+        } else {
+            result.push('-');
+        }
+
+        if metadata.is_symlink() {
+            result.push('l');
+        } else {
+            result.push('-');
+        }
+
+        result
+    };
 
     ExtraPermissions {
-        mode: get_strmode(metadata),
+        mode,
         user_name: None,
         group_name: None,
         hard_link_count: None,
