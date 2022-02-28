@@ -74,48 +74,6 @@ pub fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
     Ok(win_pixels)
 }
 
-// Should get the hostname in a POSIX-compliant way.
-// Only tested on Linux, however.
-pub fn get_hostname() -> io::Result<String> {
-    unsafe {
-        // NOTE(Chris): HOST_NAME_MAX is defined in bits/local_lim.h on Linux
-
-        let host_name_max: usize = libc::sysconf(libc::_SC_HOST_NAME_MAX) as usize;
-
-        // HOST_NAME_MAX can't be larger than 256 on POSIX systems
-        let mut name_buf = [0; 256];
-
-        let err = libc::gethostname(name_buf.as_mut_ptr(), host_name_max);
-        match err {
-            0 => {
-                // Make sure that at least the last character is NUL
-                name_buf[host_name_max - 1] = 0;
-
-                let null_position = name_buf.iter().position(|byte| *byte == 0).unwrap();
-
-                let name_u8 = { &*(&mut name_buf[..] as *mut [i8] as *mut [u8]) };
-
-                Ok(std::str::from_utf8(&name_u8[0..null_position])
-                    .unwrap()
-                    .to_string())
-            }
-            1 => {
-                let errno_location = libc::__errno_location();
-                let errno = (*errno_location) as i32;
-
-                Err(io::Error::from_raw_os_error(errno))
-            }
-            _ => {
-                panic!("Invalid libc:gethostname return value: {}", err);
-            }
-        }
-    }
-}
-
 pub fn get_home_name() -> String {
     std::env::var("HOME").unwrap()
-}
-
-pub fn get_user_name() -> String {
-    std::env::var("USER").unwrap()
 }
