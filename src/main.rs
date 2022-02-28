@@ -10,6 +10,7 @@ mod natural_sort; // This declares the existence of the natural_sort module, whi
 mod human_size;
 mod line_edit;
 mod os_abstract;
+#[cfg(unix)]
 mod strmode;
 mod tiff;
 #[cfg(unix)]
