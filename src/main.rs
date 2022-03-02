@@ -16,20 +16,20 @@ mod tiff;
 #[cfg(unix)]
 mod unix_users;
 
-use os_abstract::WindowPixels;
 use human_size::human_size;
 use natural_sort::cmp_natural;
+use os_abstract::WindowPixels;
 use tiff::{usizeify, Endian, EntryTag, EntryType, IFDEntry};
 
-use which::which;
 #[cfg(unix)]
 use strmode::strmode;
+use which::which;
 
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
 use std::fs::{self, DirEntry, Metadata};
 use std::io::{self, BufRead, StdoutLock, Write};
-use std::path::{Path, PathBuf, self};
+use std::path::{self, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -624,6 +624,133 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             &mut second,
                             &selections,
                         )?,
+                        KeyCode::Left => {
+                            // FIXME(Chris): Remove this duplicated code when adding keybinding
+                            // system
+                            abort_image_handles(&mut image_handles);
+
+                            let old_current_dir = dir_states.current_dir.clone();
+                            if !dir_states.current_entries.is_empty() {
+                                save_location(
+                                    &mut left_paths,
+                                    &dir_states,
+                                    second_entry_index,
+                                    second,
+                                );
+                            }
+
+                            if let Some(parent_dir) = dir_states.prev_dir.clone() {
+                                set_current_dir(parent_dir, &mut dir_states, &mut match_positions)?;
+                            }
+
+                            second = find_correct_location(
+                                &left_paths,
+                                drawing_info.column_height,
+                                &dir_states.current_dir,
+                                &dir_states.current_entries,
+                                &old_current_dir,
+                            );
+
+                            queue_all_columns(
+                                &mut stdout_lock,
+                                &runtime,
+                                &mut image_handles,
+                                &dir_states,
+                                &left_paths,
+                                &available_execs,
+                                drawing_info,
+                                second,
+                                &selections,
+                            )?;
+                        }
+                        KeyCode::Right => {
+                            // FIXME(Chris): Remove this duplicated code when adding keybinding
+                            // system
+                            enter_entry(
+                                &mut stdout_lock,
+                                &runtime,
+                                &mut image_handles,
+                                &available_execs,
+                                &mut dir_states,
+                                &mut match_positions,
+                                &mut left_paths,
+                                drawing_info,
+                                second_entry_index,
+                                &mut second,
+                                &selections,
+                            )?;
+                        }
+                        KeyCode::Down => {
+                            // FIXME(Chris): Remove this duplicated code when adding keybinding
+                            // system
+                            if !dir_states.current_entries.is_empty()
+                                && (second_entry_index as usize)
+                                    < dir_states.current_entries.len() - 1
+                            {
+                                abort_image_handles(&mut image_handles);
+
+                                let old_starting_index = second.starting_index;
+                                let old_display_offset = second.display_offset;
+
+                                if second.display_offset
+                                    >= (drawing_info.column_height - SCROLL_OFFSET - 1)
+                                    && (second_bottom_index as usize)
+                                        < dir_states.current_entries.len()
+                                {
+                                    second.starting_index += 1;
+                                } else if second_entry_index < second_bottom_index {
+                                    second.display_offset += 1;
+                                }
+
+                                queue_entry_changed(
+                                    &mut stdout_lock,
+                                    &runtime,
+                                    &mut image_handles,
+                                    &dir_states,
+                                    &left_paths,
+                                    &available_execs,
+                                    drawing_info,
+                                    old_starting_index,
+                                    old_display_offset,
+                                    second,
+                                    drawing_info.second_left_x,
+                                    &selections,
+                                )?;
+                            }
+                        }
+                        KeyCode::Up => {
+                            // FIXME(Chris): Remove this duplicated code when adding keybinding
+                            // system
+                            if !dir_states.current_entries.is_empty() {
+                                abort_image_handles(&mut image_handles);
+
+                                let old_starting_index = second.starting_index;
+                                let old_display_offset = second.display_offset;
+
+                                if second.display_offset <= (SCROLL_OFFSET)
+                                    && second.starting_index > 0
+                                {
+                                    second.starting_index -= 1;
+                                } else if second_entry_index > 0 {
+                                    second.display_offset -= 1;
+                                }
+
+                                queue_entry_changed(
+                                    &mut stdout_lock,
+                                    &runtime,
+                                    &mut image_handles,
+                                    &dir_states,
+                                    &left_paths,
+                                    &available_execs,
+                                    drawing_info,
+                                    old_starting_index,
+                                    old_display_offset,
+                                    second,
+                                    drawing_info.second_left_x,
+                                    &selections,
+                                )?;
+                            }
+                        }
                         _ => (),
                     },
                     Event::Mouse(_) => (),
@@ -1489,7 +1616,7 @@ fn queue_bottom_info_line(
         let mut colored_mode = vec![];
         // The Windows mode string is only 6 characters long, so this avoids the Windows mode
         // string.
-        if mode_str.len() > 6 { 
+        if mode_str.len() > 6 {
             queue!(colored_mode, style::SetAttribute(Attribute::Bold))?;
         }
         for (index, byte) in mode_str.bytes().enumerate() {
