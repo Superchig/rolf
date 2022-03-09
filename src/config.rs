@@ -61,6 +61,15 @@ pub fn parse_config(config_data: &str) -> Config {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            preview_converter: String::new(),
+            keybindings: make_binding_hash_map(&default_key_bindings()),
+        }
+    }
+}
+
 fn default_key_bindings() -> Vec<KeyBinding> {
     let mut key_bindings = Vec::new();
 

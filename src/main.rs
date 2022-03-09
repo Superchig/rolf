@@ -74,7 +74,13 @@ fn main() -> crossterm::Result<()> {
         }
     }
 
-    let config = config::parse_config(&fs::read_to_string("config.json").unwrap());
+    let config = match fs::read_to_string("config.json") {
+        Ok(json) => config::parse_config(&json),
+        Err(err) => match err.kind() {
+            io::ErrorKind::NotFound => Config::default(),
+            _ => panic!("Error opening config file: {}", err),
+        },
+    };
 
     terminal::enable_raw_mode()?;
 
