@@ -189,43 +189,45 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
     // FIXME(Chris): Implement "generic" image reader
     // FIXME(Chris): Implement some form of config file to store image reader path
 
+    let mut command;
+
     // Main input loop
     loop {
         let second_entry_index = second.starting_index + second.display_offset;
 
+        let second_bottom_index = second.starting_index + drawing_info.column_height;
+
+        let current_dir_display = format_current_dir(&dir_states, home_path);
+
+        let curr_entry;
+        let file_stem = if dir_states.current_entries.len() <= 0 {
+            ""
+        } else {
+            curr_entry = dir_states.current_entries[second_entry_index as usize]
+                .dir_entry
+                .file_name();
+            curr_entry.to_str().unwrap()
+        };
+
+        // TODO(Chris): Use the unicode-segmentation package to count graphemes
+        // Add 1 because of the ':' that is displayed after user_host_display
+        // Add 1 again because of the '/' that is displayed at the end of current_dir_display
+        let remaining_width = drawing_info.width as usize
+            - (user_host_display.len() + 1 + current_dir_display.len() + 1);
+
+        let file_stem = if file_stem.len() > remaining_width {
+            String::from(&file_stem[..remaining_width])
+        } else {
+            String::from(file_stem)
+        };
+
+        // TODO(Chris): Check if we're currently using the kitty terminal (or anything which
+        // supports its image protocol)
+
+        command = "";
+
         match input_mode {
             InputMode::Normal => {
-                // Gather all the data before rendering things with stdout_lock
-
-                let second_bottom_index = second.starting_index + drawing_info.column_height;
-
-                let current_dir_display = format_current_dir(&dir_states, home_path);
-
-                let curr_entry;
-                let file_stem = if dir_states.current_entries.len() <= 0 {
-                    ""
-                } else {
-                    curr_entry = dir_states.current_entries[second_entry_index as usize]
-                        .dir_entry
-                        .file_name();
-                    curr_entry.to_str().unwrap()
-                };
-
-                // TODO(Chris): Use the unicode-segmentation package to count graphemes
-                // Add 1 because of the ':' that is displayed after user_host_display
-                // Add 1 again because of the '/' that is displayed at the end of current_dir_display
-                let remaining_width = drawing_info.width as usize
-                    - (user_host_display.len() + 1 + current_dir_display.len() + 1);
-
-                let file_stem = if file_stem.len() > remaining_width {
-                    String::from(&file_stem[..remaining_width])
-                } else {
-                    String::from(file_stem)
-                };
-
-                // TODO(Chris): Check if we're currently using the kitty terminal (or anything which
-                // supports its image protocol)
-
                 {
                     let mut stdout_lock = w.lock();
 
@@ -257,127 +259,16 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             match ch {
                                 'q' => break,
                                 'h' => {
-                                    abort_image_handles(&mut image_handles);
-
-                                    let old_current_dir = dir_states.current_dir.clone();
-                                    if !dir_states.current_entries.is_empty() {
-                                        save_location(
-                                            &mut left_paths,
-                                            &dir_states,
-                                            second_entry_index,
-                                            second,
-                                        );
-                                    }
-
-                                    if let Some(parent_dir) = dir_states.prev_dir.clone() {
-                                        set_current_dir(
-                                            parent_dir,
-                                            &mut dir_states,
-                                            &mut match_positions,
-                                        )?;
-                                    }
-
-                                    second = find_correct_location(
-                                        &left_paths,
-                                        drawing_info.column_height,
-                                        &dir_states.current_dir,
-                                        &dir_states.current_entries,
-                                        &old_current_dir,
-                                    );
-
-                                    queue_all_columns(
-                                        &mut stdout_lock,
-                                        &runtime,
-                                        &mut image_handles,
-                                        &dir_states,
-                                        &left_paths,
-                                        &available_execs,
-                                        drawing_info,
-                                        second,
-                                        &selections,
-                                    )?;
+                                    command = "updir";
                                 }
                                 'l' => {
-                                    enter_entry(
-                                        &mut stdout_lock,
-                                        &runtime,
-                                        &mut image_handles,
-                                        &available_execs,
-                                        &mut dir_states,
-                                        &mut match_positions,
-                                        &mut left_paths,
-                                        drawing_info,
-                                        second_entry_index,
-                                        &mut second,
-                                        &selections,
-                                    )?;
+                                    command = "open";
                                 }
                                 'j' => {
-                                    if !dir_states.current_entries.is_empty()
-                                        && (second_entry_index as usize)
-                                            < dir_states.current_entries.len() - 1
-                                    {
-                                        abort_image_handles(&mut image_handles);
-
-                                        let old_starting_index = second.starting_index;
-                                        let old_display_offset = second.display_offset;
-
-                                        if second.display_offset
-                                            >= (drawing_info.column_height - SCROLL_OFFSET - 1)
-                                            && (second_bottom_index as usize)
-                                                < dir_states.current_entries.len()
-                                        {
-                                            second.starting_index += 1;
-                                        } else if second_entry_index < second_bottom_index {
-                                            second.display_offset += 1;
-                                        }
-
-                                        queue_entry_changed(
-                                            &mut stdout_lock,
-                                            &runtime,
-                                            &mut image_handles,
-                                            &dir_states,
-                                            &left_paths,
-                                            &available_execs,
-                                            drawing_info,
-                                            old_starting_index,
-                                            old_display_offset,
-                                            second,
-                                            drawing_info.second_left_x,
-                                            &selections,
-                                        )?;
-                                    }
+                                    command = "down";
                                 }
                                 'k' => {
-                                    if !dir_states.current_entries.is_empty() {
-                                        abort_image_handles(&mut image_handles);
-
-                                        let old_starting_index = second.starting_index;
-                                        let old_display_offset = second.display_offset;
-
-                                        if second.display_offset <= (SCROLL_OFFSET)
-                                            && second.starting_index > 0
-                                        {
-                                            second.starting_index -= 1;
-                                        } else if second_entry_index > 0 {
-                                            second.display_offset -= 1;
-                                        }
-
-                                        queue_entry_changed(
-                                            &mut stdout_lock,
-                                            &runtime,
-                                            &mut image_handles,
-                                            &dir_states,
-                                            &left_paths,
-                                            &available_execs,
-                                            drawing_info,
-                                            old_starting_index,
-                                            old_display_offset,
-                                            second,
-                                            drawing_info.second_left_x,
-                                            &selections,
-                                        )?;
-                                    }
+                                    command = "up";
                                 }
                                 'e' => {
                                     let editor = match std::env::var("VISUAL") {
@@ -625,131 +516,16 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                             &selections,
                         )?,
                         KeyCode::Left => {
-                            // FIXME(Chris): Remove this duplicated code when adding keybinding
-                            // system
-                            abort_image_handles(&mut image_handles);
-
-                            let old_current_dir = dir_states.current_dir.clone();
-                            if !dir_states.current_entries.is_empty() {
-                                save_location(
-                                    &mut left_paths,
-                                    &dir_states,
-                                    second_entry_index,
-                                    second,
-                                );
-                            }
-
-                            if let Some(parent_dir) = dir_states.prev_dir.clone() {
-                                set_current_dir(parent_dir, &mut dir_states, &mut match_positions)?;
-                            }
-
-                            second = find_correct_location(
-                                &left_paths,
-                                drawing_info.column_height,
-                                &dir_states.current_dir,
-                                &dir_states.current_entries,
-                                &old_current_dir,
-                            );
-
-                            queue_all_columns(
-                                &mut stdout_lock,
-                                &runtime,
-                                &mut image_handles,
-                                &dir_states,
-                                &left_paths,
-                                &available_execs,
-                                drawing_info,
-                                second,
-                                &selections,
-                            )?;
+                            command = "updir";
                         }
                         KeyCode::Right => {
-                            // FIXME(Chris): Remove this duplicated code when adding keybinding
-                            // system
-                            enter_entry(
-                                &mut stdout_lock,
-                                &runtime,
-                                &mut image_handles,
-                                &available_execs,
-                                &mut dir_states,
-                                &mut match_positions,
-                                &mut left_paths,
-                                drawing_info,
-                                second_entry_index,
-                                &mut second,
-                                &selections,
-                            )?;
+                            command = "open";
                         }
                         KeyCode::Down => {
-                            // FIXME(Chris): Remove this duplicated code when adding keybinding
-                            // system
-                            if !dir_states.current_entries.is_empty()
-                                && (second_entry_index as usize)
-                                    < dir_states.current_entries.len() - 1
-                            {
-                                abort_image_handles(&mut image_handles);
-
-                                let old_starting_index = second.starting_index;
-                                let old_display_offset = second.display_offset;
-
-                                if second.display_offset
-                                    >= (drawing_info.column_height - SCROLL_OFFSET - 1)
-                                    && (second_bottom_index as usize)
-                                        < dir_states.current_entries.len()
-                                {
-                                    second.starting_index += 1;
-                                } else if second_entry_index < second_bottom_index {
-                                    second.display_offset += 1;
-                                }
-
-                                queue_entry_changed(
-                                    &mut stdout_lock,
-                                    &runtime,
-                                    &mut image_handles,
-                                    &dir_states,
-                                    &left_paths,
-                                    &available_execs,
-                                    drawing_info,
-                                    old_starting_index,
-                                    old_display_offset,
-                                    second,
-                                    drawing_info.second_left_x,
-                                    &selections,
-                                )?;
-                            }
+                            command = "down";
                         }
                         KeyCode::Up => {
-                            // FIXME(Chris): Remove this duplicated code when adding keybinding
-                            // system
-                            if !dir_states.current_entries.is_empty() {
-                                abort_image_handles(&mut image_handles);
-
-                                let old_starting_index = second.starting_index;
-                                let old_display_offset = second.display_offset;
-
-                                if second.display_offset <= (SCROLL_OFFSET)
-                                    && second.starting_index > 0
-                                {
-                                    second.starting_index -= 1;
-                                } else if second_entry_index > 0 {
-                                    second.display_offset -= 1;
-                                }
-
-                                queue_entry_changed(
-                                    &mut stdout_lock,
-                                    &runtime,
-                                    &mut image_handles,
-                                    &dir_states,
-                                    &left_paths,
-                                    &available_execs,
-                                    drawing_info,
-                                    old_starting_index,
-                                    old_display_offset,
-                                    second,
-                                    drawing_info.second_left_x,
-                                    &selections,
-                                )?;
-                            }
+                            command = "up";
                         }
                         _ => (),
                     },
@@ -942,6 +718,125 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     }
                 }
             }
+        }
+
+        let mut stdout_lock = w.lock();
+
+        match command {
+            "down" => {
+                // FIXME(Chris): Remove this duplicated code when adding keybinding
+                // system
+                if !dir_states.current_entries.is_empty()
+                    && (second_entry_index as usize) < dir_states.current_entries.len() - 1
+                {
+                    abort_image_handles(&mut image_handles);
+
+                    let old_starting_index = second.starting_index;
+                    let old_display_offset = second.display_offset;
+
+                    if second.display_offset >= (drawing_info.column_height - SCROLL_OFFSET - 1)
+                        && (second_bottom_index as usize) < dir_states.current_entries.len()
+                    {
+                        second.starting_index += 1;
+                    } else if second_entry_index < second_bottom_index {
+                        second.display_offset += 1;
+                    }
+
+                    queue_entry_changed(
+                        &mut stdout_lock,
+                        &runtime,
+                        &mut image_handles,
+                        &dir_states,
+                        &left_paths,
+                        &available_execs,
+                        drawing_info,
+                        old_starting_index,
+                        old_display_offset,
+                        second,
+                        drawing_info.second_left_x,
+                        &selections,
+                    )?;
+                }
+            }
+            "up" => {
+                if !dir_states.current_entries.is_empty() {
+                    abort_image_handles(&mut image_handles);
+
+                    let old_starting_index = second.starting_index;
+                    let old_display_offset = second.display_offset;
+
+                    if second.display_offset <= (SCROLL_OFFSET) && second.starting_index > 0 {
+                        second.starting_index -= 1;
+                    } else if second_entry_index > 0 {
+                        second.display_offset -= 1;
+                    }
+
+                    queue_entry_changed(
+                        &mut stdout_lock,
+                        &runtime,
+                        &mut image_handles,
+                        &dir_states,
+                        &left_paths,
+                        &available_execs,
+                        drawing_info,
+                        old_starting_index,
+                        old_display_offset,
+                        second,
+                        drawing_info.second_left_x,
+                        &selections,
+                    )?;
+                }
+            }
+            "updir" => {
+                // FIXME(Chris): Remove this duplicated code when adding keybinding
+                // system
+                abort_image_handles(&mut image_handles);
+
+                let old_current_dir = dir_states.current_dir.clone();
+                if !dir_states.current_entries.is_empty() {
+                    save_location(&mut left_paths, &dir_states, second_entry_index, second);
+                }
+
+                if let Some(parent_dir) = dir_states.prev_dir.clone() {
+                    set_current_dir(parent_dir, &mut dir_states, &mut match_positions)?;
+                }
+
+                second = find_correct_location(
+                    &left_paths,
+                    drawing_info.column_height,
+                    &dir_states.current_dir,
+                    &dir_states.current_entries,
+                    &old_current_dir,
+                );
+
+                queue_all_columns(
+                    &mut stdout_lock,
+                    &runtime,
+                    &mut image_handles,
+                    &dir_states,
+                    &left_paths,
+                    &available_execs,
+                    drawing_info,
+                    second,
+                    &selections,
+                )?;
+            }
+            "open" => {
+                enter_entry(
+                    &mut stdout_lock,
+                    &runtime,
+                    &mut image_handles,
+                    &available_execs,
+                    &mut dir_states,
+                    &mut match_positions,
+                    &mut left_paths,
+                    drawing_info,
+                    second_entry_index,
+                    &mut second,
+                    &selections,
+                )?;
+            }
+            _ => (),
         }
     }
 
