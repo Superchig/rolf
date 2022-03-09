@@ -251,8 +251,6 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                 let event = event::read()?;
 
-                let mut stdout_lock = w.lock();
-
                 match event {
                     Event::Key(event) => match event.code {
                         KeyCode::Char(ch) => match ch {
@@ -279,21 +277,13 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                                 command = "bottom";
                             }
                             ':' => {
-                                input_mode = InputMode::Command;
+                                command = "read";
                             }
                             '/' => {
-                                assert!(input_line.len() <= 0);
-
-                                input_line.push_str("search ");
-
-                                input_mode = InputMode::Command;
+                                command = "search";
                             }
                             '?' => {
-                                assert!(input_line.len() <= 0);
-
-                                input_line.push_str("search-back ");
-
-                                input_mode = InputMode::Command;
+                                command = "search-back";
                             }
                             'n' => {
                                 command = "search-next";
@@ -323,24 +313,7 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     },
                     Event::Mouse(_) => (),
                     Event::Resize(_, _) => {
-                        redraw_upper(
-                            &mut stdout_lock,
-                            &mut drawing_info,
-                            &runtime,
-                            &mut image_handles,
-                            &dir_states,
-                            &left_paths,
-                            &available_execs,
-                            second,
-                            &selections,
-                        )?;
-
-                        queue_bottom_info_line(
-                            &mut stdout_lock,
-                            drawing_info,
-                            second,
-                            &dir_states,
-                        )?;
+                        command = "redraw";
                     }
                 }
             }
@@ -760,6 +733,20 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
                 }
             }
+            "search" => {
+                assert!(input_line.len() <= 0);
+
+                input_line.push_str("search ");
+
+                input_mode = InputMode::Command;
+            }
+            "search-back" => {
+                assert!(input_line.len() <= 0);
+
+                input_line.push_str("search-back ");
+
+                input_mode = InputMode::Command;
+            }
             "search-next" => {
                 queue_search_jump(
                     &mut stdout_lock,
@@ -814,6 +801,24 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     &selections,
                     true,
                 )?;
+            }
+            "redraw" => {
+                redraw_upper(
+                    &mut stdout_lock,
+                    &mut drawing_info,
+                    &runtime,
+                    &mut image_handles,
+                    &dir_states,
+                    &left_paths,
+                    &available_execs,
+                    second,
+                    &selections,
+                )?;
+
+                queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
+            }
+            "read" => {
+                input_mode = InputMode::Command;
             }
             _ => (),
         }
