@@ -255,266 +255,58 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
 
                 match event {
                     Event::Key(event) => match event.code {
-                        KeyCode::Char(ch) => {
-                            match ch {
-                                'q' => break,
-                                'h' => {
-                                    command = "updir";
-                                }
-                                'l' => {
-                                    command = "open";
-                                }
-                                'j' => {
-                                    command = "down";
-                                }
-                                'k' => {
-                                    command = "up";
-                                }
-                                'e' => {
-                                    let editor = match std::env::var("VISUAL") {
-                                        Err(std::env::VarError::NotPresent) => {
-                                            match std::env::var("EDITOR") {
-                                                Err(std::env::VarError::NotPresent) => {
-                                                    String::from("")
-                                                }
-                                                Err(err) => panic!("{}", err),
-                                                Ok(editor) => editor,
-                                            }
-                                        }
-                                        Err(err) => panic!("{}", err),
-                                        Ok(visual) => visual,
-                                    };
-
-                                    // It'd be nice if we could do breaking on blocks to exit this whole
-                                    // match statement early, but labeling blocks is still in unstable,
-                                    // as seen in https://github.com/rust-lang/rust/issues/48594
-                                    if !editor.is_empty() {
-                                        let selected_entry = &dir_states.current_entries
-                                            [second_entry_index as usize];
-
-                                        let shell_command = format!(
-                                            "{} {}",
-                                            editor,
-                                            selected_entry
-                                                .dir_entry
-                                                .path()
-                                                .to_str()
-                                                .expect("Failed to convert path to string")
-                                        );
-
-                                        queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
-
-                                        Command::new("sh")
-                                            .arg("-c")
-                                            .arg(shell_command)
-                                            .status()
-                                            .expect("failed to execute editor command");
-
-                                        queue!(
-                                            stdout_lock,
-                                            terminal::EnterAlternateScreen,
-                                            cursor::Hide
-                                        )?;
-
-                                        queue_all_columns(
-                                            &mut stdout_lock,
-                                            &runtime,
-                                            &mut image_handles,
-                                            &dir_states,
-                                            &left_paths,
-                                            &available_execs,
-                                            drawing_info,
-                                            second,
-                                            &selections,
-                                        )?;
-                                    }
-                                }
-                                'g' => {
-                                    if !dir_states.current_entries.is_empty() {
-                                        abort_image_handles(&mut image_handles);
-
-                                        let old_starting_index = second.starting_index;
-                                        let old_display_offset = second.display_offset;
-
-                                        second.starting_index = 0;
-                                        second.display_offset = 0;
-
-                                        update_entries_column(
-                                            &mut stdout_lock,
-                                            drawing_info.second_left_x,
-                                            drawing_info.second_right_x,
-                                            drawing_info.column_bot_y,
-                                            &dir_states.current_entries,
-                                            old_display_offset,
-                                            old_starting_index,
-                                            second,
-                                            &selections,
-                                        )?;
-
-                                        queue_third_column(
-                                            &mut stdout_lock,
-                                            &runtime,
-                                            &mut image_handles,
-                                            &dir_states,
-                                            &left_paths,
-                                            &available_execs,
-                                            drawing_info,
-                                            (second.starting_index + second.display_offset)
-                                                as usize,
-                                            &selections,
-                                        )?;
-
-                                        queue_bottom_info_line(
-                                            &mut stdout_lock,
-                                            drawing_info,
-                                            second,
-                                            &dir_states,
-                                        )?;
-                                    }
-                                }
-                                'G' => {
-                                    if !dir_states.current_entries.is_empty() {
-                                        abort_image_handles(&mut image_handles);
-
-                                        let old_starting_index = second.starting_index;
-                                        let old_display_offset = second.display_offset;
-
-                                        if dir_states.current_entries.len()
-                                            <= (drawing_info.column_height as usize)
-                                        {
-                                            second.starting_index = 0;
-                                            second.display_offset =
-                                                dir_states.current_entries.len() as u16 - 1;
-                                        } else {
-                                            second.display_offset = drawing_info.column_height - 1;
-                                            second.starting_index = dir_states.current_entries.len()
-                                                as u16
-                                                - second.display_offset
-                                                - 1;
-                                        }
-
-                                        update_entries_column(
-                                            &mut stdout_lock,
-                                            drawing_info.second_left_x,
-                                            drawing_info.second_right_x,
-                                            drawing_info.column_bot_y,
-                                            &dir_states.current_entries,
-                                            old_display_offset,
-                                            old_starting_index,
-                                            second,
-                                            &selections,
-                                        )?;
-
-                                        queue_third_column(
-                                            &mut stdout_lock,
-                                            &runtime,
-                                            &mut image_handles,
-                                            &dir_states,
-                                            &left_paths,
-                                            &available_execs,
-                                            drawing_info,
-                                            (second.starting_index + second.display_offset)
-                                                as usize,
-                                            &selections,
-                                        )?;
-
-                                        queue_bottom_info_line(
-                                            &mut stdout_lock,
-                                            drawing_info,
-                                            second,
-                                            &dir_states,
-                                        )?;
-                                    }
-                                }
-                                ':' => {
-                                    input_mode = InputMode::Command;
-                                }
-                                '/' => {
-                                    assert!(input_line.len() <= 0);
-
-                                    input_line.push_str("search ");
-
-                                    input_mode = InputMode::Command;
-                                }
-                                '?' => {
-                                    assert!(input_line.len() <= 0);
-
-                                    input_line.push_str("search-back ");
-
-                                    input_mode = InputMode::Command;
-                                }
-                                'n' => {
-                                    queue_search_jump(
-                                        &mut stdout_lock,
-                                        &match_positions,
-                                        &runtime,
-                                        &mut image_handles,
-                                        &dir_states,
-                                        &left_paths,
-                                        &available_execs,
-                                        should_search_forwards,
-                                        drawing_info,
-                                        &mut second,
-                                        drawing_info.second_left_x,
-                                        &selections,
-                                    )?;
-                                }
-                                'N' => {
-                                    queue_search_jump(
-                                        &mut stdout_lock,
-                                        &match_positions,
-                                        &runtime,
-                                        &mut image_handles,
-                                        &dir_states,
-                                        &left_paths,
-                                        &available_execs,
-                                        !should_search_forwards,
-                                        drawing_info,
-                                        &mut second,
-                                        drawing_info.second_left_x,
-                                        &selections,
-                                    )?;
-                                }
-                                ' ' => {
-                                    let selected_entry =
-                                        &dir_states.current_entries[second_entry_index as usize];
-
-                                    let entry_path = selected_entry.dir_entry.path();
-
-                                    let remove = selections.remove(&entry_path);
-                                    if remove.is_none() {
-                                        selections.insert(entry_path, second_entry_index as usize);
-                                    }
-
-                                    let mut stdout_lock = w.lock();
-
-                                    queue_full_entry(
-                                        &mut stdout_lock,
-                                        &dir_states.current_entries,
-                                        drawing_info.second_left_x,
-                                        drawing_info.second_right_x,
-                                        second.display_offset,
-                                        second.starting_index,
-                                        &selections,
-                                        true,
-                                    )?;
-                                }
-                                _ => (),
+                        KeyCode::Char(ch) => match ch {
+                            'q' => break,
+                            'h' => {
+                                command = "updir";
                             }
-                        }
-                        KeyCode::Enter => enter_entry(
-                            &mut stdout_lock,
-                            &runtime,
-                            &mut image_handles,
-                            &available_execs,
-                            &mut dir_states,
-                            &mut match_positions,
-                            &mut left_paths,
-                            drawing_info,
-                            second_entry_index,
-                            &mut second,
-                            &selections,
-                        )?,
+                            'l' => {
+                                command = "open";
+                            }
+                            'j' => {
+                                command = "down";
+                            }
+                            'k' => {
+                                command = "up";
+                            }
+                            'e' => {
+                                command = "edit";
+                            }
+                            'g' => {
+                                command = "top";
+                            }
+                            'G' => {
+                                command = "bottom";
+                            }
+                            ':' => {
+                                input_mode = InputMode::Command;
+                            }
+                            '/' => {
+                                assert!(input_line.len() <= 0);
+
+                                input_line.push_str("search ");
+
+                                input_mode = InputMode::Command;
+                            }
+                            '?' => {
+                                assert!(input_line.len() <= 0);
+
+                                input_line.push_str("search-back ");
+
+                                input_mode = InputMode::Command;
+                            }
+                            'n' => {
+                                command = "search-next";
+                            }
+                            'N' => {
+                                command = "search-prev";
+                            }
+                            ' ' => {
+                                command = "toggle";
+                            }
+                            _ => (),
+                        },
+                        KeyCode::Enter => command = "open",
                         KeyCode::Left => {
                             command = "updir";
                         }
@@ -834,6 +626,193 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                     second_entry_index,
                     &mut second,
                     &selections,
+                )?;
+            }
+            // NOTE(Chris): lf doesn't actually provide a specific command for this, instead using
+            // a default keybinding that takes advantage of EDITOR
+            "edit" => {
+                let editor = match std::env::var("VISUAL") {
+                    Err(std::env::VarError::NotPresent) => match std::env::var("EDITOR") {
+                        Err(std::env::VarError::NotPresent) => String::from(""),
+                        Err(err) => panic!("{}", err),
+                        Ok(editor) => editor,
+                    },
+                    Err(err) => panic!("{}", err),
+                    Ok(visual) => visual,
+                };
+
+                // It'd be nice if we could do breaking on blocks to exit this whole
+                // match statement early, but labeling blocks is still in unstable,
+                // as seen in https://github.com/rust-lang/rust/issues/48594
+                if !editor.is_empty() {
+                    let selected_entry = &dir_states.current_entries[second_entry_index as usize];
+
+                    let shell_command = format!(
+                        "{} {}",
+                        editor,
+                        selected_entry
+                            .dir_entry
+                            .path()
+                            .to_str()
+                            .expect("Failed to convert path to string")
+                    );
+
+                    queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
+
+                    Command::new("sh")
+                        .arg("-c")
+                        .arg(shell_command)
+                        .status()
+                        .expect("failed to execute editor command");
+
+                    queue!(stdout_lock, terminal::EnterAlternateScreen, cursor::Hide)?;
+
+                    queue_all_columns(
+                        &mut stdout_lock,
+                        &runtime,
+                        &mut image_handles,
+                        &dir_states,
+                        &left_paths,
+                        &available_execs,
+                        drawing_info,
+                        second,
+                        &selections,
+                    )?;
+                }
+            }
+            "top" => {
+                if !dir_states.current_entries.is_empty() {
+                    abort_image_handles(&mut image_handles);
+
+                    let old_starting_index = second.starting_index;
+                    let old_display_offset = second.display_offset;
+
+                    second.starting_index = 0;
+                    second.display_offset = 0;
+
+                    update_entries_column(
+                        &mut stdout_lock,
+                        drawing_info.second_left_x,
+                        drawing_info.second_right_x,
+                        drawing_info.column_bot_y,
+                        &dir_states.current_entries,
+                        old_display_offset,
+                        old_starting_index,
+                        second,
+                        &selections,
+                    )?;
+
+                    queue_third_column(
+                        &mut stdout_lock,
+                        &runtime,
+                        &mut image_handles,
+                        &dir_states,
+                        &left_paths,
+                        &available_execs,
+                        drawing_info,
+                        (second.starting_index + second.display_offset) as usize,
+                        &selections,
+                    )?;
+
+                    queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
+                }
+            }
+            "bottom" => {
+                if !dir_states.current_entries.is_empty() {
+                    abort_image_handles(&mut image_handles);
+
+                    let old_starting_index = second.starting_index;
+                    let old_display_offset = second.display_offset;
+
+                    if dir_states.current_entries.len() <= (drawing_info.column_height as usize) {
+                        second.starting_index = 0;
+                        second.display_offset = dir_states.current_entries.len() as u16 - 1;
+                    } else {
+                        second.display_offset = drawing_info.column_height - 1;
+                        second.starting_index =
+                            dir_states.current_entries.len() as u16 - second.display_offset - 1;
+                    }
+
+                    update_entries_column(
+                        &mut stdout_lock,
+                        drawing_info.second_left_x,
+                        drawing_info.second_right_x,
+                        drawing_info.column_bot_y,
+                        &dir_states.current_entries,
+                        old_display_offset,
+                        old_starting_index,
+                        second,
+                        &selections,
+                    )?;
+
+                    queue_third_column(
+                        &mut stdout_lock,
+                        &runtime,
+                        &mut image_handles,
+                        &dir_states,
+                        &left_paths,
+                        &available_execs,
+                        drawing_info,
+                        (second.starting_index + second.display_offset) as usize,
+                        &selections,
+                    )?;
+
+                    queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
+                }
+            }
+            "search-next" => {
+                queue_search_jump(
+                    &mut stdout_lock,
+                    &match_positions,
+                    &runtime,
+                    &mut image_handles,
+                    &dir_states,
+                    &left_paths,
+                    &available_execs,
+                    should_search_forwards,
+                    drawing_info,
+                    &mut second,
+                    drawing_info.second_left_x,
+                    &selections,
+                )?;
+            }
+            "search-prev" => {
+                queue_search_jump(
+                    &mut stdout_lock,
+                    &match_positions,
+                    &runtime,
+                    &mut image_handles,
+                    &dir_states,
+                    &left_paths,
+                    &available_execs,
+                    !should_search_forwards,
+                    drawing_info,
+                    &mut second,
+                    drawing_info.second_left_x,
+                    &selections,
+                )?;
+            }
+            "toggle" => {
+                let selected_entry = &dir_states.current_entries[second_entry_index as usize];
+
+                let entry_path = selected_entry.dir_entry.path();
+
+                let remove = selections.remove(&entry_path);
+                if remove.is_none() {
+                    selections.insert(entry_path, second_entry_index as usize);
+                }
+
+                let mut stdout_lock = w.lock();
+
+                queue_full_entry(
+                    &mut stdout_lock,
+                    &dir_states.current_entries,
+                    drawing_info.second_left_x,
+                    drawing_info.second_right_x,
+                    second.display_offset,
+                    second.starting_index,
+                    &selections,
+                    true,
                 )?;
             }
             _ => (),
