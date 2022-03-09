@@ -22,3 +22,5 @@ basic.svg
 .cargo/config
 
 Wezterm-*/
+
+config.json

@@ -1,12 +1,16 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use nanoserde::DeJson;
+use std::collections::HashMap;
+use std::vec::Vec;
 
 #[derive(DeJson)]
-pub struct Config {
+pub struct JsonConfig {
     // When using an Option value, nanoserde won't require the field to be represented in json
     #[nserde(rename = "preview-converter")]
-    preview_converter: Option<String>,
-    keybindings: Option<Vec<KeyBinding>>,
+    #[nserde(default = "")]
+    preview_converter: String,
+    #[nserde(default = "Vec::new()")] // nanoserde requires the use of (), while serde does not
+    keybindings: Vec<KeyBinding>,
 }
 
 #[derive(PartialEq, Debug, DeJson)]
@@ -15,9 +19,16 @@ pub struct KeyBinding {
     command: String,
 }
 
+#[derive(Debug)]
+pub struct Config {
+    pub preview_converter: String,
+    pub keybindings: HashMap<KeyEvent, String>,
+}
+
 pub fn parse_config(config_data: &str) -> Config {
     let mut contents = String::new();
 
+    // Remove single-line comments
     let mut prev_char = '\0';
     let mut skip_to_newline = false;
     for ch in config_data.chars() {
@@ -40,7 +51,53 @@ pub fn parse_config(config_data: &str) -> Config {
         prev_char = ch;
     }
 
-    DeJson::deserialize_json(&contents).unwrap()
+    let mut json_config: JsonConfig = DeJson::deserialize_json(&contents).unwrap();
+
+    json_config.keybindings.extend(default_key_bindings());
+
+    Config {
+        preview_converter: json_config.preview_converter,
+        keybindings: make_binding_hash_map(&json_config.keybindings),
+    }
+}
+
+fn default_key_bindings() -> Vec<KeyBinding> {
+    let mut key_bindings = Vec::new();
+
+    add_raw_binding(&mut key_bindings, "q", "quit");
+    add_raw_binding(&mut key_bindings, "h", "updir");
+    add_raw_binding(&mut key_bindings, "l", "open");
+    add_raw_binding(&mut key_bindings, "j", "down");
+    add_raw_binding(&mut key_bindings, "k", "up");
+    add_raw_binding(&mut key_bindings, "e", "edit");
+    add_raw_binding(&mut key_bindings, "g", "top");
+    add_raw_binding(&mut key_bindings, "G", "bottom");
+    add_raw_binding(&mut key_bindings, ":", "read");
+    add_raw_binding(&mut key_bindings, "/", "search");
+    add_raw_binding(&mut key_bindings, "?", "search-back");
+    add_raw_binding(&mut key_bindings, "n", "search-next");
+    add_raw_binding(&mut key_bindings, "N", "search-prev");
+    add_raw_binding(&mut key_bindings, "space", "search-prev");
+
+    key_bindings
+}
+
+fn make_binding_hash_map(raw_bindings: &[KeyBinding]) -> HashMap<KeyEvent, String> {
+    let mut result = HashMap::new();
+
+    for raw_binding in raw_bindings {
+        let code = to_key(&raw_binding.key);
+        result.insert(code, raw_binding.command.clone());
+    }
+
+    result
+}
+
+fn add_raw_binding(key_bindings: &mut Vec<KeyBinding>, key: &str, command: &str) {
+    key_bindings.push(KeyBinding {
+        key: key.to_string(),
+        command: command.to_string(),
+    });
 }
 
 fn to_key(key_s: &str) -> KeyEvent {
@@ -59,17 +116,21 @@ fn to_key(key_s: &str) -> KeyEvent {
 
     let code = if last_tok.len() == 1 {
         let ch = last_tok.chars().next().unwrap();
-        let byte = ch as u8;
 
-        if (b'a'..=b'z').contains(&byte) {
-            KeyCode::Char(ch)
-        } else {
-            unreachable!();
+        if ch.is_uppercase() {
+            modifiers |= KeyModifiers::SHIFT;
         }
+
+        KeyCode::Char(ch)
     } else {
         match last_tok {
+            "enter" => KeyCode::Enter,
+            "left" => KeyCode::Left,
+            "right" => KeyCode::Right,
             "up" => KeyCode::Up,
-            _ => unreachable!(),
+            "down" => KeyCode::Down,
+            "space" => KeyCode::Char(' '),
+            _ => unreachable!("Command token not supported: {}", last_tok),
         }
     };
 
@@ -88,6 +149,17 @@ mod tests {
             to_key("up"),
             KeyEvent {
                 code: KeyCode::Up,
+                modifiers: KeyModifiers::NONE
+            }
+        );
+    }
+
+    #[test]
+    fn test_to_key_space() {
+        assert_eq!(
+            to_key("space"),
+            KeyEvent {
+                code: KeyCode::Char(' '),
                 modifiers: KeyModifiers::NONE
             }
         );
@@ -117,20 +189,10 @@ mod tests {
 
         let config = parse_config(json);
 
-        assert_eq!(config.preview_converter, None);
-        assert_eq!(
-            config.keybindings,
-            Some(vec![
-                KeyBinding {
-                    key: "up".to_string(),
-                    command: "up".to_string(),
-                },
-                KeyBinding {
-                    key: "down".to_string(),
-                    command: "down".to_string(),
-                }
-            ])
-        );
+        assert_eq!(config.preview_converter, "");
+        assert_eq!(config.keybindings[&to_key("up")], "up");
+        assert_eq!(config.keybindings[&to_key("down")], "down");
+        assert_eq!(config.keybindings[&to_key("h")], "updir");
     }
 
     #[test]
@@ -147,19 +209,25 @@ mod tests {
 
         let config = parse_config(json);
 
-        assert_eq!(config.preview_converter, None);
+        assert_eq!(config.preview_converter, "");
+        assert_eq!(config.keybindings[&to_key("up")], "up");
+        assert_eq!(config.keybindings[&to_key("down")], "down");
+        assert_eq!(config.keybindings[&to_key("h")], "updir");
+    }
+
+    #[test]
+    fn test_make_binding_hash_map() {
+        let mut raw_bindings = vec![];
+        add_raw_binding(&mut raw_bindings, "h", "updir");
+
+        let hash_map = make_binding_hash_map(&raw_bindings);
+
         assert_eq!(
-            config.keybindings,
-            Some(vec![
-                KeyBinding {
-                    key: "up".to_string(),
-                    command: "up".to_string(),
-                },
-                KeyBinding {
-                    key: "down".to_string(),
-                    command: "down".to_string(),
-                }
-            ])
+            hash_map[&KeyEvent {
+                code: KeyCode::Char('h'),
+                modifiers: KeyModifiers::NONE
+            }],
+            "updir",
         );
     }
 }

@@ -7,6 +7,7 @@
 mod natural_sort; // This declares the existence of the natural_sort module, which searches by
                   // default for natural_sort.rs or natural_sort/mod.rs
 
+mod config;
 mod human_size;
 mod line_edit;
 mod os_abstract;
@@ -16,6 +17,7 @@ mod tiff;
 #[cfg(unix)]
 mod unix_users;
 
+use config::Config;
 use human_size::human_size;
 use natural_sort::cmp_natural;
 use os_abstract::WindowPixels;
@@ -72,6 +74,8 @@ fn main() -> crossterm::Result<()> {
         }
     }
 
+    let config = config::parse_config(&fs::read_to_string("config.json").unwrap());
+
     terminal::enable_raw_mode()?;
 
     queue!(
@@ -82,7 +86,7 @@ fn main() -> crossterm::Result<()> {
         cursor::Hide,
     )?;
 
-    let result = run(&mut w);
+    let result = run(&mut w, &config);
 
     execute!(
         w,
@@ -106,7 +110,7 @@ fn main() -> crossterm::Result<()> {
 }
 
 // Returns the path to the last dir
-fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
+fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
     let user_name = whoami::username();
 
     let host_name = whoami::hostname();
@@ -252,64 +256,10 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
                 let event = event::read()?;
 
                 match event {
-                    Event::Key(event) => match event.code {
-                        KeyCode::Char(ch) => match ch {
-                            'q' => break,
-                            'h' => {
-                                command = "updir";
-                            }
-                            'l' => {
-                                command = "open";
-                            }
-                            'j' => {
-                                command = "down";
-                            }
-                            'k' => {
-                                command = "up";
-                            }
-                            'e' => {
-                                command = "edit";
-                            }
-                            'g' => {
-                                command = "top";
-                            }
-                            'G' => {
-                                command = "bottom";
-                            }
-                            ':' => {
-                                command = "read";
-                            }
-                            '/' => {
-                                command = "search";
-                            }
-                            '?' => {
-                                command = "search-back";
-                            }
-                            'n' => {
-                                command = "search-next";
-                            }
-                            'N' => {
-                                command = "search-prev";
-                            }
-                            ' ' => {
-                                command = "toggle";
-                            }
-                            _ => (),
-                        },
-                        KeyCode::Enter => command = "open",
-                        KeyCode::Left => {
-                            command = "updir";
+                    Event::Key(event) => {
+                        if let Some(bound_command) = config.keybindings.get(&event) {
+                            command = bound_command;
                         }
-                        KeyCode::Right => {
-                            command = "open";
-                        }
-                        KeyCode::Down => {
-                            command = "down";
-                        }
-                        KeyCode::Up => {
-                            command = "up";
-                        }
-                        _ => (),
                     },
                     Event::Mouse(_) => (),
                     Event::Resize(_, _) => {
@@ -488,6 +438,9 @@ fn run(w: &mut io::Stdout) -> crossterm::Result<PathBuf> {
         let mut stdout_lock = w.lock();
 
         match command {
+            "quit" => {
+                break;
+            }
             "down" => {
                 // FIXME(Chris): Remove this duplicated code when adding keybinding
                 // system
