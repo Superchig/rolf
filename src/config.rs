@@ -29,7 +29,7 @@ pub struct Config {
     pub keybindings: HashMap<KeyEvent, String>,
 }
 
-#[derive(DeJson, Debug)]
+#[derive(DeJson, Debug, Clone, Copy)]
 pub enum ImageProtocol {
     Kitty,
     ITerm2,
@@ -179,7 +179,7 @@ fn to_key(key_s: &str) -> KeyEvent {
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
-fn check_iterm_support() -> bool {
+pub fn check_iterm_support() -> bool {
     // This function is from Atanas Yankov's viuer library
     if let Ok(term) = std::env::var("TERM_PROGRAM") {
         if term.contains("iTerm") || term.contains("WezTerm") || term.contains("mintty") {

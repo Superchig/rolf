@@ -17,8 +17,9 @@ mod tiff;
 #[cfg(unix)]
 mod unix_users;
 
-use config::Config;
+use config::{Config, ImageProtocol};
 use human_size::human_size;
+use image::png::PngEncoder;
 use natural_sort::cmp_natural;
 use os_abstract::WindowPixels;
 use tiff::{usizeify, Endian, EntryTag, EntryType, IFDEntry};
@@ -37,7 +38,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::vec::Vec;
 
-use image::GenericImageView;
+use image::{GenericImageView, ImageEncoder, ColorType};
 
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
@@ -74,13 +75,17 @@ fn main() -> crossterm::Result<()> {
         }
     }
 
-    let config = match fs::read_to_string("config.json") {
+    let mut config = match fs::read_to_string("config.json") {
         Ok(json) => config::parse_config(&json),
         Err(err) => match err.kind() {
             io::ErrorKind::NotFound => Config::default(),
             _ => panic!("Error opening config file: {}", err),
         },
     };
+
+    if config::check_iterm_support() {
+        config.image_protocol = config::ImageProtocol::ITerm2;
+    }
 
     terminal::enable_raw_mode()?;
 
@@ -192,6 +197,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
             drawing_info,
             second,
             &selections,
+            config,
         )?;
     }
 
@@ -266,7 +272,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                         if let Some(bound_command) = config.keybindings.get(&event) {
                             command = bound_command;
                         }
-                    },
+                    }
                     Event::Mouse(_) => (),
                     Event::Resize(_, _) => {
                         command = "redraw";
@@ -287,6 +293,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                     &mut left_paths,
                     &available_execs,
                     &selections,
+                    config,
                 )?;
 
                 // If there was no input line returned, then the user aborted the use of the
@@ -324,6 +331,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                                         &mut second,
                                         drawing_info.second_left_x,
                                         &selections,
+                                        config,
                                     )?;
                                 }
                             }
@@ -353,6 +361,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                                         &mut second,
                                         drawing_info.second_left_x,
                                         &selections,
+                                        config,
                                     )?;
                                 }
                             }
@@ -382,6 +391,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                                     &mut left_paths,
                                     &available_execs,
                                     &selections,
+                                    config,
                                 )?;
 
                                 if let Some(new_name) = new_name {
@@ -417,6 +427,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                                         &mut second,
                                         drawing_info.second_left_x,
                                         &selections,
+                                        config,
                                     )?;
                                 }
                             }
@@ -477,6 +488,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                         second,
                         drawing_info.second_left_x,
                         &selections,
+                        config,
                     )?;
                 }
             }
@@ -506,6 +518,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                         second,
                         drawing_info.second_left_x,
                         &selections,
+                        config,
                     )?;
                 }
             }
@@ -539,6 +552,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                     drawing_info,
                     second,
                     &selections,
+                    config,
                 )?;
             }
             "open" => {
@@ -554,6 +568,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                     second_entry_index,
                     &mut second,
                     &selections,
+                    config,
                 )?;
             }
             // NOTE(Chris): lf doesn't actually provide a specific command for this, instead using
@@ -605,6 +620,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                         drawing_info,
                         second,
                         &selections,
+                        config,
                     )?;
                 }
             }
@@ -640,6 +656,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                         drawing_info,
                         (second.starting_index + second.display_offset) as usize,
                         &selections,
+                        config,
                     )?;
 
                     queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
@@ -683,6 +700,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                         drawing_info,
                         (second.starting_index + second.display_offset) as usize,
                         &selections,
+                        config,
                     )?;
 
                     queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
@@ -716,6 +734,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                     &mut second,
                     drawing_info.second_left_x,
                     &selections,
+                    config,
                 )?;
             }
             "search-prev" => {
@@ -732,6 +751,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                     &mut second,
                     drawing_info.second_left_x,
                     &selections,
+                    config,
                 )?;
             }
             "toggle" => {
@@ -768,6 +788,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                     &available_execs,
                     second,
                     &selections,
+                    config,
                 )?;
 
                 queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
@@ -863,6 +884,7 @@ fn get_cmd_line_input(
     left_paths: &mut HashMap<std::path::PathBuf, DirLocation>,
     available_execs: &HashMap<&str, std::path::PathBuf>,
     selections: &SelectionsMap,
+    config: &Config,
 ) -> io::Result<Option<String>> {
     let mut cursor_index = input_line.len(); // Where a new character will next be entered
 
@@ -1030,6 +1052,7 @@ fn get_cmd_line_input(
                     available_execs,
                     *second,
                     selections,
+                    config,
                 )?;
             }
         }
@@ -1061,6 +1084,7 @@ fn enter_entry(
     second_entry_index: u16,
     second: &mut ColumnInfo,
     selections: &SelectionsMap,
+    config: &Config,
 ) -> crossterm::Result<()> {
     // NOTE(Chris): We only need to abort asynchronous "image" drawing if we're opening a
     // directory¸ since we're now drawing directory previews asychronously with the same system as
@@ -1131,6 +1155,7 @@ fn enter_entry(
             drawing_info,
             *second,
             selections,
+            config,
         )?;
     } else if selected_target_file_type.is_file() {
         // Should we display some sort of error message according to the exit status
@@ -1222,6 +1247,7 @@ fn queue_search_jump(
     second: &mut ColumnInfo,
     second_column: u16,
     selections: &SelectionsMap,
+    config: &Config,
 ) -> crossterm::Result<()> {
     if match_positions.len() <= 0 {
         return Ok(());
@@ -1273,6 +1299,7 @@ fn queue_search_jump(
         *second,
         second_column,
         selections,
+        config,
     )?;
 
     Ok(())
@@ -1291,6 +1318,7 @@ fn queue_entry_changed(
     second: ColumnInfo,
     second_column: u16,
     selections: &SelectionsMap,
+    config: &Config,
 ) -> crossterm::Result<()> {
     update_entries_column(
         stdout_lock,
@@ -1314,6 +1342,7 @@ fn queue_entry_changed(
         drawing_info,
         (second.starting_index + second.display_offset) as usize,
         selections,
+        config,
     )?;
 
     // NOTE(Chris): We flush here, so the current function is more than a "queue_" function
@@ -1394,6 +1423,7 @@ fn redraw_upper(
     available_execs: &HashMap<&str, std::path::PathBuf>,
     second: ColumnInfo,
     selections: &SelectionsMap,
+    config: &Config,
 ) -> crossterm::Result<()> {
     queue!(stdout_lock, terminal::Clear(ClearType::All))?;
 
@@ -1423,6 +1453,7 @@ fn redraw_upper(
         *drawing_info,
         (second.starting_index + second.display_offset) as usize,
         selections,
+        config,
     )?;
 
     Ok(())
@@ -1603,6 +1634,7 @@ fn queue_all_columns(
     drawing_info: DrawingInfo,
     second: ColumnInfo,
     selections: &SelectionsMap,
+    config: &Config,
 ) -> crossterm::Result<()> {
     queue_first_column(
         stdout_lock,
@@ -1628,6 +1660,7 @@ fn queue_all_columns(
         drawing_info,
         (second.starting_index + second.display_offset) as usize,
         selections,
+        config,
     )?;
 
     queue_bottom_info_line(stdout_lock, drawing_info, second, dir_states)?;
@@ -1703,9 +1736,17 @@ fn queue_third_column(
     drawing_info: DrawingInfo,
     change_index: usize,
     selections: &SelectionsMap,
+    config: &Config,
 ) -> crossterm::Result<()> {
-    // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
-    w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
+    match config.image_protocol {
+        ImageProtocol::Kitty => {
+            // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
+            w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
+        }
+        ImageProtocol::ITerm2 => {
+            // FIXME(Chris): Actually implement this with the hacky image-background solution
+        }
+    }
 
     let left_x = drawing_info.third_left_x;
     let right_x = drawing_info.third_right_x;
@@ -1742,6 +1783,7 @@ fn queue_third_column(
                 drawing_info,
                 left_x,
                 right_x,
+                config,
             )?;
         } else if file_type.is_symlink() {
             // TODO(Chris): Show error if symlink is invalid
@@ -1771,6 +1813,7 @@ fn queue_third_column(
                             drawing_info,
                             left_x,
                             right_x,
+                            config,
                         )?;
                     } else {
                         queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
@@ -1935,6 +1978,7 @@ fn queue_third_column_file(
     drawing_info: DrawingInfo,
     left_x: u16,
     right_x: u16,
+    config: &Config,
 ) -> crossterm::Result<()> {
     queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
 
@@ -1960,7 +2004,8 @@ fn queue_third_column_file(
                         ext.to_string(),
                         drawing_info.width,
                         drawing_info.height,
-                        left_x
+                        left_x,
+                        config.image_protocol,
                     );
                 }
                 _ => match available_execs.get("highlight") {
@@ -2061,6 +2106,7 @@ async fn preview_image_or_video(
     width: u16,
     height: u16,
     left_x: u16,
+    image_protocol: ImageProtocol,
 ) -> crossterm::Result<()> {
     let win_px_width = win_pixels.width;
     let win_px_height = win_pixels.height;
@@ -2251,39 +2297,62 @@ async fn preview_image_or_video(
     let rgba = img.to_rgba8();
     let raw_img = rgba.as_raw();
 
-    // eprintln!(
-    //     "   ending - img_cells_width: {:3}, img_cells_height: {:3}",
-    //     img_cells_width, img_cells_height
-    // );
+    // FIXME(Chris): Refactor to repeat yourself less
+    match image_protocol {
+        ImageProtocol::Kitty => {
+            let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
 
-    // This scope exists to eventually unlock the mutex
-    {
-        let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
+            if can_display_image {
+                let path = store_in_tmp_file(raw_img)?;
 
-        if can_display_image {
-            let path = store_in_tmp_file(raw_img)?;
+                // execute!(
+                //     w,
+                //     cursor::MoveTo(left_x, 1),
+                //     style::Print("Should display!")
+                // )?;
 
-            // execute!(
-            //     w,
-            //     cursor::MoveTo(left_x, 1),
-            //     style::Print("Should display!")
-            // )?;
+                queue!(
+                    w,
+                    cursor::MoveTo(left_x, 1),
+                    // Hide the "Should display!" / "Loading..." message
+                    style::Print("               "),
+                    cursor::MoveTo(left_x, 1),
+                )?;
 
-            queue!(
-                w,
-                cursor::MoveTo(left_x, 1),
-                // Hide the "Should display!" / "Loading..." message
-                style::Print("               "),
-                cursor::MoveTo(left_x, 1),
-            )?;
+                write!(
+                    w,
+                    "\x1b_Gf=32,s={},v={},a=T,t=t;{}\x1b\\",
+                    img.width(),
+                    img.height(),
+                    base64::encode(path.to_str().unwrap())
+                )?;
+            }
+        }
+        ImageProtocol::ITerm2 => {
+            let mut png_data = Vec::new();
+            let png_encoder = PngEncoder::new(&mut png_data);
+            png_encoder.write_image(&rgba, rgba.height(), rgba.width(), ColorType::Rgba8).unwrap();
 
-            write!(
-                w,
-                "\x1b_Gf=32,s={},v={},a=T,t=t;{}\x1b\\",
-                img.width(),
-                img.height(),
-                base64::encode(path.to_str().unwrap())
-            )?;
+            let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
+
+            if can_display_image {
+                queue!(
+                    w,
+                    cursor::MoveTo(left_x, 1),
+                    // Hide the "Should display!" / "Loading..." message
+                    style::Print("               "),
+                    cursor::MoveTo(left_x, 1),
+                )?;
+
+                write!(
+                    w,
+                    "\x1b]1337;File=size={};inline=1:{}\x1b\\",
+                    // pnm_data.len(),
+                    // base64::encode(pnm_data),
+                    png_data.len(),
+                    base64::encode(png_data),
+                )?;
+            }
         }
     }
 
