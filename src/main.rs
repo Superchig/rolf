@@ -31,14 +31,14 @@ use which::which;
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
 use std::fs::{self, DirEntry, Metadata};
-use std::io::{self, BufRead, StdoutLock, Write};
+use std::io::{self, BufRead, BufWriter, StdoutLock, Write};
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::vec::Vec;
 
-use image::{GenericImageView, ImageEncoder, ColorType};
+use image::{ColorType, GenericImageView, ImageEncoder};
 
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
@@ -2329,13 +2329,22 @@ async fn preview_image_or_video(
             }
         }
         ImageProtocol::ITerm2 => {
-            let mut png_data = Vec::new();
-            let png_encoder = PngEncoder::new(&mut png_data);
-            png_encoder.write_image(&rgba, rgba.height(), rgba.width(), ColorType::Rgba8).unwrap();
+            let mut png_data = vec![];
+            {
+                let mut writer = BufWriter::new(&mut png_data);
+                PngEncoder::new(&mut writer)
+                    .write_image(&rgba, rgba.width(), rgba.height(), ColorType::Rgba8)
+                    .unwrap();
+            }
 
             let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
 
             if can_display_image {
+                {
+                    let mut file = std::fs::File::create("output.png")?;
+                    file.write_all(&png_data)?;
+                }
+
                 queue!(
                     w,
                     cursor::MoveTo(left_x, 1),
