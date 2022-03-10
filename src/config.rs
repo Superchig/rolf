@@ -9,6 +9,9 @@ pub struct JsonConfig {
     #[nserde(rename = "preview-converter")]
     #[nserde(default = "")]
     preview_converter: String,
+    #[nserde(rename = "image-protocol")]
+    #[nserde(default = "ImageProtocol::Kitty")]
+    image_protocol: ImageProtocol,
     #[nserde(default = "Vec::new()")] // nanoserde requires the use of (), while serde does not
     keybindings: Vec<KeyBinding>,
 }
@@ -22,7 +25,14 @@ pub struct KeyBinding {
 #[derive(Debug)]
 pub struct Config {
     pub preview_converter: String,
+    pub image_protocol: ImageProtocol,
     pub keybindings: HashMap<KeyEvent, String>,
+}
+
+#[derive(DeJson, Debug)]
+pub enum ImageProtocol {
+    Kitty,
+    ITerm2,
 }
 
 pub fn parse_config(config_data: &str) -> Config {
@@ -57,6 +67,7 @@ pub fn parse_config(config_data: &str) -> Config {
 
     Config {
         preview_converter: json_config.preview_converter,
+        image_protocol: json_config.image_protocol,
         keybindings: make_binding_hash_map(&json_config.keybindings),
     }
 }
@@ -65,6 +76,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             preview_converter: String::new(),
+            image_protocol: ImageProtocol::Kitty,
             keybindings: make_binding_hash_map(&default_key_bindings()),
         }
     }
@@ -144,6 +156,37 @@ fn to_key(key_s: &str) -> KeyEvent {
     };
 
     KeyEvent { code, modifiers }
+}
+
+// MIT License
+//
+// Copyright (c) 2022 Atanas Yankov
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+fn check_iterm_support() -> bool {
+    // This function is from Atanas Yankov's viuer library
+    if let Ok(term) = std::env::var("TERM_PROGRAM") {
+        if term.contains("iTerm") || term.contains("WezTerm") || term.contains("mintty") {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
