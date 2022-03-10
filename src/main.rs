@@ -448,8 +448,6 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                 break;
             }
             "down" => {
-                // FIXME(Chris): Remove this duplicated code when adding keybinding
-                // system
                 if !dir_states.current_entries.is_empty()
                     && (second_entry_index as usize) < dir_states.current_entries.len() - 1
                 {
@@ -512,8 +510,6 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                 }
             }
             "updir" => {
-                // FIXME(Chris): Remove this duplicated code when adding keybinding
-                // system
                 abort_image_handles(&mut image_handles);
 
                 let old_current_dir = dir_states.current_dir.clone();
