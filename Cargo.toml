@@ -25,6 +25,8 @@ features = [
   "alloc",
   "Win32_Foundation",
   "Win32_System_Time",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
 ]
 
 # All dependencies (but not this crate itself or any workspace member)

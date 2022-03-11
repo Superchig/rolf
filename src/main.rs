@@ -199,6 +199,7 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
             &selections,
             config,
         )?;
+        abort_image_handles(&mut image_handles); // Avoid double-draw on Windows
     }
 
     // FIXME(Chris): Implement file selection
@@ -1904,6 +1905,8 @@ fn queue_third_column_dir(
 }
 
 fn queue_loading_msg(w: &mut StdoutLock, left_x: u16) -> io::Result<()> {
+    eprintln!("queue_loading_msg left_x: {:?}", left_x);
+
     queue!(
         w,
         style::SetAttribute(Attribute::Reset),
@@ -1982,6 +1985,8 @@ fn queue_third_column_file(
 ) -> crossterm::Result<()> {
     queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
 
+    eprintln!("third_column_file left_x: {:?}", left_x);
+
     let third_file = display_entry.dir_entry.path();
 
     if let Some(os_str_ext) = third_file.extension() {
@@ -1989,9 +1994,11 @@ fn queue_third_column_file(
             let ext = ext.to_lowercase();
             let ext = ext.as_str();
 
-            queue_loading_msg(w, left_x)?;
+            if !cfg!(windows) {
+                queue_loading_msg(w, left_x)?;
 
-            w.flush()?;
+                w.flush()?;
+            }
 
             match ext {
                 "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
@@ -2340,24 +2347,24 @@ async fn preview_image_or_video(
             let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
 
             if can_display_image {
-                {
-                    let mut file = std::fs::File::create("output.png")?;
-                    file.write_all(&png_data)?;
+                if cfg!(windows) {
+                    queue!(
+                        w,
+                        cursor::MoveTo(left_x, 1),
+                        style::Print(' '),
+                    )?;
+                } else {
+                    queue!(
+                        w,
+                        cursor::MoveTo(left_x, 1),
+                        style::Print("          "),
+                        cursor::MoveTo(left_x, 1),
+                    )?;
                 }
-
-                queue!(
-                    w,
-                    cursor::MoveTo(left_x, 1),
-                    // Hide the "Should display!" / "Loading..." message
-                    style::Print("               "),
-                    cursor::MoveTo(left_x, 1),
-                )?;
 
                 write!(
                     w,
                     "\x1b]1337;File=size={};inline=1:{}\x1b\\",
-                    // pnm_data.len(),
-                    // base64::encode(pnm_data),
                     png_data.len(),
                     base64::encode(png_data),
                 )?;

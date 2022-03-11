@@ -1,4 +1,10 @@
+use windows::Win32::Foundation::GetLastError;
+use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::RECT;
 use windows::Win32::Foundation::{BOOL, FILETIME, SYSTEMTIME};
+use windows::Win32::UI::Input::KeyboardAndMouse::GetActiveWindow;
+use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
 use windows::Win32::System::Time::FileTimeToSystemTime;
 
 use crate::WindowPixels;
@@ -99,43 +105,41 @@ pub fn get_extra_perms(metadata: &Metadata) -> ExtraPermissions {
 // A possibly-safe wrapper around an ioctl call with TIOCGWINSZ.
 // Gets the width and height of the terminal in pixels.
 pub fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
-    // let win_pixels = unsafe {
-    //     let mut winsize = libc::winsize {
-    //         ws_col: 0,
-    //         ws_row: 0,
-    //         ws_xpixel: 0,
-    //         ws_ypixel: 0,
-    //     };
+    let mut rect1 = RECT::default();
 
-    //     // NOTE(Chris): From Linux's man ioctl_tty
-    //     const TIOCGWINSZ: u64 = libc::TIOCGWINSZ;
+    let hwnd = unsafe {
+        let mut result = GetActiveWindow();
 
-    //     // NOTE(Chris): This only works if stdin is a tty. If it is not (e.g. zsh widgets), then
-    //     // you may have to redirect the tty to stdin.
-    //     // Example:
-    //     // rf() { rolf < $TTY }
-    //     let err = libc::ioctl(libc::STDIN_FILENO, TIOCGWINSZ, &mut winsize);
-    //     if err != 0 {
-    //         let errno_location = libc::__errno_location();
-    //         let errno = (*errno_location) as i32;
+        if result == HWND(0) {
+            // eprintln!("Active window was null, getting foreground window...");
+            // Null
+            result = GetForegroundWindow();
+        }
 
-    //         return Err(io::Error::from_raw_os_error(errno));
+        if result == HWND(0) {
+            panic!("Unable to get handle to current window.");
+        }
 
-    //         // panic!("Failed to get the size of terminal window in pixels.");
-    //     }
+        result
+    };
 
-    //     WindowPixels {
-    //         width: winsize.ws_xpixel,
-    //         height: winsize.ws_ypixel,
-    //     }
-    // };
+    unsafe {
+        let err = GetClientRect(hwnd, &mut rect1);
+        let err = err.0;
 
-    // Ok(win_pixels)
-
-    Ok(WindowPixels {
-        width: 100,
-        height: 100,
-    })
+        if err != 0 {
+            // NOTE(Chris): We subtract from the width and height to account for possible extra
+            // spacing in Wezterm, including the tabs and various whitespace added around the main
+            // terminal window.
+            Ok(WindowPixels{
+                width: (rect1.right - 200) as u16,
+                height: (rect1.bottom - 200) as u16,
+            })
+        } else {
+            let last_err = GetLastError();
+            panic!("Oops! Failed to get the coordinates of the client area. Last error code: {:?}", last_err);
+        }
+    }
 }
 
 pub fn get_home_name() -> String {
