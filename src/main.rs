@@ -2060,6 +2060,8 @@ async fn preview_uncolored_file(
 ) -> io::Result<()> {
     let can_display_image = can_draw_preview.load(std::sync::atomic::Ordering::Acquire);
 
+    let inner_left_x = left_x + 2;
+
     if can_display_image {
         let file = fs::File::open(third_file)?;
         let stdout = io::stdout();
@@ -2074,8 +2076,8 @@ async fn preview_uncolored_file(
         )?;
 
         // Clear the first line, in case there's a Loading... message already there
-        queue!(&mut w, cursor::MoveTo(left_x, 1))?;
-        for _curr_x in left_x..=right_x {
+        queue!(&mut w, cursor::MoveTo(inner_left_x, 1))?;
+        for _curr_x in inner_left_x..=right_x {
             queue!(&mut w, style::Print(' '))?;
         }
 
@@ -2084,7 +2086,7 @@ async fn preview_uncolored_file(
             .take(drawing_info.column_height as usize)
             .flatten()
         {
-            queue!(&mut w, cursor::MoveTo(left_x, curr_y))?;
+            queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
 
             writeln!(&mut w, "{}", line)?;
 
