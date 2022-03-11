@@ -2334,6 +2334,8 @@ async fn preview_image_or_video(
                     img.height(),
                     base64::encode(path.to_str().unwrap())
                 )?;
+
+                w.flush()?;
             }
         }
         ImageProtocol::ITerm2 => {
