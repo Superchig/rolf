@@ -99,6 +99,8 @@ fn default_key_bindings() -> Vec<KeyBinding> {
     add_raw_binding(&mut key_bindings, "n", "search-next");
     add_raw_binding(&mut key_bindings, "N", "search-prev");
     add_raw_binding(&mut key_bindings, "space", "search-prev");
+    add_raw_binding(&mut key_bindings, "enter", "open");
+    add_raw_binding(&mut key_bindings, "o", "open");
 
     key_bindings
 }
