@@ -1909,8 +1909,6 @@ fn queue_third_column_dir(
 }
 
 fn queue_loading_msg(w: &mut StdoutLock, left_x: u16) -> io::Result<()> {
-    eprintln!("queue_loading_msg left_x: {:?}", left_x);
-
     queue!(
         w,
         style::SetAttribute(Attribute::Reset),
@@ -1988,8 +1986,6 @@ fn queue_third_column_file(
     config: &Config,
 ) -> crossterm::Result<()> {
     queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
-
-    eprintln!("third_column_file left_x: {:?}", left_x);
 
     let third_file = display_entry.dir_entry.path();
 
