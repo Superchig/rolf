@@ -199,7 +199,9 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
             &selections,
             config,
         )?;
-        abort_image_handles(&mut image_handles); // Avoid double-draw on Windows
+        if cfg!(windows) {
+            abort_image_handles(&mut image_handles); // Avoid double-draw on Windows
+        }
     }
 
     // FIXME(Chris): Implement file selection
