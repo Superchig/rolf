@@ -1163,9 +1163,13 @@ fn enter_entry(
             config,
         )?;
     } else if selected_target_file_type.is_file() {
-        // Should we display some sort of error message according to the exit status
-        // here?
-        open::that_in_background(selected_entry_path);
+        if cfg!(windows) {
+            open::that(selected_entry_path)?;
+        } else {
+            // Should we display some sort of error message according to the exit status
+            // here?
+            open::that_in_background(selected_entry_path);
+        }
     }
 
     Ok(())
