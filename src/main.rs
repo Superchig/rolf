@@ -543,6 +543,10 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
                     &old_current_dir,
                 );
 
+                if cfg!(windows) {
+                    queue!(&mut stdout_lock, terminal::Clear(ClearType::All))?;
+                }
+
                 queue_all_columns(
                     &mut stdout_lock,
                     &runtime,
@@ -1745,7 +1749,7 @@ fn queue_third_column(
             w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
         }
         ImageProtocol::ITerm2 => {
-            // FIXME(Chris): Actually implement this with the hacky image-background solution
+            // NOTE(Chris): We don't actually need to do anything here, it seems
         }
     }
 
@@ -2299,24 +2303,19 @@ async fn preview_image_or_video(
     }
 
     let stdout = io::stdout();
-    let mut w = stdout.lock();
 
     let rgba = img.to_rgba8();
-    let raw_img = rgba.as_raw();
 
     // FIXME(Chris): Refactor to repeat yourself less
     match image_protocol {
         ImageProtocol::Kitty => {
+            let raw_img = rgba.as_raw();
+
+            let mut w = stdout.lock();
             let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
 
             if can_display_image {
                 let path = store_in_tmp_file(raw_img)?;
-
-                // execute!(
-                //     w,
-                //     cursor::MoveTo(left_x, 1),
-                //     style::Print("Should display!")
-                // )?;
 
                 queue!(
                     w,
@@ -2344,15 +2343,12 @@ async fn preview_image_or_video(
                     .unwrap();
             }
 
+            let mut w = stdout.lock();
             let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
 
             if can_display_image {
                 if cfg!(windows) {
-                    queue!(
-                        w,
-                        cursor::MoveTo(left_x, 1),
-                        style::Print(' '),
-                    )?;
+                    queue!(w, cursor::MoveTo(left_x, 1), style::Print("  "),)?;
                 } else {
                     queue!(
                         w,
@@ -2368,11 +2364,11 @@ async fn preview_image_or_video(
                     png_data.len(),
                     base64::encode(png_data),
                 )?;
+
+                w.flush()?;
             }
         }
     }
-
-    w.flush()?;
 
     Ok(())
 }
