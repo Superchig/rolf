@@ -17,14 +17,17 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      # - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
       
-      # - name: Restore Rust cache
-      #   uses: Swatinem/rust-cache@v1
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v1
       
-      # - name: Make a macOS 11 build
-      #   run: cargo build --target aarch64-apple-darwin --release --locked
+      - name: Make a macOS 11 build
+        run: cargo build --target aarch64-apple-darwin --release --locked
       
+      # https://localazy.com/blog/how-to-automatically-sign-macos-apps-using-github-actions
+      # https://artyom.dev/notarizing-go-binaries-for-macos.html
+      # https://www.andrewhoefling.com/Blog/Post/how-to-develop-ios-without-a-mac
       - name: Codesign executable
         env: 
           MACOS_CERTIFICATE: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_BASE64 }}
@@ -36,5 +39,22 @@ jobs:
           security unlock-keychain -p "$MACOS_CERTIFICATE_PWD" build.keychain
           security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
           security find-identity -v
-          # security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERTIFICATE_PWD" build.keychain
-          # /usr/bin/codesign --force -s <identity-id> target/release/rolf -v
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERTIFICATE_PWD" build.keychain
+          /usr/bin/codesign --force -s "Developer ID Application: Christopher Chang" target/release/rolf -v
+      
+      - name: Notarize executable
+        env: 
+          AC_PASSWORD: ${{ secrets.AC_PASSWORD }}
+          AC_USERNAME: ${{ secrets.AC_USERNAME }}
+        run: |
+          xcrun altool --store-password-in-keychain-item altool -u "$AC_USERNAME" -p "$AC_PASSWORD"
+          xcrun altool --notarize-app --primary-bundle-id "com.github.superchig.rolf" --username "$AC_USERNAME" --password "@keychain:altool" --file target/release/rolf
+      
+      - name: Create artifact
+        run: |
+          zip macos-build.zip target/release/rolf
+      
+      - uses: actions/upload-artifact@v3
+        with:
+          name: my-artifact
+          path: target/release/rolf
