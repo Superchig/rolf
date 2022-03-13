@@ -132,8 +132,8 @@ pub fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
             // spacing in Wezterm, including the tabs and various whitespace added around the main
             // terminal window.
             Ok(WindowPixels{
-                width: (rect1.right - 200) as u16,
-                height: (rect1.bottom - 200) as u16,
+                width: (rect1.right - 400) as u16,
+                height: (rect1.bottom - 400) as u16,
             })
         } else {
             let last_err = GetLastError();

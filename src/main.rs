@@ -2274,6 +2274,8 @@ async fn preview_image_or_video(
     let mut img_cells_width = img_width * (width as u32) / (win_px_width as u32);
     let mut img_cells_height = img_height * (height as u32) / (win_px_height as u32);
 
+    // eprintln!("   image: {:?}", &third_file);
+
     // eprintln!(
     //     "beginning - img_cells_width: {:3}, img_cells_height: {:3}",
     //     img_cells_width, img_cells_height
@@ -2304,6 +2306,11 @@ async fn preview_image_or_video(
     if img_cells_height > third_column_height {
         img_cells_height = third_column_height;
     }
+
+    // eprintln!(
+    //     "   ending - img_cells_width: {:3}, img_cells_height: {:3}",
+    //     img_cells_width, img_cells_height
+    // );
 
     if orig_img_cells_width != img_cells_width || orig_img_cells_height != img_cells_height {
         let display_width_px = img_cells_width * (win_px_width as u32) / (width as u32);
