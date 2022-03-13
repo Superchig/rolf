@@ -6,6 +6,8 @@ link_dir
 link_txt
 link_invalid
 stderr.txt
+/build
+/rolf-windows-*
 
 bash_icon_small.png
 passport.jpg
@@ -23,6 +25,8 @@ ssl/
 .cargo/config
 
 Wezterm-*/
+Wezterm/
+Wezterm-*.zip
 
 config.json
 
