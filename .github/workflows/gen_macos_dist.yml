@@ -83,7 +83,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - run: |
-          echo "NAME_WITH_SHA=Pre-release $GITHUB_SHA" >> $GITHUB_ENV
+          echo "NAME_WITH_SHA=macOS Pre-release $GITHUB_SHA" >> $GITHUB_ENV
       
       - name: Make pre-release
         # uses: softprops/action-gh-release@v1
