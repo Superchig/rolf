@@ -50,7 +50,8 @@ jobs:
           # Show identity info
           security find-identity -v
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERTIFICATE_PWD" build.keychain
-          /usr/bin/codesign --force -s "Developer ID Application: Christopher Chang (G285BB69RP)" "$EXEC_PATH" -v
+          # Codesign the application with a hardened runtime
+          /usr/bin/codesign --force -s "Developer ID Application: Christopher Chang (G285BB69RP)" "$EXEC_PATH" -v --options=runtime
 
       - name: Create artifact
         run: |
