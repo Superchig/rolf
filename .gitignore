@@ -18,6 +18,7 @@ basic.svg
 .0_images/
 .0_videos/
 .demo_images/
+ssl/
 
 .cargo/config
 
