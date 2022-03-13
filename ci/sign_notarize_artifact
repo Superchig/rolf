@@ -35,6 +35,7 @@ print_section "Creating artifact..."
 
 mkdir "$RELEASE_DIR"
 cp "$EXEC_PATH" LICENSE "$RELEASE_DIR"
+echo "$GITHUB_SHA" > "$RELEASE_DIR/commit-sha"
 zip "$ARTIFACT_ZIP" -r "$RELEASE_DIR"
 
 print_section "Notarizing artifact..."

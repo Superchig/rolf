@@ -61,7 +61,7 @@ jobs:
 
       - name: Codesign/notarize executable and artifact for Intel
         run: |
-          ci/sign_notarize_artifact "$"
+          ci/sign_notarize_artifact "$AMD_EXEC_PATH" "$AMD_RELEASE_DIR" "$AMD_ARTIFACT_ZIP"
       
       - uses: actions/upload-artifact@v3
         with:
@@ -72,3 +72,28 @@ jobs:
         with:
           name: macos-build
           path: ${{ env.AMD_ARTIFACT_ZIP }}
+
+      - name: Delete old tag
+        uses: dev-drprasad/delete-tag-and-release@v0.2.0
+        with:
+          delete_release: true # default: false
+          tag_name: macos-latest # tag name to delete
+          # repo: <owner>/<repoName> # target repo (optional). defaults to repo running this action
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: |
+          echo "NAME_WITH_SHA=Pre-release $GITHUB_SHA" >> $GITHUB_ENV
+      
+      - name: Make pre-release
+        # uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@59c3b4891632ff9a897f99a91d7bc557467a3a22
+        with:
+          files: |
+            ${{ env.ARM_ARTIFACT_ZIP }}
+            ${{ env.AMD_ARTIFACT_ZIP }}
+          name: ${{ env.NAME_WITH_SHA }}
+          prerelease: true
+          tag_name: macos-latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
