@@ -92,6 +92,10 @@ fn default_key_bindings() -> Vec<KeyBinding> {
     add_raw_binding(&mut key_bindings, "l", "open");
     add_raw_binding(&mut key_bindings, "j", "down");
     add_raw_binding(&mut key_bindings, "k", "up");
+    add_raw_binding(&mut key_bindings, "left", "updir");
+    add_raw_binding(&mut key_bindings, "right", "open");
+    add_raw_binding(&mut key_bindings, "up", "up");
+    add_raw_binding(&mut key_bindings, "down", "down");
     add_raw_binding(&mut key_bindings, "e", "edit");
     add_raw_binding(&mut key_bindings, "g", "top");
     add_raw_binding(&mut key_bindings, "G", "bottom");
