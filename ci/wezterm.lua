@@ -9,6 +9,13 @@ return {
   enable_kitty_graphics = true,
   warn_about_missing_glyphs = false,
 
+  window_padding = {
+    left = 0,
+    right = 0,
+    top = 0,
+    bottom = 0,
+  },
+
   keys = {
     {key="t", mods="ALT", action=wezterm.action{SpawnTab="CurrentPaneDomain"}},
     {key="h", mods="ALT", action=wezterm.action{ActivatePaneDirection="Left"}},
