@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# This script codesigns an executable, creates a zipped artifact (which may
+# contain other files), and then notarizes that artifact.
+
 if [ "$#" -ne 3 ]; then
   echo "Usage: $0 EXEC_PATH RELEASE_DIR ARTIFACT_ZIP"
   exit 1

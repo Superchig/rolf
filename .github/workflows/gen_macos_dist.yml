@@ -26,6 +26,10 @@ jobs:
       ARM_RELEASE_DIR: rolf-macos-arm
       ARM_ARTIFACT_ZIP: rolf-macos-arm.zip
 
+      AMD_EXEC_PATH: target/x86_64-apple-darwin/release/rolf
+      AMD_RELEASE_DIR: rolf-macos
+      AMD_ARTIFACT_ZIP: rolf-macos.zip
+
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
@@ -54,8 +58,17 @@ jobs:
       - name: Codesign/notarize executable and artifact for ARM
         run: |
           ci/sign_notarize_artifact "$ARM_EXEC_PATH" "$ARM_RELEASE_DIR" "$ARM_ARTIFACT_ZIP"
+
+      - name: Codesign/notarize executable and artifact for Intel
+        run: |
+          ci/sign_notarize_artifact "$"
       
       - uses: actions/upload-artifact@v3
         with:
           name: macos-build-arm
           path: ${{ env.ARM_ARTIFACT_ZIP }}
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: macos-build
+          path: ${{ env.AMD_ARTIFACT_ZIP }}
