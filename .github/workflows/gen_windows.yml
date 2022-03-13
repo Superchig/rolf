@@ -28,7 +28,8 @@ jobs:
       
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@v1
-        cache-on-failure: true
+        with:
+          cache-on-failure: true
       
       # We don't use release mode because it introduces image display bugs with
       # WezTerm.
