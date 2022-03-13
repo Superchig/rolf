@@ -29,10 +29,12 @@ pub struct Config {
     pub keybindings: HashMap<KeyEvent, String>,
 }
 
-#[derive(DeJson, Debug, Clone, Copy)]
+#[derive(DeJson, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageProtocol {
     Kitty,
     ITerm2,
+    None,
+    Auto,
 }
 
 pub fn parse_config(config_data: &str) -> Config {
@@ -76,7 +78,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             preview_converter: String::new(),
-            image_protocol: ImageProtocol::Kitty,
+            image_protocol: ImageProtocol::Auto,
             keybindings: make_binding_hash_map(&default_key_bindings()),
         }
     }

@@ -30,6 +30,7 @@ use which::which;
 
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
+use std::env;
 use std::fs::{self, DirEntry, Metadata};
 use std::io::{self, BufRead, BufWriter, StdoutLock, Write};
 use std::path::{self, Path, PathBuf};
@@ -83,8 +84,16 @@ fn main() -> crossterm::Result<()> {
         },
     };
 
-    if config::check_iterm_support() {
-        config.image_protocol = config::ImageProtocol::ITerm2;
+    let term = env::var("TERM").unwrap_or_default();
+
+    if config.image_protocol == ImageProtocol::Auto {
+        if config::check_iterm_support() {
+            config.image_protocol = ImageProtocol::ITerm2;
+        } else if term == "xterm-kitty" {
+            config.image_protocol = ImageProtocol::Kitty;
+        } else {
+            config.image_protocol = ImageProtocol::None;
+        }
     }
 
     terminal::enable_raw_mode()?;
@@ -1126,7 +1135,7 @@ fn enter_entry(
                     return Ok(());
                 }
                 _ => panic!("{}", err),
-            }
+            },
         }
 
         match left_paths.get(selected_dir_path) {
@@ -1766,6 +1775,7 @@ fn queue_third_column(
         ImageProtocol::ITerm2 => {
             // NOTE(Chris): We don't actually need to do anything here, it seems
         }
+        _ => (),
     }
 
     let left_x = drawing_info.third_left_x;
@@ -2009,7 +2019,7 @@ fn queue_third_column_file(
             let ext = ext.to_lowercase();
             let ext = ext.as_str();
 
-            if !cfg!(windows) {
+            if !cfg!(windows) && config.image_protocol != ImageProtocol::None {
                 queue_loading_msg(w, left_x)?;
 
                 w.flush()?;
@@ -2367,7 +2377,7 @@ async fn preview_image_or_video(
                 } else {
                     queue!(
                         w,
-                        cursor::MoveTo(left_x, 1),
+                        cursor::MoveTo(left_x + 2, 1), // We add 2 to match the location of lf's Loading...
                         style::Print("          "),
                         cursor::MoveTo(left_x, 1),
                     )?;
@@ -2383,6 +2393,7 @@ async fn preview_image_or_video(
                 w.flush()?;
             }
         }
+        _ => (),
     }
 
     Ok(())
