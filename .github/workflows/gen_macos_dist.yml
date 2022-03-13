@@ -55,7 +55,7 @@ jobs:
 
       - name: Create artifact
         run: |
-          zip macos-build.zip "$EXEC_PATH" LICENSE
+          zip macOS-build.zip "$EXEC_PATH" LICENSE
       
       - name: Notarize artifact
         env: 
@@ -63,9 +63,9 @@ jobs:
           AC_USERNAME: ${{ secrets.AC_USERNAME }}
         run: |
           xcrun altool --store-password-in-keychain-item altool -u "$AC_USERNAME" -p "$AC_PASSWORD"
-          xcrun altool --notarize-app --primary-bundle-id "com.github.superchig.rolf" --username "$AC_USERNAME" --password "@keychain:altool" --file macos-build.zip
+          xcrun altool --notarize-app --primary-bundle-id "com.github.superchig.rolf" --username "$AC_USERNAME" --password "@keychain:altool" --file macOS-build.zip
       
       - uses: actions/upload-artifact@v3
         with:
-          name: macos-build-ARM
-          path: macos-build.zip
+          name: macOS-build-ARM
+          path: macOS-build.zip
