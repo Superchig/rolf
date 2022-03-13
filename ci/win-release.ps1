@@ -4,7 +4,7 @@ if (Test-Path -Path $ARCHIVE_PATH) {
     Remove-Item -Recurse $ARCHIVE_PATH
 }
 New-Item -Path $ARCHIVE_PATH -ItemType "directory"
-Copy-Item @("target\release\rolf.exe", "LICENSE", "ci\win-scripts") -Destination $ARCHIVE_PATH -Recurse
+Copy-Item @("target\debug\rolf.exe", "LICENSE", "ci\win-scripts") -Destination $ARCHIVE_PATH -Recurse
 
 # This checks if the GITHUB_SHA environment variable exists
 if ($null -ne $env:GITHUB_SHA) {
