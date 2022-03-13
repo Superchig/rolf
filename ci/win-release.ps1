@@ -1,7 +1,5 @@
 $ARCHIVE_PATH = "rolf-windows-amd64"
 
-cargo build --release
-
 if (Test-Path -Path $ARCHIVE_PATH) {
     Remove-Item -Recurse $ARCHIVE_PATH
 }
