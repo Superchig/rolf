@@ -1,0 +1,57 @@
+name: Windows build
+
+# Controls when the workflow will run
+on:
+  pull_request:
+    branches: [ main ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  pre-release:
+    # The type of runner that the job will run on
+    runs-on: windows-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+      
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v1
+      
+      # We don't use release mode because it introduces image display bugs with
+      # WezTerm.
+      - name: Make a Windows amd64 build
+        run: cargo build --locked
+      
+      - name: Create distributable archive
+        run: |
+          .\ci\win-release.ps1
+          Compress-Archive -Path rolf-windows-amd64 -DestinationPath rolf-windows-amd64.zip
+      
+      - run: |
+          Write-Output "NAME_WITH_SHA=Windows Pre-release $env:GITHUB_SHA" >> $GITHUB_ENV
+      
+      - name: Delete old tag
+        uses: dev-drprasad/delete-tag-and-release@v0.2.0
+        with:
+          delete_release: true # default: false
+          tag_name: win-latest # tag name to delete
+          # repo: <owner>/<repoName> # target repo (optional). defaults to repo running this action
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Make pre-release
+        # uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@59c3b4891632ff9a897f99a91d7bc557467a3a22
+        with:
+          files: |
+            rolf-windows-amd64.zip
+          name: ${{ env.NAME_WITH_SHA }}
+          prerelease: true
+          tag_name: win-latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
