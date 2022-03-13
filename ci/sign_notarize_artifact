@@ -1,0 +1,40 @@
+#!/bin/sh
+
+if [ "$#" -ne 3 ]; then
+  echo "Usage: $0 EXEC_PATH RELEASE_DIR ARTIFACT_ZIP"
+  exit 1
+fi
+
+EXEC_PATH="$1"
+RELEASE_DIR="$2"
+ARTIFACT_ZIP="$3"
+
+print_section() {
+  printf "\n"
+  echo "---$1"
+  printf "\n"
+}
+
+print_section "Codesigning binary..."
+
+echo "$MACOS_CERTIFICATE" | base64 --decode > certificate.p12
+security create-keychain -p "$MACOS_CERTIFICATE_PWD" build.keychain
+security default-keychain -s build.keychain
+security unlock-keychain -p "$MACOS_CERTIFICATE_PWD" build.keychain
+security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+# Show identity info
+security find-identity -v
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERTIFICATE_PWD" build.keychain
+# Codesign the application with a hardened runtime
+/usr/bin/codesign --force -s "Developer ID Application: Christopher Chang (G285BB69RP)" "$EXEC_PATH" -v --options=runtime
+
+print_section "Creating artifact..."
+
+mkdir "$RELEASE_DIR"
+cp "$EXEC_PATH" LICENSE "$RELEASE_DIR"
+zip "$ARTIFACT_ZIP" -r "$RELEASE_DIR"
+
+print_section "Notarizing artifact..."
+
+xcrun altool --store-password-in-keychain-item altool -u "$AC_USERNAME" -p "$AC_PASSWORD"
+xcrun altool --notarize-app --primary-bundle-id "com.github.superchig.rolf" --username "$AC_USERNAME" --password "@keychain:altool" --file "$ARTIFACT_ZIP"

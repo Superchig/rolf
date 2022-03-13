@@ -15,9 +15,16 @@ jobs:
     runs-on: macos-11
 
     env:
-      EXEC_PATH: target/aarch64-apple-darwin/release/rolf
-      RELEASE_DIR: rolf-macos-arm
-      ARTIFACT_ZIP: rolf-macos-arm.zip
+      # Used for codesigning executable
+      MACOS_CERTIFICATE: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_BASE64 }}
+      MACOS_CERTIFICATE_PWD: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+      # Used for notarizing artifact
+      AC_PASSWORD: ${{ secrets.AC_PASSWORD }}
+      AC_USERNAME: ${{ secrets.AC_USERNAME }}
+
+      ARM_EXEC_PATH: target/aarch64-apple-darwin/release/rolf
+      ARM_RELEASE_DIR: rolf-macos-arm
+      ARM_ARTIFACT_ZIP: rolf-macos-arm.zip
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -31,45 +38,24 @@ jobs:
         run: |
           rustup target add aarch64-apple-darwin
       
-      - name: Make a macOS 11 build
+      - name: Make a macOS 11 ARM build
         run: |
           cargo build --target aarch64-apple-darwin --release --locked
           ls target/**
-      
+
+      - name: Make a macOS 11 Intel build
+        run: |
+          cargo build --target x86_64-apple-darwin --all --release
+          ls target/**
+
       # https://localazy.com/blog/how-to-automatically-sign-macos-apps-using-github-actions
       # https://artyom.dev/notarizing-go-binaries-for-macos.html
       # https://www.andrewhoefling.com/Blog/Post/how-to-develop-ios-without-a-mac
-      - name: Codesign executable
-        env: 
-          MACOS_CERTIFICATE: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_BASE64 }}
-          MACOS_CERTIFICATE_PWD: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+      - name: Codesign/notarize executable and artifact for ARM
         run: |
-          echo "$MACOS_CERTIFICATE" | base64 --decode > certificate.p12
-          security create-keychain -p "$MACOS_CERTIFICATE_PWD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$MACOS_CERTIFICATE_PWD" build.keychain
-          security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
-          # Show identity info
-          security find-identity -v
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERTIFICATE_PWD" build.keychain
-          # Codesign the application with a hardened runtime
-          /usr/bin/codesign --force -s "Developer ID Application: Christopher Chang (G285BB69RP)" "$EXEC_PATH" -v --options=runtime
-
-      - name: Create artifact
-        run: |
-          mkdir "$RELEASE_DIR"
-          cp "$EXEC_PATH" LICENSE "$RELEASE_DIR"
-          zip "$ARTIFACT_ZIP" -r "$RELEASE_DIR"
-      
-      - name: Notarize artifact
-        env: 
-          AC_PASSWORD: ${{ secrets.AC_PASSWORD }}
-          AC_USERNAME: ${{ secrets.AC_USERNAME }}
-        run: |
-          xcrun altool --store-password-in-keychain-item altool -u "$AC_USERNAME" -p "$AC_PASSWORD"
-          xcrun altool --notarize-app --primary-bundle-id "com.github.superchig.rolf" --username "$AC_USERNAME" --password "@keychain:altool" --file ${{ env.ARTIFACT_ZIP }}
+          ci/sign_notarize_artifact "$ARM_EXEC_PATH" "$ARM_RELEASE_DIR" "$ARM_ARTIFACT_ZIP"
       
       - uses: actions/upload-artifact@v3
         with:
           name: macos-build-arm
-          path: ${{ env.ARTIFACT_ZIP }}
+          path: ${{ env.ARM_ARTIFACT_ZIP }}
