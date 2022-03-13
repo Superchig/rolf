@@ -1118,7 +1118,16 @@ fn enter_entry(
 
         let selected_dir_path = selected_entry_path;
 
-        set_current_dir(selected_dir_path, dir_states, match_positions)?;
+        match set_current_dir(selected_dir_path, dir_states, match_positions) {
+            Ok(_) => (),
+            Err(err) => match err.kind() {
+                io::ErrorKind::PermissionDenied => {
+                    // TODO(Chris): Implement an error message for permission being denied
+                    return Ok(());
+                }
+                _ => panic!("{}", err),
+            }
+        }
 
         match left_paths.get(selected_dir_path) {
             Some(dir_location) => {
