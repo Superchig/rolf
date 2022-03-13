@@ -249,9 +249,6 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
             String::from(file_stem)
         };
 
-        // TODO(Chris): Check if we're currently using the kitty terminal (or anything which
-        // supports its image protocol)
-
         command = "";
 
         match input_mode {
