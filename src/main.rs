@@ -2375,9 +2375,12 @@ async fn preview_image_or_video(
                 if cfg!(windows) {
                     queue!(w, cursor::MoveTo(left_x, 1), style::Print("  "),)?;
                 } else {
+                    // By adding 2, we match the location of lf's Loading...
+                    let inner_left_x = left_x + 2;
+
                     queue!(
                         w,
-                        cursor::MoveTo(left_x + 2, 1), // We add 2 to match the location of lf's Loading...
+                        cursor::MoveTo(inner_left_x, 1),
                         style::Print("          "),
                         cursor::MoveTo(left_x, 1),
                     )?;
