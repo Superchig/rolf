@@ -21,6 +21,10 @@ jobs:
       
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@v1
+        
+      - name: Install Rust (ARM)
+        run: |
+          rustup target add aarch64-apple-darwin
       
       - name: Make a macOS 11 build
         run: cargo build --target aarch64-apple-darwin --release --locked
@@ -38,9 +42,10 @@ jobs:
           security default-keychain -s build.keychain
           security unlock-keychain -p "$MACOS_CERTIFICATE_PWD" build.keychain
           security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          # Show identity info
           security find-identity -v
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERTIFICATE_PWD" build.keychain
-          /usr/bin/codesign --force -s "Developer ID Application: Christopher Chang" target/release/rolf -v
+          /usr/bin/codesign --force -s "Developer ID Application: Christopher Chang (G285BB69RP)" target/release/rolf -v
       
       - name: Notarize executable
         env: 
@@ -52,9 +57,9 @@ jobs:
       
       - name: Create artifact
         run: |
-          zip macos-build.zip target/release/rolf
+          zip macos-build.zip target/release/rolf LICENSE
       
       - uses: actions/upload-artifact@v3
         with:
           name: my-artifact
-          path: target/release/rolf
+          path: macos-build.zip
