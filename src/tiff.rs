@@ -6,7 +6,7 @@
 // https://www.cipa.jp/std/documents/e/DC-X008-Translation-2019-E.pdf
 // https://www.cipa.jp/std/documents/e/DC-008-2012_E.pdf
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct IFDEntry {
     pub tag: EntryTag,
     pub field_type: EntryType,
@@ -200,5 +200,61 @@ mod test {
     #[test]
     fn test_usizeify_n() {
         assert_eq!(usizeify_n(b"\x00\x06\x00\x00", Endian::BigEndian, 2), 6);
+    }
+
+    #[test]
+    fn test_from_slice_big_endian() {
+        let bytes = [
+            0x01, 0x12, 0x0, 0x3, 0x0, 0x0, 0x0, 0x1, 0xde, 0xad, 0xc0, 0xde,
+        ];
+
+        assert_eq!(usizeify(&bytes[0..=1], Endian::BigEndian), 274);
+        assert_eq!(usizeify(&bytes[2..=3], Endian::BigEndian), 3);
+        assert_eq!(usizeify(&bytes[4..=7], Endian::BigEndian), 1);
+        assert_eq!(usizeify(&bytes[8..=11], Endian::BigEndian), 0xdeadc0de);
+
+        let ifd_entry = IFDEntry::from_slice(&bytes, Endian::BigEndian);
+        assert_eq!(
+            ifd_entry,
+            IFDEntry {
+                tag: EntryTag::Orientation,
+                field_type: EntryType::Short,
+                count: 1,
+                // NOTE(Chris): In this case, the first two bytes of the "value offset" will be used as
+                // the value. On page 15 of the TIFF 6.0 specification, it says "the Value Offset
+                // contains the Value instead of pointing to the Value if and only if the Value fits
+                // into 4 bytes." Since we are storing 1 short (and a short is 2 bytes), our value
+                // easily fits into 4 bytes.
+                // NOTE(Chris): For the orientation tag, we would realistically want a value between 0
+                // and 8, inclusive. We use this value instead for the sake of testing.
+                value_offset: 0xdead,
+            }
+        );
+    }
+
+    #[test]
+    fn test_from_slice_little_endian() {
+        let bytes = [
+            0x012, 0x1, 0x3, 0x0, 0x1, 0x0, 0x0, 0x0, 0xad, 0xde, 0x00, 0x00,
+        ];
+
+        assert_eq!(usizeify(&bytes[0..=1], Endian::LittleEndian), 274);
+        assert_eq!(usizeify(&bytes[2..=3], Endian::LittleEndian), 3);
+        assert_eq!(usizeify(&bytes[4..=7], Endian::LittleEndian), 1);
+        // NOTE(Chris): 0xdead == 0x0000dead
+        // NOTE(Chris): This is because we typically write numbers in big-endian.
+        assert_eq!(usizeify_n(&bytes[8..=11], Endian::LittleEndian, 2), 0x0000dead);
+        assert_eq!(usizeify_n(&bytes[8..=11], Endian::LittleEndian, 4), 0x0000dead);
+
+        let ifd_entry = IFDEntry::from_slice(&bytes, Endian::LittleEndian);
+        assert_eq!(
+            ifd_entry,
+            IFDEntry {
+                tag: EntryTag::Orientation,
+                field_type: EntryType::Short,
+                count: 1,
+                value_offset: 0xdead,
+            }
+        );
     }
 }
