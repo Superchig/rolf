@@ -203,6 +203,17 @@ mod test {
     }
 
     #[test]
+    fn test_field_type_byte_count() {
+        // NOTE(Chris): According to the TIFF 6.0 specification page 15, field type 3 is a short
+        // (16-bit unsigned integer)
+        let entry_field_type = EntryType::from_usize(3);
+
+        assert_eq!(entry_field_type, EntryType::Short);
+
+        assert_eq!(entry_field_type.byte_count(), 2);
+    }
+
+    #[test]
     fn test_from_slice_big_endian() {
         let bytes = [
             0x01, 0x12, 0x0, 0x3, 0x0, 0x0, 0x0, 0x1, 0xde, 0xad, 0xc0, 0xde,
