@@ -6,7 +6,6 @@
 // https://www.cipa.jp/std/documents/e/DC-X008-Translation-2019-E.pdf
 // https://www.cipa.jp/std/documents/e/DC-008-2012_E.pdf
 
-
 #[derive(Debug)]
 pub struct IFDEntry {
     pub tag: EntryTag,
