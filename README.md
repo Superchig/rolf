@@ -25,7 +25,8 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 - [x] EXPERIMENTAL: Display image previews on kitty
   - [x] Display images asynchronously
   - [x] Show image thumbnail for videos
-  - [ ] Make ffmpeg an optional dependency
+  - [ ] Allow a configurable external program to be used to obtain preview
+        images for (non-image) files
 - [x] Make symlinks actually usable
 - [x] Fix compiler warnings on latest version of Rust stable
 - [x] Search backwards and forwards
@@ -42,5 +43,3 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 - [ ] Make the file manager way faster
   - [ ] Profile passing DrawingInfo (and possibly ColumnInfo) by reference or
         by copy
-- [ ] Refactor variables into structs, to avoid having massive numbers of
-      parameters to functions
