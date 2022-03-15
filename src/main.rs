@@ -2109,7 +2109,7 @@ async fn preview_uncolored_file(
             queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
 
             if line.len() > max_line_length {
-                writeln!(&mut w, "{}", &line[0..max_line_length])?;
+                writeln!(&mut w, "{}", &line[0..=max_line_length])?;
             } else {
                 writeln!(&mut w, "{}", line)?;
             }
