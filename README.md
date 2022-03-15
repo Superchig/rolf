@@ -33,10 +33,10 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 - [x] Display directory preview asynchronously
 - [x] Preview text (source) files asynchronously
 - [x] Build successfully on Windows at all
-- [ ] Display images successfully on Windows (with capable terminal)
+- [x] Display images successfully on Windows (with capable terminal)
 
 # Long-term TODO (May Never Happen)
-- [ ] Add Windows support
+- [x] Add Windows support
 - [ ] Implement our own png and jpeg decoders
 - [x] Use the kitty protocol (and possibly other terminal image protocols)
       directly for image previews
