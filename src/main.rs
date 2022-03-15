@@ -2099,6 +2099,8 @@ async fn preview_uncolored_file(
             queue!(&mut w, style::Print(' '))?;
         }
 
+        let max_line_length = (right_x - inner_left_x) as usize;
+
         for line in io::BufReader::new(file)
             .lines()
             .take(drawing_info.column_height as usize)
@@ -2106,7 +2108,11 @@ async fn preview_uncolored_file(
         {
             queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
 
-            writeln!(&mut w, "{}", line)?;
+            if line.len() > max_line_length {
+                writeln!(&mut w, "{}", &line[0..max_line_length])?;
+            } else {
+                writeln!(&mut w, "{}", line)?;
+            }
 
             curr_y += 1;
         }
