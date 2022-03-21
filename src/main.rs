@@ -52,7 +52,7 @@ use crossterm::{
     terminal::{self, ClearType},
 };
 
-use rolf_parser::parser::{parse, Parser, lex, Scanner, Program, Statement};
+use rolf_parser::parser::{lex, parse, Parser, Program, Scanner, Statement};
 
 // TODO(Chris): Make this configurable rather than hard-coding the constant
 const SCROLL_OFFSET: u16 = 10;
@@ -105,12 +105,10 @@ fn main() -> crossterm::Result<()> {
             // FIXME(Chris): Handle error here
             parse(&mut Parser::new(tokens)).unwrap()
         }
-        Err(err) => {
-            match err.kind() {
-                io::ErrorKind::NotFound => vec![],
-                _ => panic!("Error opening config file: {}", err),
-            }
-        }
+        Err(err) => match err.kind() {
+            io::ErrorKind::NotFound => vec![],
+            _ => panic!("Error opening config file: {}", err),
+        },
     };
 
     terminal::enable_raw_mode()?;
@@ -147,18 +145,16 @@ fn main() -> crossterm::Result<()> {
 }
 
 // Returns the path to the last dir
-fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf> {
+fn run(
+    w: &mut io::Stdout,
+    config: &mut Config,
+    config_ast: &Program,
+) -> crossterm::Result<PathBuf> {
     let user_name = whoami::username();
 
     let host_name = whoami::hostname();
 
     let home_name = os_abstract::get_home_name();
-
-    let mut available_execs: HashMap<&str, std::path::PathBuf> = HashMap::new();
-
-    insert_executable(&mut available_execs, "highlight");
-
-    insert_executable(&mut available_execs, "ffmpeg");
 
     let home_path = Path::new(&home_name[..]);
 
@@ -170,45 +166,57 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
         .build()
         .unwrap();
 
-    let mut image_handles = vec![];
+    let mut fm = FileManager {
+        available_execs: {
+            let mut available_execs: HashMap<&str, std::path::PathBuf> = HashMap::new();
 
-    let mut dir_states = DirStates::new()?;
+            insert_executable(&mut available_execs, "highlight");
 
-    let mut second = ColumnInfo {
-        starting_index: 0,
-        display_offset: 0,
+            insert_executable(&mut available_execs, "ffmpeg");
+
+            available_execs
+        },
+
+        image_handles: vec![],
+
+        dir_states: DirStates::new()?,
+
+        second: ColumnInfo {
+            starting_index: 0,
+            display_offset: 0,
+        },
+
+        left_paths: HashMap::new(),
+
+        match_positions: vec![],
+
+        should_search_forwards: true,
+
+        input_line: String::new(),
+
+        input_mode: InputMode::Normal,
+
+        user_host_display: format!("{}@{}", user_name, host_name),
+
+        // Keys are paths, values are indices in their directory
+        selections: HashMap::new(),
+
+        drawing_info: DrawingInfo {
+            win_pixels: os_abstract::get_win_pixels()?,
+            width: 0,
+            height: 0,
+            column_bot_y: 0,
+            column_height: 0,
+            first_left_x: 0,
+            first_right_x: 0,
+            second_left_x: 0,
+            second_right_x: 0,
+            third_left_x: 0,
+            third_right_x: 0,
+        },
     };
 
-    let mut left_paths: HashMap<std::path::PathBuf, DirLocation> = HashMap::new();
-
-    let mut match_positions: Vec<usize> = vec![];
-
-    let mut should_search_forwards = true;
-
-    let mut input_line = String::new();
-
-    let mut input_mode = InputMode::Normal;
-
-    let user_host_display = format!("{}@{}", user_name, host_name);
-
-    // Keys are paths, values are indices in their directory
-    let mut selections: SelectionsMap = HashMap::new();
-
-    let mut drawing_info = DrawingInfo {
-        win_pixels: os_abstract::get_win_pixels()?,
-        width: 0,
-        height: 0,
-        column_bot_y: 0,
-        column_height: 0,
-        first_left_x: 0,
-        first_right_x: 0,
-        second_left_x: 0,
-        second_right_x: 0,
-        third_left_x: 0,
-        third_right_x: 0,
-    };
-
-    update_drawing_info_from_resize(&mut drawing_info)?;
+    update_drawing_info_from_resize(&mut fm.drawing_info)?;
 
     // Queue everything for the first time
     {
@@ -216,17 +224,17 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
         queue_all_columns(
             &mut stdout_lock,
             &runtime,
-            &mut image_handles,
-            &dir_states,
-            &left_paths,
-            &available_execs,
-            drawing_info,
-            second,
-            &selections,
+            &mut fm.image_handles,
+            &fm.dir_states,
+            &fm.left_paths,
+            &fm.available_execs,
+            fm.drawing_info,
+            fm.second,
+            &fm.selections,
             config,
         )?;
         if cfg!(windows) {
-            abort_image_handles(&mut image_handles); // Avoid double-draw on Windows
+            abort_image_handles(&mut fm.image_handles); // Avoid double-draw on Windows
         }
     }
 
@@ -236,17 +244,17 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
 
     // Main input loop
     loop {
-        let second_entry_index = second.starting_index + second.display_offset;
+        let second_entry_index = fm.second.starting_index + fm.second.display_offset;
 
-        let second_bottom_index = second.starting_index + drawing_info.column_height;
+        let second_bottom_index = fm.second.starting_index + fm.drawing_info.column_height;
 
-        let current_dir_display = format_current_dir(&dir_states, home_path);
+        let current_dir_display = format_current_dir(&fm.dir_states, home_path);
 
         let curr_entry;
-        let file_stem = if dir_states.current_entries.len() <= 0 {
+        let file_stem = if fm.dir_states.current_entries.len() <= 0 {
             ""
         } else {
-            curr_entry = dir_states.current_entries[second_entry_index as usize]
+            curr_entry = fm.dir_states.current_entries[second_entry_index as usize]
                 .dir_entry
                 .file_name();
             curr_entry.to_str().unwrap()
@@ -255,8 +263,8 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
         // TODO(Chris): Use the unicode-segmentation package to count graphemes
         // Add 1 because of the ':' that is displayed after user_host_display
         // Add 1 again because of the '/' that is displayed at the end of current_dir_display
-        let remaining_width = drawing_info.width as usize
-            - (user_host_display.len() + 1 + current_dir_display.len() + 1);
+        let remaining_width = fm.drawing_info.width as usize
+            - (fm.user_host_display.len() + 1 + current_dir_display.len() + 1);
 
         let file_stem = if file_stem.len() > remaining_width {
             String::from(&file_stem[..remaining_width])
@@ -277,7 +285,7 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
 
         command = "";
 
-        match input_mode {
+        match fm.input_mode {
             InputMode::Normal => {
                 {
                     let mut stdout_lock = w.lock();
@@ -288,7 +296,7 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
                         terminal::Clear(ClearType::CurrentLine),
                         style::SetForegroundColor(Color::DarkGreen),
                         style::SetAttribute(Attribute::Bold),
-                        style::Print(&user_host_display),
+                        style::Print(&fm.user_host_display),
                         style::SetForegroundColor(Color::White),
                         style::Print(":"),
                         style::SetForegroundColor(Color::DarkBlue),
@@ -318,16 +326,16 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
                 let line_from_user = get_cmd_line_input(
                     w,
                     ":",
-                    &mut input_line,
-                    &mut drawing_info,
-                    &dir_states,
-                    &mut second,
-                    &mut input_mode,
+                    &mut fm.input_line,
+                    &mut fm.drawing_info,
+                    &fm.dir_states,
+                    &mut fm.second,
+                    &mut fm.input_mode,
                     &runtime,
-                    &mut image_handles,
-                    &mut left_paths,
-                    &available_execs,
-                    &selections,
+                    &mut fm.image_handles,
+                    &mut fm.left_paths,
+                    &fm.available_execs,
+                    &fm.selections,
                     config,
                 )?;
 
@@ -344,28 +352,28 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
                                 if spaced_words.len() == 2 {
                                     let search_term = spaced_words[1];
 
-                                    match_positions = find_match_positions(
-                                        &dir_states.current_entries,
+                                    fm.match_positions = find_match_positions(
+                                        &fm.dir_states.current_entries,
                                         search_term,
                                     );
 
-                                    should_search_forwards = true;
+                                    fm.should_search_forwards = true;
 
                                     let mut stdout_lock = w.lock();
 
                                     queue_search_jump(
                                         &mut stdout_lock,
-                                        &match_positions,
+                                        &fm.match_positions,
                                         &runtime,
-                                        &mut image_handles,
-                                        &dir_states,
-                                        &left_paths,
-                                        &available_execs,
-                                        should_search_forwards,
-                                        drawing_info,
-                                        &mut second,
-                                        drawing_info.second_left_x,
-                                        &selections,
+                                        &mut fm.image_handles,
+                                        &fm.dir_states,
+                                        &fm.left_paths,
+                                        &fm.available_execs,
+                                        fm.should_search_forwards,
+                                        fm.drawing_info,
+                                        &mut fm.second,
+                                        fm.drawing_info.second_left_x,
+                                        &fm.selections,
                                         config,
                                     )?;
                                 }
@@ -374,58 +382,58 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
                                 if spaced_words.len() == 2 {
                                     let search_term = spaced_words[1];
 
-                                    match_positions = find_match_positions(
-                                        &dir_states.current_entries,
+                                    fm.match_positions = find_match_positions(
+                                        &fm.dir_states.current_entries,
                                         search_term,
                                     );
 
-                                    should_search_forwards = false;
+                                    fm.should_search_forwards = false;
 
                                     let mut stdout_lock = w.lock();
 
                                     queue_search_jump(
                                         &mut stdout_lock,
-                                        &match_positions,
+                                        &fm.match_positions,
                                         &runtime,
-                                        &mut image_handles,
-                                        &dir_states,
-                                        &left_paths,
-                                        &available_execs,
-                                        should_search_forwards,
-                                        drawing_info,
-                                        &mut second,
-                                        drawing_info.second_left_x,
-                                        &selections,
+                                        &mut fm.image_handles,
+                                        &fm.dir_states,
+                                        &fm.left_paths,
+                                        &fm.available_execs,
+                                        fm.should_search_forwards,
+                                        fm.drawing_info,
+                                        &mut fm.second,
+                                        fm.drawing_info.second_left_x,
+                                        &fm.selections,
                                         config,
                                     )?;
                                 }
                             }
                             "rename" => {
                                 // Get the full path of the current file
-                                let current_file = &dir_states.current_entries
+                                let current_file = &fm.dir_states.current_entries
                                     [second_entry_index as usize]
                                     .dir_entry;
                                 let current_file_path = current_file.path();
 
                                 // TODO(Chris): Get rid of these unwrap calls (at least the OsStr
                                 // to str conversion one)
-                                input_line.push_str(
+                                fm.input_line.push_str(
                                     current_file_path.file_name().unwrap().to_str().unwrap(),
                                 );
 
                                 let new_name = get_cmd_line_input(
                                     w,
                                     "Rename: ",
-                                    &mut input_line,
-                                    &mut drawing_info,
-                                    &dir_states,
-                                    &mut second,
-                                    &mut input_mode,
+                                    &mut fm.input_line,
+                                    &mut fm.drawing_info,
+                                    &fm.dir_states,
+                                    &mut fm.second,
+                                    &mut fm.input_mode,
                                     &runtime,
-                                    &mut image_handles,
-                                    &mut left_paths,
-                                    &available_execs,
-                                    &selections,
+                                    &mut fm.image_handles,
+                                    &mut fm.left_paths,
+                                    &fm.available_execs,
+                                    &fm.selections,
                                     config,
                                 )?;
 
@@ -437,13 +445,13 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
                                     fs::rename(current_file_path, new_file_path)?;
 
                                     set_current_dir(
-                                        dir_states.current_dir.clone(),
-                                        &mut dir_states,
-                                        &mut match_positions,
+                                        fm.dir_states.current_dir.clone(),
+                                        &mut fm.dir_states,
+                                        &mut fm.match_positions,
                                     )?;
 
-                                    match_positions = find_match_positions(
-                                        &dir_states.current_entries,
+                                    fm.match_positions = find_match_positions(
+                                        &fm.dir_states.current_entries,
                                         &new_name,
                                     );
 
@@ -451,17 +459,17 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
 
                                     queue_search_jump(
                                         &mut stdout_lock,
-                                        &match_positions,
+                                        &fm.match_positions,
                                         &runtime,
-                                        &mut image_handles,
-                                        &dir_states,
-                                        &left_paths,
-                                        &available_execs,
-                                        should_search_forwards,
-                                        drawing_info,
-                                        &mut second,
-                                        drawing_info.second_left_x,
-                                        &selections,
+                                        &mut fm.image_handles,
+                                        &fm.dir_states,
+                                        &fm.left_paths,
+                                        &fm.available_execs,
+                                        fm.should_search_forwards,
+                                        fm.drawing_info,
+                                        &mut fm.second,
+                                        fm.drawing_info.second_left_x,
+                                        &fm.selections,
                                         config,
                                     )?;
                                 }
@@ -494,86 +502,86 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
                 break;
             }
             "down" => {
-                if !dir_states.current_entries.is_empty()
-                    && (second_entry_index as usize) < dir_states.current_entries.len() - 1
+                if !fm.dir_states.current_entries.is_empty()
+                    && (second_entry_index as usize) < fm.dir_states.current_entries.len() - 1
                 {
-                    abort_image_handles(&mut image_handles);
+                    abort_image_handles(&mut fm.image_handles);
 
-                    let old_starting_index = second.starting_index;
-                    let old_display_offset = second.display_offset;
+                    let old_starting_index = fm.second.starting_index;
+                    let old_display_offset = fm.second.display_offset;
 
-                    if second.display_offset >= (drawing_info.column_height - SCROLL_OFFSET - 1)
-                        && (second_bottom_index as usize) < dir_states.current_entries.len()
+                    if fm.second.display_offset >= (fm.drawing_info.column_height - SCROLL_OFFSET - 1)
+                        && (second_bottom_index as usize) < fm.dir_states.current_entries.len()
                     {
-                        second.starting_index += 1;
+                        fm.second.starting_index += 1;
                     } else if second_entry_index < second_bottom_index {
-                        second.display_offset += 1;
+                        fm.second.display_offset += 1;
                     }
 
                     queue_entry_changed(
                         &mut stdout_lock,
                         &runtime,
-                        &mut image_handles,
-                        &dir_states,
-                        &left_paths,
-                        &available_execs,
-                        drawing_info,
+                        &mut fm.image_handles,
+                        &fm.dir_states,
+                        &fm.left_paths,
+                        &fm.available_execs,
+                        fm.drawing_info,
                         old_starting_index,
                         old_display_offset,
-                        second,
-                        drawing_info.second_left_x,
-                        &selections,
+                        fm.second,
+                        fm.drawing_info.second_left_x,
+                        &fm.selections,
                         config,
                     )?;
                 }
             }
             "up" => {
-                if !dir_states.current_entries.is_empty() {
-                    abort_image_handles(&mut image_handles);
+                if !fm.dir_states.current_entries.is_empty() {
+                    abort_image_handles(&mut fm.image_handles);
 
-                    let old_starting_index = second.starting_index;
-                    let old_display_offset = second.display_offset;
+                    let old_starting_index = fm.second.starting_index;
+                    let old_display_offset = fm.second.display_offset;
 
-                    if second.display_offset <= (SCROLL_OFFSET) && second.starting_index > 0 {
-                        second.starting_index -= 1;
+                    if fm.second.display_offset <= (SCROLL_OFFSET) && fm.second.starting_index > 0 {
+                        fm.second.starting_index -= 1;
                     } else if second_entry_index > 0 {
-                        second.display_offset -= 1;
+                        fm.second.display_offset -= 1;
                     }
 
                     queue_entry_changed(
                         &mut stdout_lock,
                         &runtime,
-                        &mut image_handles,
-                        &dir_states,
-                        &left_paths,
-                        &available_execs,
-                        drawing_info,
+                        &mut fm.image_handles,
+                        &fm.dir_states,
+                        &fm.left_paths,
+                        &fm.available_execs,
+                        fm.drawing_info,
                         old_starting_index,
                         old_display_offset,
-                        second,
-                        drawing_info.second_left_x,
-                        &selections,
+                        fm.second,
+                        fm.drawing_info.second_left_x,
+                        &fm.selections,
                         config,
                     )?;
                 }
             }
             "updir" => {
-                abort_image_handles(&mut image_handles);
+                abort_image_handles(&mut fm.image_handles);
 
-                let old_current_dir = dir_states.current_dir.clone();
-                if !dir_states.current_entries.is_empty() {
-                    save_location(&mut left_paths, &dir_states, second_entry_index, second);
+                let old_current_dir = fm.dir_states.current_dir.clone();
+                if !fm.dir_states.current_entries.is_empty() {
+                    save_location(&mut fm.left_paths, &fm.dir_states, second_entry_index, fm.second);
                 }
 
-                if let Some(parent_dir) = dir_states.prev_dir.clone() {
-                    set_current_dir(parent_dir, &mut dir_states, &mut match_positions)?;
+                if let Some(parent_dir) = fm.dir_states.prev_dir.clone() {
+                    set_current_dir(parent_dir, &mut fm.dir_states, &mut fm.match_positions)?;
                 }
 
-                second = find_correct_location(
-                    &left_paths,
-                    drawing_info.column_height,
-                    &dir_states.current_dir,
-                    &dir_states.current_entries,
+                fm.second = find_correct_location(
+                    &fm.left_paths,
+                    fm.drawing_info.column_height,
+                    &fm.dir_states.current_dir,
+                    &fm.dir_states.current_entries,
                     &old_current_dir,
                 );
 
@@ -584,13 +592,13 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
                 queue_all_columns(
                     &mut stdout_lock,
                     &runtime,
-                    &mut image_handles,
-                    &dir_states,
-                    &left_paths,
-                    &available_execs,
-                    drawing_info,
-                    second,
-                    &selections,
+                    &mut fm.image_handles,
+                    &fm.dir_states,
+                    &fm.left_paths,
+                    &fm.available_execs,
+                    fm.drawing_info,
+                    fm.second,
+                    &fm.selections,
                     config,
                 )?;
             }
@@ -598,15 +606,15 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
                 enter_entry(
                     &mut stdout_lock,
                     &runtime,
-                    &mut image_handles,
-                    &available_execs,
-                    &mut dir_states,
-                    &mut match_positions,
-                    &mut left_paths,
-                    drawing_info,
+                    &mut fm.image_handles,
+                    &fm.available_execs,
+                    &mut fm.dir_states,
+                    &mut fm.match_positions,
+                    &mut fm.left_paths,
+                    fm.drawing_info,
                     second_entry_index,
-                    &mut second,
-                    &selections,
+                    &mut fm.second,
+                    &fm.selections,
                     config,
                 )?;
             }
@@ -627,7 +635,7 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
                 // match statement early, but labeling blocks is still in unstable,
                 // as seen in https://github.com/rust-lang/rust/issues/48594
                 if !editor.is_empty() {
-                    let selected_entry = &dir_states.current_entries[second_entry_index as usize];
+                    let selected_entry = &fm.dir_states.current_entries[second_entry_index as usize];
 
                     let shell_command = format!(
                         "{} {}",
@@ -652,194 +660,220 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
                     queue_all_columns(
                         &mut stdout_lock,
                         &runtime,
-                        &mut image_handles,
-                        &dir_states,
-                        &left_paths,
-                        &available_execs,
-                        drawing_info,
-                        second,
-                        &selections,
+                        &mut fm.image_handles,
+                        &fm.dir_states,
+                        &fm.left_paths,
+                        &fm.available_execs,
+                        fm.drawing_info,
+                        fm.second,
+                        &fm.selections,
                         config,
                     )?;
                 }
             }
             "top" => {
-                if !dir_states.current_entries.is_empty() {
-                    abort_image_handles(&mut image_handles);
+                if !fm.dir_states.current_entries.is_empty() {
+                    abort_image_handles(&mut fm.image_handles);
 
-                    let old_starting_index = second.starting_index;
-                    let old_display_offset = second.display_offset;
+                    let old_starting_index = fm.second.starting_index;
+                    let old_display_offset = fm.second.display_offset;
 
-                    second.starting_index = 0;
-                    second.display_offset = 0;
+                    fm.second.starting_index = 0;
+                    fm.second.display_offset = 0;
 
                     update_entries_column(
                         &mut stdout_lock,
-                        drawing_info.second_left_x,
-                        drawing_info.second_right_x,
-                        drawing_info.column_bot_y,
-                        &dir_states.current_entries,
+                        fm.drawing_info.second_left_x,
+                        fm.drawing_info.second_right_x,
+                        fm.drawing_info.column_bot_y,
+                        &fm.dir_states.current_entries,
                         old_display_offset,
                         old_starting_index,
-                        second,
-                        &selections,
+                        fm.second,
+                        &fm.selections,
                     )?;
 
                     queue_third_column(
                         &mut stdout_lock,
                         &runtime,
-                        &mut image_handles,
-                        &dir_states,
-                        &left_paths,
-                        &available_execs,
-                        drawing_info,
-                        (second.starting_index + second.display_offset) as usize,
-                        &selections,
+                        &mut fm.image_handles,
+                        &fm.dir_states,
+                        &fm.left_paths,
+                        &fm.available_execs,
+                        fm.drawing_info,
+                        (fm.second.starting_index + fm.second.display_offset) as usize,
+                        &fm.selections,
                         config,
                     )?;
 
-                    queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
+                    queue_bottom_info_line(&mut stdout_lock, fm.drawing_info, fm.second, &fm.dir_states)?;
                 }
             }
             "bottom" => {
-                if !dir_states.current_entries.is_empty() {
-                    abort_image_handles(&mut image_handles);
+                if !fm.dir_states.current_entries.is_empty() {
+                    abort_image_handles(&mut fm.image_handles);
 
-                    let old_starting_index = second.starting_index;
-                    let old_display_offset = second.display_offset;
+                    let old_starting_index = fm.second.starting_index;
+                    let old_display_offset = fm.second.display_offset;
 
-                    if dir_states.current_entries.len() <= (drawing_info.column_height as usize) {
-                        second.starting_index = 0;
-                        second.display_offset = dir_states.current_entries.len() as u16 - 1;
+                    if fm.dir_states.current_entries.len() <= (fm.drawing_info.column_height as usize) {
+                        fm.second.starting_index = 0;
+                        fm.second.display_offset = fm.dir_states.current_entries.len() as u16 - 1;
                     } else {
-                        second.display_offset = drawing_info.column_height - 1;
-                        second.starting_index =
-                            dir_states.current_entries.len() as u16 - second.display_offset - 1;
+                        fm.second.display_offset = fm.drawing_info.column_height - 1;
+                        fm.second.starting_index =
+                            fm.dir_states.current_entries.len() as u16 - fm.second.display_offset - 1;
                     }
 
                     update_entries_column(
                         &mut stdout_lock,
-                        drawing_info.second_left_x,
-                        drawing_info.second_right_x,
-                        drawing_info.column_bot_y,
-                        &dir_states.current_entries,
+                        fm.drawing_info.second_left_x,
+                        fm.drawing_info.second_right_x,
+                        fm.drawing_info.column_bot_y,
+                        &fm.dir_states.current_entries,
                         old_display_offset,
                         old_starting_index,
-                        second,
-                        &selections,
+                        fm.second,
+                        &fm.selections,
                     )?;
 
                     queue_third_column(
                         &mut stdout_lock,
                         &runtime,
-                        &mut image_handles,
-                        &dir_states,
-                        &left_paths,
-                        &available_execs,
-                        drawing_info,
-                        (second.starting_index + second.display_offset) as usize,
-                        &selections,
+                        &mut fm.image_handles,
+                        &fm.dir_states,
+                        &fm.left_paths,
+                        &fm.available_execs,
+                        fm.drawing_info,
+                        (fm.second.starting_index + fm.second.display_offset) as usize,
+                        &fm.selections,
                         config,
                     )?;
 
-                    queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
+                    queue_bottom_info_line(&mut stdout_lock, fm.drawing_info, fm.second, &fm.dir_states)?;
                 }
             }
             "search" => {
-                assert!(input_line.len() <= 0);
+                assert!(fm.input_line.len() <= 0);
 
-                input_line.push_str("search ");
+                fm.input_line.push_str("search ");
 
-                input_mode = InputMode::Command;
+                fm.input_mode = InputMode::Command;
             }
             "search-back" => {
-                assert!(input_line.len() <= 0);
+                assert!(fm.input_line.len() <= 0);
 
-                input_line.push_str("search-back ");
+                fm.input_line.push_str("search-back ");
 
-                input_mode = InputMode::Command;
+                fm.input_mode = InputMode::Command;
             }
             "search-next" => {
                 queue_search_jump(
                     &mut stdout_lock,
-                    &match_positions,
+                    &fm.match_positions,
                     &runtime,
-                    &mut image_handles,
-                    &dir_states,
-                    &left_paths,
-                    &available_execs,
-                    should_search_forwards,
-                    drawing_info,
-                    &mut second,
-                    drawing_info.second_left_x,
-                    &selections,
+                    &mut fm.image_handles,
+                    &fm.dir_states,
+                    &fm.left_paths,
+                    &fm.available_execs,
+                    fm.should_search_forwards,
+                    fm.drawing_info,
+                    &mut fm.second,
+                    fm.drawing_info.second_left_x,
+                    &fm.selections,
                     config,
                 )?;
             }
             "search-prev" => {
                 queue_search_jump(
                     &mut stdout_lock,
-                    &match_positions,
+                    &fm.match_positions,
                     &runtime,
-                    &mut image_handles,
-                    &dir_states,
-                    &left_paths,
-                    &available_execs,
-                    !should_search_forwards,
-                    drawing_info,
-                    &mut second,
-                    drawing_info.second_left_x,
-                    &selections,
+                    &mut fm.image_handles,
+                    &fm.dir_states,
+                    &fm.left_paths,
+                    &fm.available_execs,
+                    !fm.should_search_forwards,
+                    fm.drawing_info,
+                    &mut fm.second,
+                    fm.drawing_info.second_left_x,
+                    &fm.selections,
                     config,
                 )?;
             }
             "toggle" => {
-                let selected_entry = &dir_states.current_entries[second_entry_index as usize];
+                let selected_entry = &fm.dir_states.current_entries[second_entry_index as usize];
 
                 let entry_path = selected_entry.dir_entry.path();
 
-                let remove = selections.remove(&entry_path);
+                let remove = fm.selections.remove(&entry_path);
                 if remove.is_none() {
-                    selections.insert(entry_path, second_entry_index as usize);
+                    fm.selections.insert(entry_path, second_entry_index as usize);
                 }
 
                 let mut stdout_lock = w.lock();
 
                 queue_full_entry(
                     &mut stdout_lock,
-                    &dir_states.current_entries,
-                    drawing_info.second_left_x,
-                    drawing_info.second_right_x,
-                    second.display_offset,
-                    second.starting_index,
-                    &selections,
+                    &fm.dir_states.current_entries,
+                    fm.drawing_info.second_left_x,
+                    fm.drawing_info.second_right_x,
+                    fm.second.display_offset,
+                    fm.second.starting_index,
+                    &fm.selections,
                     true,
                 )?;
             }
             "redraw" => {
                 redraw_upper(
                     &mut stdout_lock,
-                    &mut drawing_info,
+                    &mut fm.drawing_info,
                     &runtime,
-                    &mut image_handles,
-                    &dir_states,
-                    &left_paths,
-                    &available_execs,
-                    second,
-                    &selections,
+                    &mut fm.image_handles,
+                    &fm.dir_states,
+                    &fm.left_paths,
+                    &fm.available_execs,
+                    fm.second,
+                    &fm.selections,
                     config,
                 )?;
 
-                queue_bottom_info_line(&mut stdout_lock, drawing_info, second, &dir_states)?;
+                queue_bottom_info_line(&mut stdout_lock, fm.drawing_info, fm.second, &fm.dir_states)?;
             }
             "read" => {
-                input_mode = InputMode::Command;
+                fm.input_mode = InputMode::Command;
             }
             _ => (),
         }
     }
 
-    Ok(dir_states.current_dir)
+    Ok(fm.dir_states.current_dir)
+}
+
+struct FileManager<'a> {
+    available_execs: HashMap<&'a str, std::path::PathBuf>,
+
+    image_handles: HandlesVec,
+
+    dir_states: DirStates,
+
+    second: ColumnInfo,
+
+    left_paths: HashMap<std::path::PathBuf, DirLocation>,
+
+    match_positions: Vec<usize>,
+
+    should_search_forwards: bool,
+
+    input_line: String,
+
+    input_mode: InputMode,
+
+    user_host_display: String,
+
+    selections: SelectionsMap,
+
+    drawing_info: DrawingInfo,
 }
 
 enum InputMode {
