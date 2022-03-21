@@ -52,6 +52,8 @@ use crossterm::{
     terminal::{self, ClearType},
 };
 
+use rolf_parser::parser::{parse, Parser, lex, Scanner, Program, Statement};
+
 // TODO(Chris): Make this configurable rather than hard-coding the constant
 const SCROLL_OFFSET: u16 = 10;
 
@@ -96,6 +98,21 @@ fn main() -> crossterm::Result<()> {
         }
     }
 
+    let ast = match fs::read_to_string("rolfrc") {
+        Ok(config_text) => {
+            // FIXME(Chris): Handle error here
+            let tokens = lex(&mut Scanner::new(&config_text)).unwrap();
+            // FIXME(Chris): Handle error here
+            parse(&mut Parser::new(tokens)).unwrap()
+        }
+        Err(err) => {
+            match err.kind() {
+                io::ErrorKind::NotFound => vec![],
+                _ => panic!("Error opening config file: {}", err),
+            }
+        }
+    };
+
     terminal::enable_raw_mode()?;
 
     queue!(
@@ -106,7 +123,7 @@ fn main() -> crossterm::Result<()> {
         cursor::Hide,
     )?;
 
-    let result = run(&mut w, &config);
+    let result = run(&mut w, &mut config, &ast);
 
     execute!(
         w,
@@ -130,7 +147,7 @@ fn main() -> crossterm::Result<()> {
 }
 
 // Returns the path to the last dir
-fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
+fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf> {
     let user_name = whoami::username();
 
     let host_name = whoami::hostname();
@@ -219,6 +236,8 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
 
     let mut command;
 
+    let mut command_queue = (*config_ast).clone();
+
     // Main input loop
     loop {
         let second_entry_index = second.starting_index + second.display_offset;
@@ -248,6 +267,17 @@ fn run(w: &mut io::Stdout, config: &Config) -> crossterm::Result<PathBuf> {
         } else {
             String::from(file_stem)
         };
+
+        for stm in &command_queue {
+            match stm {
+                Statement::Map(map) => {
+                    let key_event = config::to_key(&map.key.key);
+                    config.keybindings.insert(key_event, map.cmd_name.clone());
+                }
+            }
+        }
+
+        command_queue.clear();
 
         command = "";
 

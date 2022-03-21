@@ -571,12 +571,17 @@ dependencies = [
  "libc",
  "nanoserde",
  "open",
+ "rolf-parser",
  "tempfile",
  "tokio",
  "which",
  "whoami",
  "windows",
 ]
+
+[[package]]
+name = "rolf-parser"
+version = "0.1.0"
 
 [[package]]
 name = "scoped_threadpool"

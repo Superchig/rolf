@@ -129,7 +129,7 @@ fn add_raw_binding(key_bindings: &mut Vec<KeyBinding>, key: &str, command: &str)
     });
 }
 
-fn to_key(key_s: &str) -> KeyEvent {
+pub fn to_key(key_s: &str) -> KeyEvent {
     let mut modifiers = KeyModifiers::NONE;
     let tokens: Vec<&str> = key_s.split('+').collect();
     for token in &tokens {

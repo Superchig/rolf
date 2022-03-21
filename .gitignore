@@ -29,5 +29,6 @@ Wezterm/
 Wezterm*.zip
 
 config.json
+rolfrc
 
 Start-Ssh.ps1
