@@ -1302,19 +1302,18 @@ fn queue_cleanup_cmd_line_exit(
 
     queue_bottom_info_line(stdout_lock, fm)?;
 
-    cleanup_cmd_line_exit(stdout_lock, &mut fm.input_line, &mut fm.input_mode)?;
+    cleanup_cmd_line_exit(stdout_lock, fm)?;
 
     Ok(result)
 }
 
 fn cleanup_cmd_line_exit(
     stdout_lock: &mut StdoutLock,
-    input_line: &mut String,
-    input_mode: &mut InputMode,
+    fm: &mut FileManager,
 ) -> io::Result<()> {
     stdout_lock.flush()?;
-    input_line.clear();
-    *input_mode = InputMode::Normal;
+    fm.input_line.clear();
+    fm.input_mode = InputMode::Normal;
 
     Ok(())
 }
