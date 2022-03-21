@@ -689,12 +689,16 @@ fn run(
                 )?;
             }
             "search-prev" => {
+                fm.should_search_forwards = !fm.should_search_forwards;
+
                 queue_search_jump(
                     &mut stdout_lock,
                     &runtime,
                     &mut fm,
                     config,
                 )?;
+
+                fm.should_search_forwards = !fm.should_search_forwards;
             }
             "toggle" => {
                 let selected_entry = &fm.dir_states.current_entries[second_entry_index as usize];
