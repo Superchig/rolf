@@ -230,10 +230,6 @@ fn run(w: &mut io::Stdout, config: &mut Config, config_ast: &Program) -> crosste
         }
     }
 
-    // FIXME(Chris): Implement file selection
-    // FIXME(Chris): Implement "generic" image reader
-    // FIXME(Chris): Implement some form of config file to store image reader path
-
     let mut command;
 
     let mut command_queue = (*config_ast).clone();
@@ -2369,7 +2365,6 @@ async fn preview_image_or_video(
 
     let rgba = img.to_rgba8();
 
-    // FIXME(Chris): Refactor to repeat yourself less
     match image_protocol {
         ImageProtocol::Kitty => {
             let raw_img = rgba.as_raw();
