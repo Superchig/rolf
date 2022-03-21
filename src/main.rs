@@ -224,13 +224,7 @@ fn run(
         queue_all_columns(
             &mut stdout_lock,
             &runtime,
-            &mut fm.image_handles,
-            &fm.dir_states,
-            &fm.left_paths,
-            &fm.available_execs,
-            fm.drawing_info,
-            fm.second,
-            &fm.selections,
+            &mut fm,
             config,
         )?;
         if cfg!(windows) {
@@ -592,13 +586,7 @@ fn run(
                 queue_all_columns(
                     &mut stdout_lock,
                     &runtime,
-                    &mut fm.image_handles,
-                    &fm.dir_states,
-                    &fm.left_paths,
-                    &fm.available_execs,
-                    fm.drawing_info,
-                    fm.second,
-                    &fm.selections,
+                    &mut fm,
                     config,
                 )?;
             }
@@ -606,15 +594,8 @@ fn run(
                 enter_entry(
                     &mut stdout_lock,
                     &runtime,
-                    &mut fm.image_handles,
-                    &fm.available_execs,
-                    &mut fm.dir_states,
-                    &mut fm.match_positions,
-                    &mut fm.left_paths,
-                    fm.drawing_info,
+                    &mut fm,
                     second_entry_index,
-                    &mut fm.second,
-                    &fm.selections,
                     config,
                 )?;
             }
@@ -660,13 +641,7 @@ fn run(
                     queue_all_columns(
                         &mut stdout_lock,
                         &runtime,
-                        &mut fm.image_handles,
-                        &fm.dir_states,
-                        &fm.left_paths,
-                        &fm.available_execs,
-                        fm.drawing_info,
-                        fm.second,
-                        &fm.selections,
+                        &mut fm,
                         config,
                     )?;
                 }
@@ -1148,28 +1123,21 @@ fn set_current_dir<P: AsRef<Path>>(
 fn enter_entry(
     stdout_lock: &mut StdoutLock,
     runtime: &Runtime,
-    image_handles: &mut Vec<DrawHandle>,
-    available_execs: &HashMap<&str, std::path::PathBuf>,
-    dir_states: &mut DirStates,
-    match_positions: &mut Vec<usize>,
-    left_paths: &mut HashMap<std::path::PathBuf, DirLocation>,
-    drawing_info: DrawingInfo,
+    fm: &mut FileManager,
     second_entry_index: u16,
-    second: &mut ColumnInfo,
-    selections: &SelectionsMap,
     config: &Config,
 ) -> crossterm::Result<()> {
     // NOTE(Chris): We only need to abort asynchronous "image" drawing if we're opening a
     // directory¸ since we're now drawing directory previews asychronously with the same system as
     // the image drawing.
 
-    if dir_states.current_entries.len() <= 0 {
+    if fm.dir_states.current_entries.len() <= 0 {
         return Ok(());
     }
 
-    save_location(left_paths, dir_states, second_entry_index, *second);
+    save_location(&mut fm.left_paths, &fm.dir_states, second_entry_index, fm.second);
 
-    let selected_entry_path = &dir_states.current_entries[second_entry_index as usize]
+    let selected_entry_path = &fm.dir_states.current_entries[second_entry_index as usize]
         .dir_entry
         .path();
 
@@ -1180,11 +1148,11 @@ fn enter_entry(
     };
 
     if selected_target_file_type.is_dir() {
-        abort_image_handles(image_handles);
+        abort_image_handles(&mut fm.image_handles);
 
         let selected_dir_path = selected_entry_path;
 
-        match set_current_dir(selected_dir_path, dir_states, match_positions) {
+        match set_current_dir(selected_dir_path, &mut fm.dir_states, &mut fm.match_positions) {
             Ok(_) => (),
             Err(err) => match err.kind() {
                 io::ErrorKind::PermissionDenied => {
@@ -1195,9 +1163,9 @@ fn enter_entry(
             },
         }
 
-        match left_paths.get(selected_dir_path) {
+        match fm.left_paths.get(selected_dir_path) {
             Some(dir_location) => {
-                let curr_entry_index = dir_states
+                let curr_entry_index = fm.dir_states
                     .current_entries
                     .iter()
                     .position(|entry| entry.dir_entry.path() == *dir_location.dir_path);
@@ -1207,36 +1175,30 @@ fn enter_entry(
                         let orig_entry_index =
                             (dir_location.starting_index + dir_location.display_offset) as usize;
                         if curr_entry_index == orig_entry_index {
-                            second.starting_index = dir_location.starting_index;
-                            second.display_offset = dir_location.display_offset;
+                            fm.second.starting_index = dir_location.starting_index;
+                            fm.second.display_offset = dir_location.display_offset;
                         } else {
-                            second.starting_index = (curr_entry_index / 2) as u16;
-                            second.display_offset =
-                                (curr_entry_index as u16) - second.starting_index;
+                            fm.second.starting_index = (curr_entry_index / 2) as u16;
+                            fm.second.display_offset =
+                                (curr_entry_index as u16) - fm.second.starting_index;
                         }
                     }
                     None => {
-                        second.starting_index = 0;
-                        second.display_offset = 0;
+                        fm.second.starting_index = 0;
+                        fm.second.display_offset = 0;
                     }
                 }
             }
             None => {
-                second.starting_index = 0;
-                second.display_offset = 0;
+                fm.second.starting_index = 0;
+                fm.second.display_offset = 0;
             }
         };
 
         queue_all_columns(
             stdout_lock,
             runtime,
-            image_handles,
-            dir_states,
-            left_paths,
-            available_execs,
-            drawing_info,
-            *second,
-            selections,
+            fm,
             config,
         )?;
     } else if selected_target_file_type.is_file() {
@@ -1713,43 +1675,37 @@ struct DrawHandle {
 fn queue_all_columns(
     stdout_lock: &mut StdoutLock,
     runtime: &Runtime,
-    image_handles: &mut HandlesVec,
-    dir_states: &DirStates,
-    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
-    available_execs: &HashMap<&str, std::path::PathBuf>,
-    drawing_info: DrawingInfo,
-    second: ColumnInfo,
-    selections: &SelectionsMap,
+    fm: &mut FileManager,
     config: &Config,
 ) -> crossterm::Result<()> {
     queue_first_column(
         stdout_lock,
-        dir_states,
-        left_paths,
-        drawing_info,
-        selections,
+        &fm.dir_states,
+        &fm.left_paths,
+        fm.drawing_info,
+        &fm.selections,
     )?;
     queue_second_column(
         stdout_lock,
-        drawing_info,
-        &dir_states.current_entries,
-        second,
-        selections,
+        fm.drawing_info,
+        &fm.dir_states.current_entries,
+        fm.second,
+        &fm.selections,
     )?;
     queue_third_column(
         stdout_lock,
         runtime,
-        image_handles,
-        dir_states,
-        left_paths,
-        available_execs,
-        drawing_info,
-        (second.starting_index + second.display_offset) as usize,
-        selections,
+        &mut fm.image_handles,
+        &fm.dir_states,
+        &fm.left_paths,
+        &fm.available_execs,
+        fm.drawing_info,
+        (fm.second.starting_index + fm.second.display_offset) as usize,
+        &fm.selections,
         config,
     )?;
 
-    queue_bottom_info_line(stdout_lock, drawing_info, second, dir_states)?;
+    queue_bottom_info_line(stdout_lock, fm.drawing_info, fm.second, &fm.dir_states)?;
 
     Ok(())
 }
