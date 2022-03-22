@@ -22,7 +22,7 @@ pub struct KeyBinding {
     command: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub preview_converter: String,
     pub image_protocol: ImageProtocol,
