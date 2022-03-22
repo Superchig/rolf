@@ -162,10 +162,10 @@ fn run(
 
     let mut fm = FileManager {
         runtime: Builder::new_multi_thread()
-        .worker_threads(1)
-        .enable_all()
-        .build()
-        .unwrap(),
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap(),
 
         available_execs: {
             let mut available_execs: HashMap<&str, std::path::PathBuf> = HashMap::new();
@@ -267,7 +267,9 @@ fn run(
             match stm {
                 Statement::Map(map) => {
                     let key_event = config::to_key(&map.key.key);
-                    fm.config.keybindings.insert(key_event, map.cmd_name.clone());
+                    fm.config
+                        .keybindings
+                        .insert(key_event, map.cmd_name.clone());
                 }
             }
         }
@@ -370,8 +372,7 @@ fn run(
                                     current_file_path.file_name().unwrap().to_str().unwrap(),
                                 );
 
-                                let new_name =
-                                    get_cmd_line_input(w, "Rename: ", &mut fm)?;
+                                let new_name = get_cmd_line_input(w, "Rename: ", &mut fm)?;
 
                                 if let Some(new_name) = new_name {
                                     let new_file_path = current_file_path
@@ -497,11 +498,7 @@ fn run(
                 queue_all_columns(&mut stdout_lock, &mut fm)?;
             }
             "open" => {
-                enter_entry(
-                    &mut stdout_lock,
-                    &mut fm,
-                    second_entry_index,
-                )?;
+                enter_entry(&mut stdout_lock, &mut fm, second_entry_index)?;
             }
             // NOTE(Chris): lf doesn't actually provide a specific command for this, instead using
             // a default keybinding that takes advantage of EDITOR
@@ -1080,10 +1077,7 @@ fn find_column_pos(
     Ok(result_column)
 }
 
-fn queue_search_jump(
-    stdout_lock: &mut StdoutLock,
-    fm: &mut FileManager,
-) -> crossterm::Result<()> {
+fn queue_search_jump(stdout_lock: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Result<()> {
     if fm.match_positions.len() <= 0 {
         return Ok(());
     }
@@ -1123,12 +1117,7 @@ fn queue_search_jump(
         next_position,
     )?;
 
-    queue_entry_changed(
-        stdout_lock,
-        fm,
-        old_starting_index,
-        old_display_offset,
-    )?;
+    queue_entry_changed(stdout_lock, fm, old_starting_index, old_display_offset)?;
 
     Ok(())
 }
@@ -1139,12 +1128,7 @@ fn queue_entry_changed(
     old_starting_index: u16,
     old_display_offset: u16,
 ) -> crossterm::Result<()> {
-    update_entries_column(
-        stdout_lock,
-        fm,
-        old_display_offset,
-        old_starting_index,
-    )?;
+    update_entries_column(stdout_lock, fm, old_display_offset, old_starting_index)?;
 
     queue_third_column(stdout_lock, fm)?;
 
@@ -1208,10 +1192,7 @@ fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm:
 }
 
 // Redraw everything except the bottom info line.
-fn redraw_upper(
-    stdout_lock: &mut StdoutLock,
-    fm: &mut FileManager,
-) -> crossterm::Result<()> {
+fn redraw_upper(stdout_lock: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Result<()> {
     queue!(stdout_lock, terminal::Clear(ClearType::All))?;
 
     update_drawing_info_from_resize(&mut fm.drawing_info)?;
@@ -1386,10 +1367,7 @@ struct DrawHandle {
     can_draw: Arc<AtomicBool>,
 }
 
-fn queue_all_columns(
-    stdout_lock: &mut StdoutLock,
-    fm: &mut FileManager,
-) -> crossterm::Result<()> {
+fn queue_all_columns(stdout_lock: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Result<()> {
     queue_first_column(stdout_lock, fm)?;
     queue_second_column(stdout_lock, fm)?;
     queue_third_column(stdout_lock, fm)?;
@@ -1445,10 +1423,7 @@ fn queue_second_column(w: &mut StdoutLock, fm: &mut FileManager) -> crossterm::R
     Ok(())
 }
 
-fn queue_third_column(
-    w: &mut StdoutLock,
-    fm: &mut FileManager,
-) -> crossterm::Result<()> {
+fn queue_third_column(w: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Result<()> {
     match fm.config.image_protocol {
         ImageProtocol::Kitty => {
             // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
@@ -1475,6 +1450,8 @@ fn queue_third_column(
 
         let file_type = display_entry.dir_entry.file_type().unwrap();
 
+        let file_path = display_entry.dir_entry.path();
+
         if file_type.is_dir() {
             queue_third_column_dir(
                 w,
@@ -1488,17 +1465,7 @@ fn queue_third_column(
                 &fm.selections,
             )?;
         } else if file_type.is_file() {
-            queue_third_column_file(
-                w,
-                &fm.runtime,
-                &mut fm.image_handles,
-                display_entry,
-                &fm.available_execs,
-                fm.drawing_info,
-                left_x,
-                right_x,
-                &fm.config,
-            )?;
+            queue_third_column_file(w, fm, file_path, left_x, right_x)?;
         } else if file_type.is_symlink() {
             // TODO(Chris): Show error if symlink is invalid
             match std::fs::metadata(display_entry.dir_entry.path()) {
@@ -1518,17 +1485,7 @@ fn queue_third_column(
                             &fm.selections,
                         )?;
                     } else if underlying_file_type.is_file() {
-                        queue_third_column_file(
-                            w,
-                            &fm.runtime,
-                            &mut fm.image_handles,
-                            display_entry,
-                            &fm.available_execs,
-                            fm.drawing_info,
-                            left_x,
-                            right_x,
-                            &fm.config,
-                        )?;
+                        queue_third_column_file(w, fm, file_path, left_x, right_x)?;
                     } else {
                         queue_blank_column(w, left_x, right_x, fm.drawing_info.column_height)?;
                     }
@@ -1551,7 +1508,7 @@ fn queue_third_column(
 // Arc<Mutex<bool>>. All of the arguments to the async function _except for this first one_ should
 // be passed in at the end of the macro invocation.
 macro_rules! spawn_async_draw {
-    ($runtime:ident, $handles:ident, $async_fn_name:ident, $($async_other_args:tt)*) => {
+    ($runtime:expr, $handles:expr, $async_fn_name:expr, $($async_other_args:tt)*) => {
         let can_draw = Arc::new(AtomicBool::new(true));
         let clone = Arc::clone(&can_draw);
 
@@ -1685,25 +1642,19 @@ async fn preview_dir(
 
 fn queue_third_column_file(
     w: &mut StdoutLock,
-    runtime: &Runtime,
-    handles: &mut HandlesVec,
-    display_entry: &DirEntryInfo,
-    available_execs: &HashMap<&str, std::path::PathBuf>,
-    drawing_info: DrawingInfo,
+    fm: &mut FileManager,
+    third_file: PathBuf,
     left_x: u16,
     right_x: u16,
-    config: &Config,
 ) -> crossterm::Result<()> {
-    queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
-
-    let third_file = display_entry.dir_entry.path();
+    queue_blank_column(w, left_x, right_x, fm.drawing_info.column_height)?;
 
     if let Some(os_str_ext) = third_file.extension() {
         if let Some(ext) = os_str_ext.to_str() {
             let ext = ext.to_lowercase();
             let ext = ext.as_str();
 
-            if !cfg!(windows) && config.image_protocol != ImageProtocol::None {
+            if !cfg!(windows) && fm.config.image_protocol != ImageProtocol::None {
                 queue_loading_msg(w, left_x)?;
 
                 w.flush()?;
@@ -1712,25 +1663,25 @@ fn queue_third_column_file(
             match ext {
                 "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
                     spawn_async_draw!(
-                        runtime,
-                        handles,
+                        fm.runtime,
+                        fm.image_handles,
                         preview_image_or_video,
-                        drawing_info.win_pixels,
+                        fm.drawing_info.win_pixels,
                         third_file.clone(),
                         ext.to_string(),
-                        drawing_info.width,
-                        drawing_info.height,
+                        fm.drawing_info.width,
+                        fm.drawing_info.height,
                         left_x,
-                        config.image_protocol,
+                        fm.config.image_protocol,
                     );
                 }
-                _ => match available_execs.get("highlight") {
+                _ => match fm.available_execs.get("highlight") {
                     None => {
                         spawn_async_draw!(
-                            runtime,
-                            handles,
+                            fm.runtime,
+                            fm.image_handles,
                             preview_uncolored_file,
-                            drawing_info,
+                            fm.drawing_info,
                             third_file,
                             left_x,
                             right_x
@@ -1738,10 +1689,10 @@ fn queue_third_column_file(
                     }
                     Some(highlight) => {
                         spawn_async_draw!(
-                            runtime,
-                            handles,
+                            fm.runtime,
+                            fm.image_handles,
                             preview_source_file,
-                            drawing_info,
+                            fm.drawing_info,
                             third_file,
                             left_x,
                             right_x,
@@ -2447,7 +2398,15 @@ fn update_entries_column(
     let new = fm.second;
 
     if new.starting_index != old_start_index {
-        queue_entries_column(w, left_x, right_x, column_bot_y, &fm.dir_states.current_entries, new, &fm.selections)?;
+        queue_entries_column(
+            w,
+            left_x,
+            right_x,
+            column_bot_y,
+            &fm.dir_states.current_entries,
+            new,
+            &fm.selections,
+        )?;
         return Ok(());
     }
 
