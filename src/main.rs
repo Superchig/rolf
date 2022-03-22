@@ -160,13 +160,13 @@ fn run(
 
     // NOTE(Chris): The default column ratio is 1:2:3
 
-    let runtime = Builder::new_multi_thread()
+    let mut fm = FileManager {
+        runtime: Builder::new_multi_thread()
         .worker_threads(1)
         .enable_all()
         .build()
-        .unwrap();
+        .unwrap(),
 
-    let mut fm = FileManager {
         available_execs: {
             let mut available_execs: HashMap<&str, std::path::PathBuf> = HashMap::new();
 
@@ -221,7 +221,7 @@ fn run(
     // Queue everything for the first time
     {
         let mut stdout_lock = w.lock();
-        queue_all_columns(&mut stdout_lock, &runtime, &mut fm, config)?;
+        queue_all_columns(&mut stdout_lock, &mut fm, config)?;
         if cfg!(windows) {
             abort_image_handles(&mut fm.image_handles); // Avoid double-draw on Windows
         }
@@ -312,7 +312,7 @@ fn run(
                 }
             }
             InputMode::Command => {
-                let line_from_user = get_cmd_line_input(w, ":", &runtime, &mut fm, config)?;
+                let line_from_user = get_cmd_line_input(w, ":", &mut fm, config)?;
 
                 // If there was no input line returned, then the user aborted the use of the
                 // command line. Thus, we only need to do anything when an input line is actually
@@ -336,7 +336,7 @@ fn run(
 
                                     let mut stdout_lock = w.lock();
 
-                                    queue_search_jump(&mut stdout_lock, &runtime, &mut fm, config)?;
+                                    queue_search_jump(&mut stdout_lock, &mut fm, config)?;
                                 }
                             }
                             "search-back" => {
@@ -352,7 +352,7 @@ fn run(
 
                                     let mut stdout_lock = w.lock();
 
-                                    queue_search_jump(&mut stdout_lock, &runtime, &mut fm, config)?;
+                                    queue_search_jump(&mut stdout_lock, &mut fm, config)?;
                                 }
                             }
                             "rename" => {
@@ -369,7 +369,7 @@ fn run(
                                 );
 
                                 let new_name =
-                                    get_cmd_line_input(w, "Rename: ", &runtime, &mut fm, config)?;
+                                    get_cmd_line_input(w, "Rename: ", &mut fm, config)?;
 
                                 if let Some(new_name) = new_name {
                                     let new_file_path = current_file_path
@@ -391,7 +391,7 @@ fn run(
 
                                     let mut stdout_lock = w.lock();
 
-                                    queue_search_jump(&mut stdout_lock, &runtime, &mut fm, config)?;
+                                    queue_search_jump(&mut stdout_lock, &mut fm, config)?;
                                 }
                             }
                             _ => {
@@ -441,7 +441,6 @@ fn run(
 
                     queue_entry_changed(
                         &mut stdout_lock,
-                        &runtime,
                         &mut fm,
                         old_starting_index,
                         old_display_offset,
@@ -464,7 +463,6 @@ fn run(
 
                     queue_entry_changed(
                         &mut stdout_lock,
-                        &runtime,
                         &mut fm,
                         old_starting_index,
                         old_display_offset,
@@ -496,12 +494,11 @@ fn run(
                     queue!(&mut stdout_lock, terminal::Clear(ClearType::All))?;
                 }
 
-                queue_all_columns(&mut stdout_lock, &runtime, &mut fm, config)?;
+                queue_all_columns(&mut stdout_lock, &mut fm, config)?;
             }
             "open" => {
                 enter_entry(
                     &mut stdout_lock,
-                    &runtime,
                     &mut fm,
                     second_entry_index,
                     config,
@@ -547,7 +544,7 @@ fn run(
 
                     queue!(stdout_lock, terminal::EnterAlternateScreen, cursor::Hide)?;
 
-                    queue_all_columns(&mut stdout_lock, &runtime, &mut fm, config)?;
+                    queue_all_columns(&mut stdout_lock, &mut fm, config)?;
                 }
             }
             "top" => {
@@ -567,7 +564,7 @@ fn run(
                         old_starting_index,
                     )?;
 
-                    queue_third_column(&mut stdout_lock, &runtime, &mut fm, config)?;
+                    queue_third_column(&mut stdout_lock, &mut fm, config)?;
 
                     queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
                 }
@@ -598,7 +595,7 @@ fn run(
                         old_starting_index,
                     )?;
 
-                    queue_third_column(&mut stdout_lock, &runtime, &mut fm, config)?;
+                    queue_third_column(&mut stdout_lock, &mut fm, config)?;
 
                     queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
                 }
@@ -618,12 +615,12 @@ fn run(
                 fm.input_mode = InputMode::Command;
             }
             "search-next" => {
-                queue_search_jump(&mut stdout_lock, &runtime, &mut fm, config)?;
+                queue_search_jump(&mut stdout_lock, &mut fm, config)?;
             }
             "search-prev" => {
                 fm.should_search_forwards = !fm.should_search_forwards;
 
-                queue_search_jump(&mut stdout_lock, &runtime, &mut fm, config)?;
+                queue_search_jump(&mut stdout_lock, &mut fm, config)?;
 
                 fm.should_search_forwards = !fm.should_search_forwards;
             }
@@ -652,7 +649,7 @@ fn run(
                 )?;
             }
             "redraw" => {
-                redraw_upper(&mut stdout_lock, &runtime, &mut fm, config)?;
+                redraw_upper(&mut stdout_lock, &mut fm, config)?;
 
                 queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
             }
@@ -667,6 +664,8 @@ fn run(
 }
 
 struct FileManager<'a> {
+    runtime: Runtime,
+
     available_execs: HashMap<&'a str, std::path::PathBuf>,
 
     image_handles: HandlesVec,
@@ -763,7 +762,6 @@ fn find_match_positions(current_entries: &[DirEntryInfo], search_term: &str) -> 
 fn get_cmd_line_input(
     w: &mut io::Stdout,
     prompt: &str,
-    runtime: &Runtime,
     fm: &mut FileManager,
     config: &Config,
 ) -> io::Result<Option<String>> {
@@ -903,7 +901,7 @@ fn get_cmd_line_input(
             },
             Event::Mouse(_) => (),
             Event::Resize(_, _) => {
-                redraw_upper(&mut stdout_lock, runtime, fm, config)?;
+                redraw_upper(&mut stdout_lock, fm, config)?;
             }
         }
 
@@ -924,7 +922,6 @@ fn set_current_dir<P: AsRef<Path>>(
 
 fn enter_entry(
     stdout_lock: &mut StdoutLock,
-    runtime: &Runtime,
     fm: &mut FileManager,
     second_entry_index: u16,
     config: &Config,
@@ -1002,7 +999,7 @@ fn enter_entry(
             }
         };
 
-        queue_all_columns(stdout_lock, runtime, fm, config)?;
+        queue_all_columns(stdout_lock, fm, config)?;
     } else if selected_target_file_type.is_file() {
         if cfg!(windows) {
             open::that(selected_entry_path)?;
@@ -1086,7 +1083,6 @@ fn find_column_pos(
 
 fn queue_search_jump(
     stdout_lock: &mut StdoutLock,
-    runtime: &Runtime,
     fm: &mut FileManager,
     config: &Config,
 ) -> crossterm::Result<()> {
@@ -1131,7 +1127,6 @@ fn queue_search_jump(
 
     queue_entry_changed(
         stdout_lock,
-        runtime,
         fm,
         old_starting_index,
         old_display_offset,
@@ -1143,7 +1138,6 @@ fn queue_search_jump(
 
 fn queue_entry_changed(
     stdout_lock: &mut StdoutLock,
-    runtime: &Runtime,
     fm: &mut FileManager,
     old_starting_index: u16,
     old_display_offset: u16,
@@ -1156,7 +1150,7 @@ fn queue_entry_changed(
         old_starting_index,
     )?;
 
-    queue_third_column(stdout_lock, runtime, fm, config)?;
+    queue_third_column(stdout_lock, fm, config)?;
 
     // NOTE(Chris): We flush here, so the current function is more than a "queue_" function
     stdout_lock.flush()?;
@@ -1220,7 +1214,6 @@ fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm:
 // Redraw everything except the bottom info line.
 fn redraw_upper(
     stdout_lock: &mut StdoutLock,
-    runtime: &Runtime,
     fm: &mut FileManager,
     config: &Config,
 ) -> crossterm::Result<()> {
@@ -1230,7 +1223,7 @@ fn redraw_upper(
 
     queue_first_column(stdout_lock, fm)?;
     queue_second_column(stdout_lock, fm)?;
-    queue_third_column(stdout_lock, runtime, fm, config)?;
+    queue_third_column(stdout_lock, fm, config)?;
 
     Ok(())
 }
@@ -1400,13 +1393,12 @@ struct DrawHandle {
 
 fn queue_all_columns(
     stdout_lock: &mut StdoutLock,
-    runtime: &Runtime,
     fm: &mut FileManager,
     config: &Config,
 ) -> crossterm::Result<()> {
     queue_first_column(stdout_lock, fm)?;
     queue_second_column(stdout_lock, fm)?;
-    queue_third_column(stdout_lock, runtime, fm, config)?;
+    queue_third_column(stdout_lock, fm, config)?;
 
     queue_bottom_info_line(stdout_lock, fm)?;
 
@@ -1461,7 +1453,6 @@ fn queue_second_column(w: &mut StdoutLock, fm: &mut FileManager) -> crossterm::R
 
 fn queue_third_column(
     w: &mut StdoutLock,
-    runtime: &Runtime,
     fm: &mut FileManager,
     config: &Config,
 ) -> crossterm::Result<()> {
@@ -1499,14 +1490,14 @@ fn queue_third_column(
                 right_x,
                 fm.drawing_info.column_bot_y,
                 display_entry,
-                runtime,
+                &fm.runtime,
                 &mut fm.image_handles,
                 &fm.selections,
             )?;
         } else if file_type.is_file() {
             queue_third_column_file(
                 w,
-                runtime,
+                &fm.runtime,
                 &mut fm.image_handles,
                 display_entry,
                 &fm.available_execs,
@@ -1529,14 +1520,14 @@ fn queue_third_column(
                             right_x,
                             fm.drawing_info.column_bot_y,
                             display_entry,
-                            runtime,
+                            &fm.runtime,
                             &mut fm.image_handles,
                             &fm.selections,
                         )?;
                     } else if underlying_file_type.is_file() {
                         queue_third_column_file(
                             w,
-                            runtime,
+                            &fm.runtime,
                             &mut fm.image_handles,
                             display_entry,
                             &fm.available_execs,
