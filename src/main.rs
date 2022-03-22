@@ -52,7 +52,7 @@ use crossterm::{
     terminal::{self, ClearType},
 };
 
-use rolf_parser::parser::{Program, Statement, parse_statement_from, parse};
+use rolf_parser::parser::{parse, parse_statement_from, Program, Statement};
 
 // TODO(Chris): Make this configurable rather than hard-coding the constant
 const SCROLL_OFFSET: u16 = 10;
@@ -539,11 +539,6 @@ fn run(
                                         true,
                                     )?;
                                 }
-                                "redraw" => {
-                                    redraw_upper(&mut stdout_lock, &mut fm)?;
-
-                                    queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
-                                }
                                 "read" => {
                                     fm.input_mode = InputMode::Command;
                                 }
@@ -566,7 +561,11 @@ fn run(
                     }
                     Event::Mouse(_) => (),
                     Event::Resize(_, _) => {
-                        command_queue.push(parse_statement_from("redraw").unwrap());
+                        let mut stdout_lock = w.lock();
+
+                        redraw_upper(&mut stdout_lock, &mut fm)?;
+
+                        queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
                     }
                 }
             }
