@@ -52,7 +52,7 @@ use crossterm::{
     terminal::{self, ClearType},
 };
 
-use rolf_parser::parser::{lex, parse, Parser, Program, Scanner, Statement};
+use rolf_parser::parser::{Program, Statement, parse_statement_from, parse_overall_from};
 
 // TODO(Chris): Make this configurable rather than hard-coding the constant
 const SCROLL_OFFSET: u16 = 10;
@@ -101,9 +101,7 @@ fn main() -> crossterm::Result<()> {
     let ast = match fs::read_to_string("rolfrc") {
         Ok(config_text) => {
             // FIXME(Chris): Handle error here
-            let tokens = lex(&mut Scanner::new(&config_text)).unwrap();
-            // FIXME(Chris): Handle error here
-            parse(&mut Parser::new(tokens)).unwrap()
+            parse_overall_from(&config_text).unwrap()
         }
         Err(err) => match err.kind() {
             io::ErrorKind::NotFound => vec![],
@@ -229,12 +227,10 @@ fn run(
         }
     }
 
-    let mut command;
-
     let mut command_queue = config_ast.clone();
 
     // Main input loop
-    loop {
+    'input: loop {
         let second_entry_index = fm.second.starting_index + fm.second.display_offset;
 
         let second_bottom_index = fm.second.starting_index + fm.drawing_info.column_height;
@@ -263,21 +259,6 @@ fn run(
             String::from(file_stem)
         };
 
-        for stm in &command_queue {
-            match stm {
-                Statement::Map(map) => {
-                    let key_event = config::to_key(&map.key.key);
-                    fm.config
-                        .keybindings
-                        .insert(key_event, map.cmd_name.clone());
-                }
-            }
-        }
-
-        command_queue.clear();
-
-        command = "";
-
         match fm.input_mode {
             InputMode::Normal => {
                 {
@@ -301,17 +282,291 @@ fn run(
                     stdout_lock.flush()?;
                 }
 
+                for stm in &command_queue {
+                    match stm {
+                        Statement::Map(map) => {
+                            let key_event = config::to_key(&map.key.key);
+                            fm.config
+                                .keybindings
+                                .insert(key_event, map.cmd_name.clone());
+                        }
+                        Statement::CommandUse(command_use) => {
+                            let mut stdout_lock = w.lock();
+
+                            let command: &str = &command_use.name;
+
+                            match command {
+                                "quit" => {
+                                    break 'input;
+                                }
+                                "down" => {
+                                    if !fm.dir_states.current_entries.is_empty()
+                                        && (second_entry_index as usize)
+                                            < fm.dir_states.current_entries.len() - 1
+                                    {
+                                        abort_image_handles(&mut fm.image_handles);
+
+                                        let old_starting_index = fm.second.starting_index;
+                                        let old_display_offset = fm.second.display_offset;
+
+                                        if fm.second.display_offset
+                                            >= (fm.drawing_info.column_height - SCROLL_OFFSET - 1)
+                                            && (second_bottom_index as usize)
+                                                < fm.dir_states.current_entries.len()
+                                        {
+                                            fm.second.starting_index += 1;
+                                        } else if second_entry_index < second_bottom_index {
+                                            fm.second.display_offset += 1;
+                                        }
+
+                                        queue_entry_changed(
+                                            &mut stdout_lock,
+                                            &mut fm,
+                                            old_starting_index,
+                                            old_display_offset,
+                                        )?;
+                                    }
+                                }
+                                "up" => {
+                                    if !fm.dir_states.current_entries.is_empty() {
+                                        abort_image_handles(&mut fm.image_handles);
+
+                                        let old_starting_index = fm.second.starting_index;
+                                        let old_display_offset = fm.second.display_offset;
+
+                                        if fm.second.display_offset <= (SCROLL_OFFSET)
+                                            && fm.second.starting_index > 0
+                                        {
+                                            fm.second.starting_index -= 1;
+                                        } else if second_entry_index > 0 {
+                                            fm.second.display_offset -= 1;
+                                        }
+
+                                        queue_entry_changed(
+                                            &mut stdout_lock,
+                                            &mut fm,
+                                            old_starting_index,
+                                            old_display_offset,
+                                        )?;
+                                    }
+                                }
+                                "updir" => {
+                                    abort_image_handles(&mut fm.image_handles);
+
+                                    let old_current_dir = fm.dir_states.current_dir.clone();
+                                    if !fm.dir_states.current_entries.is_empty() {
+                                        save_location(&mut fm, second_entry_index);
+                                    }
+
+                                    if let Some(parent_dir) = fm.dir_states.prev_dir.clone() {
+                                        set_current_dir(
+                                            parent_dir,
+                                            &mut fm.dir_states,
+                                            &mut fm.match_positions,
+                                        )?;
+                                    }
+
+                                    fm.second = find_correct_location(
+                                        &fm.left_paths,
+                                        fm.drawing_info.column_height,
+                                        &fm.dir_states.current_dir,
+                                        &fm.dir_states.current_entries,
+                                        &old_current_dir,
+                                    );
+
+                                    if cfg!(windows) {
+                                        queue!(&mut stdout_lock, terminal::Clear(ClearType::All))?;
+                                    }
+
+                                    queue_all_columns(&mut stdout_lock, &mut fm)?;
+                                }
+                                "open" => {
+                                    enter_entry(&mut stdout_lock, &mut fm, second_entry_index)?;
+                                }
+                                // NOTE(Chris): lf doesn't actually provide a specific command for this, instead using
+                                // a default keybinding that takes advantage of EDITOR
+                                "edit" => {
+                                    let editor = match std::env::var("VISUAL") {
+                                        Err(std::env::VarError::NotPresent) => {
+                                            match std::env::var("EDITOR") {
+                                                Err(std::env::VarError::NotPresent) => {
+                                                    String::from("")
+                                                }
+                                                Err(err) => panic!("{}", err),
+                                                Ok(editor) => editor,
+                                            }
+                                        }
+                                        Err(err) => panic!("{}", err),
+                                        Ok(visual) => visual,
+                                    };
+
+                                    // It'd be nice if we could do breaking on blocks to exit this whole
+                                    // match statement early, but labeling blocks is still in unstable,
+                                    // as seen in https://github.com/rust-lang/rust/issues/48594
+                                    if !editor.is_empty() {
+                                        let selected_entry = &fm.dir_states.current_entries
+                                            [second_entry_index as usize];
+
+                                        let shell_command = format!(
+                                            "{} {}",
+                                            editor,
+                                            selected_entry
+                                                .dir_entry
+                                                .path()
+                                                .to_str()
+                                                .expect("Failed to convert path to string")
+                                        );
+
+                                        queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
+
+                                        Command::new("sh")
+                                            .arg("-c")
+                                            .arg(shell_command)
+                                            .status()
+                                            .expect("failed to execute editor command");
+
+                                        queue!(
+                                            stdout_lock,
+                                            terminal::EnterAlternateScreen,
+                                            cursor::Hide
+                                        )?;
+
+                                        queue_all_columns(&mut stdout_lock, &mut fm)?;
+                                    }
+                                }
+                                "top" => {
+                                    if !fm.dir_states.current_entries.is_empty() {
+                                        abort_image_handles(&mut fm.image_handles);
+
+                                        let old_starting_index = fm.second.starting_index;
+                                        let old_display_offset = fm.second.display_offset;
+
+                                        fm.second.starting_index = 0;
+                                        fm.second.display_offset = 0;
+
+                                        update_entries_column(
+                                            &mut stdout_lock,
+                                            &mut fm,
+                                            old_display_offset,
+                                            old_starting_index,
+                                        )?;
+
+                                        queue_third_column(&mut stdout_lock, &mut fm)?;
+
+                                        queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
+                                    }
+                                }
+                                "bottom" => {
+                                    if !fm.dir_states.current_entries.is_empty() {
+                                        abort_image_handles(&mut fm.image_handles);
+
+                                        let old_starting_index = fm.second.starting_index;
+                                        let old_display_offset = fm.second.display_offset;
+
+                                        if fm.dir_states.current_entries.len()
+                                            <= (fm.drawing_info.column_height as usize)
+                                        {
+                                            fm.second.starting_index = 0;
+                                            fm.second.display_offset =
+                                                fm.dir_states.current_entries.len() as u16 - 1;
+                                        } else {
+                                            fm.second.display_offset =
+                                                fm.drawing_info.column_height - 1;
+                                            fm.second.starting_index =
+                                                fm.dir_states.current_entries.len() as u16
+                                                    - fm.second.display_offset
+                                                    - 1;
+                                        }
+
+                                        update_entries_column(
+                                            &mut stdout_lock,
+                                            &mut fm,
+                                            old_display_offset,
+                                            old_starting_index,
+                                        )?;
+
+                                        queue_third_column(&mut stdout_lock, &mut fm)?;
+
+                                        queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
+                                    }
+                                }
+                                "search" => {
+                                    assert!(fm.input_line.len() <= 0);
+
+                                    fm.input_line.push_str("search ");
+
+                                    fm.input_mode = InputMode::Command;
+                                }
+                                "search-back" => {
+                                    assert!(fm.input_line.len() <= 0);
+
+                                    fm.input_line.push_str("search-back ");
+
+                                    fm.input_mode = InputMode::Command;
+                                }
+                                "search-next" => {
+                                    queue_search_jump(&mut stdout_lock, &mut fm)?;
+                                }
+                                "search-prev" => {
+                                    fm.should_search_forwards = !fm.should_search_forwards;
+
+                                    queue_search_jump(&mut stdout_lock, &mut fm)?;
+
+                                    fm.should_search_forwards = !fm.should_search_forwards;
+                                }
+                                "toggle" => {
+                                    let selected_entry =
+                                        &fm.dir_states.current_entries[second_entry_index as usize];
+
+                                    let entry_path = selected_entry.dir_entry.path();
+
+                                    let remove = fm.selections.remove(&entry_path);
+                                    if remove.is_none() {
+                                        fm.selections
+                                            .insert(entry_path, second_entry_index as usize);
+                                    }
+
+                                    let mut stdout_lock = w.lock();
+
+                                    queue_full_entry(
+                                        &mut stdout_lock,
+                                        &fm.dir_states.current_entries,
+                                        fm.drawing_info.second_left_x,
+                                        fm.drawing_info.second_right_x,
+                                        fm.second.display_offset,
+                                        fm.second.starting_index,
+                                        &fm.selections,
+                                        true,
+                                    )?;
+                                }
+                                "redraw" => {
+                                    redraw_upper(&mut stdout_lock, &mut fm)?;
+
+                                    queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
+                                }
+                                "read" => {
+                                    fm.input_mode = InputMode::Command;
+                                }
+                                _ => (),
+                            }
+                        }
+                    }
+                }
+
+                command_queue.clear();
+
                 let event = event::read()?;
 
                 match event {
                     Event::Key(event) => {
                         if let Some(bound_command) = fm.config.keybindings.get(&event) {
-                            command = bound_command;
+                            // FIXME(Chris): Handle the possible error here
+                            command_queue.push(parse_statement_from(bound_command).unwrap());
                         }
                     }
                     Event::Mouse(_) => (),
                     Event::Resize(_, _) => {
-                        command = "redraw";
+                        command_queue.push(parse_statement_from("redraw").unwrap());
                     }
                 }
             }
@@ -416,243 +671,6 @@ fn run(
                     }
                 }
             }
-        }
-
-        let mut stdout_lock = w.lock();
-
-        match command {
-            "quit" => {
-                break;
-            }
-            "down" => {
-                if !fm.dir_states.current_entries.is_empty()
-                    && (second_entry_index as usize) < fm.dir_states.current_entries.len() - 1
-                {
-                    abort_image_handles(&mut fm.image_handles);
-
-                    let old_starting_index = fm.second.starting_index;
-                    let old_display_offset = fm.second.display_offset;
-
-                    if fm.second.display_offset
-                        >= (fm.drawing_info.column_height - SCROLL_OFFSET - 1)
-                        && (second_bottom_index as usize) < fm.dir_states.current_entries.len()
-                    {
-                        fm.second.starting_index += 1;
-                    } else if second_entry_index < second_bottom_index {
-                        fm.second.display_offset += 1;
-                    }
-
-                    queue_entry_changed(
-                        &mut stdout_lock,
-                        &mut fm,
-                        old_starting_index,
-                        old_display_offset,
-                    )?;
-                }
-            }
-            "up" => {
-                if !fm.dir_states.current_entries.is_empty() {
-                    abort_image_handles(&mut fm.image_handles);
-
-                    let old_starting_index = fm.second.starting_index;
-                    let old_display_offset = fm.second.display_offset;
-
-                    if fm.second.display_offset <= (SCROLL_OFFSET) && fm.second.starting_index > 0 {
-                        fm.second.starting_index -= 1;
-                    } else if second_entry_index > 0 {
-                        fm.second.display_offset -= 1;
-                    }
-
-                    queue_entry_changed(
-                        &mut stdout_lock,
-                        &mut fm,
-                        old_starting_index,
-                        old_display_offset,
-                    )?;
-                }
-            }
-            "updir" => {
-                abort_image_handles(&mut fm.image_handles);
-
-                let old_current_dir = fm.dir_states.current_dir.clone();
-                if !fm.dir_states.current_entries.is_empty() {
-                    save_location(&mut fm, second_entry_index);
-                }
-
-                if let Some(parent_dir) = fm.dir_states.prev_dir.clone() {
-                    set_current_dir(parent_dir, &mut fm.dir_states, &mut fm.match_positions)?;
-                }
-
-                fm.second = find_correct_location(
-                    &fm.left_paths,
-                    fm.drawing_info.column_height,
-                    &fm.dir_states.current_dir,
-                    &fm.dir_states.current_entries,
-                    &old_current_dir,
-                );
-
-                if cfg!(windows) {
-                    queue!(&mut stdout_lock, terminal::Clear(ClearType::All))?;
-                }
-
-                queue_all_columns(&mut stdout_lock, &mut fm)?;
-            }
-            "open" => {
-                enter_entry(&mut stdout_lock, &mut fm, second_entry_index)?;
-            }
-            // NOTE(Chris): lf doesn't actually provide a specific command for this, instead using
-            // a default keybinding that takes advantage of EDITOR
-            "edit" => {
-                let editor = match std::env::var("VISUAL") {
-                    Err(std::env::VarError::NotPresent) => match std::env::var("EDITOR") {
-                        Err(std::env::VarError::NotPresent) => String::from(""),
-                        Err(err) => panic!("{}", err),
-                        Ok(editor) => editor,
-                    },
-                    Err(err) => panic!("{}", err),
-                    Ok(visual) => visual,
-                };
-
-                // It'd be nice if we could do breaking on blocks to exit this whole
-                // match statement early, but labeling blocks is still in unstable,
-                // as seen in https://github.com/rust-lang/rust/issues/48594
-                if !editor.is_empty() {
-                    let selected_entry =
-                        &fm.dir_states.current_entries[second_entry_index as usize];
-
-                    let shell_command = format!(
-                        "{} {}",
-                        editor,
-                        selected_entry
-                            .dir_entry
-                            .path()
-                            .to_str()
-                            .expect("Failed to convert path to string")
-                    );
-
-                    queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
-
-                    Command::new("sh")
-                        .arg("-c")
-                        .arg(shell_command)
-                        .status()
-                        .expect("failed to execute editor command");
-
-                    queue!(stdout_lock, terminal::EnterAlternateScreen, cursor::Hide)?;
-
-                    queue_all_columns(&mut stdout_lock, &mut fm)?;
-                }
-            }
-            "top" => {
-                if !fm.dir_states.current_entries.is_empty() {
-                    abort_image_handles(&mut fm.image_handles);
-
-                    let old_starting_index = fm.second.starting_index;
-                    let old_display_offset = fm.second.display_offset;
-
-                    fm.second.starting_index = 0;
-                    fm.second.display_offset = 0;
-
-                    update_entries_column(
-                        &mut stdout_lock,
-                        &mut fm,
-                        old_display_offset,
-                        old_starting_index,
-                    )?;
-
-                    queue_third_column(&mut stdout_lock, &mut fm)?;
-
-                    queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
-                }
-            }
-            "bottom" => {
-                if !fm.dir_states.current_entries.is_empty() {
-                    abort_image_handles(&mut fm.image_handles);
-
-                    let old_starting_index = fm.second.starting_index;
-                    let old_display_offset = fm.second.display_offset;
-
-                    if fm.dir_states.current_entries.len()
-                        <= (fm.drawing_info.column_height as usize)
-                    {
-                        fm.second.starting_index = 0;
-                        fm.second.display_offset = fm.dir_states.current_entries.len() as u16 - 1;
-                    } else {
-                        fm.second.display_offset = fm.drawing_info.column_height - 1;
-                        fm.second.starting_index = fm.dir_states.current_entries.len() as u16
-                            - fm.second.display_offset
-                            - 1;
-                    }
-
-                    update_entries_column(
-                        &mut stdout_lock,
-                        &mut fm,
-                        old_display_offset,
-                        old_starting_index,
-                    )?;
-
-                    queue_third_column(&mut stdout_lock, &mut fm)?;
-
-                    queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
-                }
-            }
-            "search" => {
-                assert!(fm.input_line.len() <= 0);
-
-                fm.input_line.push_str("search ");
-
-                fm.input_mode = InputMode::Command;
-            }
-            "search-back" => {
-                assert!(fm.input_line.len() <= 0);
-
-                fm.input_line.push_str("search-back ");
-
-                fm.input_mode = InputMode::Command;
-            }
-            "search-next" => {
-                queue_search_jump(&mut stdout_lock, &mut fm)?;
-            }
-            "search-prev" => {
-                fm.should_search_forwards = !fm.should_search_forwards;
-
-                queue_search_jump(&mut stdout_lock, &mut fm)?;
-
-                fm.should_search_forwards = !fm.should_search_forwards;
-            }
-            "toggle" => {
-                let selected_entry = &fm.dir_states.current_entries[second_entry_index as usize];
-
-                let entry_path = selected_entry.dir_entry.path();
-
-                let remove = fm.selections.remove(&entry_path);
-                if remove.is_none() {
-                    fm.selections
-                        .insert(entry_path, second_entry_index as usize);
-                }
-
-                let mut stdout_lock = w.lock();
-
-                queue_full_entry(
-                    &mut stdout_lock,
-                    &fm.dir_states.current_entries,
-                    fm.drawing_info.second_left_x,
-                    fm.drawing_info.second_right_x,
-                    fm.second.display_offset,
-                    fm.second.starting_index,
-                    &fm.selections,
-                    true,
-                )?;
-            }
-            "redraw" => {
-                redraw_upper(&mut stdout_lock, &mut fm)?;
-
-                queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
-            }
-            "read" => {
-                fm.input_mode = InputMode::Command;
-            }
-            _ => (),
         }
     }
 

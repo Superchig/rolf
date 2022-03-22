@@ -4,6 +4,32 @@ use std::{error::Error, mem, ops};
 type LexResult<T> = std::result::Result<T, LexError>;
 type ParseResult<T> = std::result::Result<T, ParseError>;
 
+pub fn parse_overall_from(input: &str) -> ParseResult<Program> {
+    parse_from_str(input, parse)
+}
+
+pub fn parse_statement_from(input: &str) -> ParseResult<Statement> {
+    parse_from_str(input, parse_statement)
+}
+
+pub fn parse_from_str<T>(input: &str, parse_rule: impl Fn(&mut Parser) -> ParseResult<T>) -> ParseResult<T> {
+    let mut scanner = Scanner::new(input);
+
+    match lex(&mut scanner) {
+        Ok(tokens) => parse_rule(&mut Parser::new(tokens)),
+        Err(err) => match scanner.peek() {
+            Some(_) => Err(ParseError {
+                position: Position::Pos {
+                    line: scanner.curr_line,
+                    col: scanner.curr_col,
+                },
+                kind: ParseErrorKind::LexError(err),
+            }),
+            None => Err(ParseError::new(ParseErrorKind::LexError(err))),
+        },
+    }
+}
+
 pub fn lex(scanner: &mut Scanner) -> LexResult<Vec<Token>> {
     let lex_map = lex_phrase("map");
     let lex_plus = lex_phrase("+");
@@ -132,7 +158,7 @@ impl Token {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TokenKind {
     Id(String),
     Mod(Mod),
@@ -154,37 +180,29 @@ pub fn parse(parser: &mut Parser) -> ParseResult<Program> {
     }
 }
 
-// FIXME(Chris): Properly parse empty lists (programs)
 fn parse_program(parser: &mut Parser) -> ParseResult<Program> {
-    let mut program = vec![];
-
-    while let Ok(statement) = parse_statement(parser) {
-        {
-            program.push(statement);
-
-            match parser.peek() {
-                Some(Token {
-                    kind: TokenKind::Newline,
-                    ..
-                }) => {
-                    parser.pop();
-                }
-                Some(token) => {
-                    return Err(ParseError::new_pos(
-                        token,
-                        ParseErrorKind::Expected(TokenKind::Newline),
-                    ))
-                }
-                None => break,
-            }
-        }
-    }
-
-    Ok(program)
+    parser.take_list(Some(TokenKind::Newline), parse_statement)
 }
 
-fn parse_statement(parser: &mut Parser) -> ParseResult<Statement> {
-    Ok(Statement::Map(parse_map(parser)?))
+pub fn parse_statement(parser: &mut Parser) -> ParseResult<Statement> {
+    if let Ok(map) = parse_map(parser) {
+        Ok(Statement::Map(map))
+    } else if let Ok(command_use) = parse_command_use(parser) {
+        Ok(Statement::CommandUse(command_use))
+    } else {
+        match parser.peek() {
+            Some(token) => Err(ParseError::new_pos(token, ParseErrorKind::ExpectedList)),
+            None => Err(ParseError::new(ParseErrorKind::ExpectedList)),
+        }
+    }
+}
+
+fn parse_command_use(parser: &mut Parser) -> ParseResult<CommandUse> {
+    let name = parser.take_id()?;
+
+    let arguments = parser.take_list(None, |parser| parser.take_id())?;
+
+    Ok(CommandUse { name, arguments })
 }
 
 fn parse_map(parser: &mut Parser) -> ParseResult<Map> {
@@ -217,6 +235,13 @@ pub type Program = Vec<Statement>;
 #[derive(Debug, Clone)]
 pub enum Statement {
     Map(Map),
+    CommandUse(CommandUse),
+}
+
+#[derive(Debug, Clone)]
+pub struct CommandUse {
+    pub name: String,
+    pub arguments: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -330,6 +355,36 @@ impl Parser {
             None => Err(ParseError::new(ParseErrorKind::Expected(target))),
         }
     }
+
+    pub fn take_list<T>(
+        &mut self,
+        separator: Option<TokenKind>,
+        parse_cb: impl Fn(&mut Parser) -> ParseResult<T>,
+    ) -> ParseResult<Vec<T>> {
+        let mut list = vec![];
+
+        while let Ok(item) = parse_cb(self) {
+            list.push(item);
+
+            if let Some(ref sep) = separator {
+                match self.peek() {
+                    Some(token) => {
+                        if &token.kind == sep {
+                            self.pop();
+                        } else {
+                            return Err(ParseError::new_pos(
+                                token,
+                                ParseErrorKind::Expected(sep.clone()),
+                            ));
+                        }
+                    }
+                    None => break,
+                }
+            }
+        }
+
+        Ok(list)
+    }
 }
 
 // FIXME(Chris): Remove dead code ignores
@@ -354,6 +409,8 @@ pub enum ParseErrorKind {
     ExpectedId,
     ExpectedMod,
     ExpectedEof,
+    ExpectedList,
+    LexError(LexError),
 }
 
 impl ParseError {

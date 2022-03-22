@@ -13,7 +13,8 @@ fn main() {
 
     // test_parse("map ctrl+k"); // This should result in an ExpectedId error
     // test_parse("map ctrl+k up\nmap j down");
-    test_parse("map up up\nmap down down");
+    // test_parse("map up up\nmap down down");
+    test_parse("down\nup again");
 }
 
 fn test_lex(input: &str) {
@@ -25,6 +26,6 @@ fn test_parse(input: &str) {
         Ok(tokens) => {
             println!("{}: {:?}", input, parse(&mut Parser::new(tokens)));
         }
-        Err(err) => eprintln!("{} - error: {}", input, err),
+        Err(err) => eprintln!("{} - error: {:?}", input, err),
     }
 }
