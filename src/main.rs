@@ -52,7 +52,7 @@ use crossterm::{
     terminal::{self, ClearType},
 };
 
-use rolf_parser::parser::{Program, Statement, parse_statement_from, parse_overall_from};
+use rolf_parser::parser::{Program, Statement, parse_statement_from, parse};
 
 // TODO(Chris): Make this configurable rather than hard-coding the constant
 const SCROLL_OFFSET: u16 = 10;
@@ -101,7 +101,7 @@ fn main() -> crossterm::Result<()> {
     let ast = match fs::read_to_string("rolfrc") {
         Ok(config_text) => {
             // FIXME(Chris): Handle error here
-            parse_overall_from(&config_text).unwrap()
+            parse(&config_text).unwrap()
         }
         Err(err) => match err.kind() {
             io::ErrorKind::NotFound => vec![],

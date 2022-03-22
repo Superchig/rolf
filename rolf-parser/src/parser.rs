@@ -4,18 +4,18 @@ use std::{error::Error, mem, ops};
 type LexResult<T> = std::result::Result<T, LexError>;
 type ParseResult<T> = std::result::Result<T, ParseError>;
 
-pub fn parse_overall_from(input: &str) -> ParseResult<Program> {
-    parse_from_str(input, parse)
+pub fn parse(input: &str) -> ParseResult<Program> {
+    parse_rule_from(input, parse_overall)
 }
 
 pub fn parse_statement_from(input: &str) -> ParseResult<Statement> {
-    parse_from_str(input, parse_statement)
+    parse_rule_from(input, parse_statement)
 }
 
-pub fn parse_from_str<T>(input: &str, parse_rule: impl Fn(&mut Parser) -> ParseResult<T>) -> ParseResult<T> {
+pub fn parse_rule_from<T>(input: &str, parse_rule: impl Fn(&mut Parser) -> ParseResult<T>) -> ParseResult<T> {
     let mut scanner = Scanner::new(input);
 
-    match lex(&mut scanner) {
+    match lex_overall(&mut scanner) {
         Ok(tokens) => parse_rule(&mut Parser::new(tokens)),
         Err(err) => match scanner.peek() {
             Some(_) => Err(ParseError {
@@ -30,7 +30,7 @@ pub fn parse_from_str<T>(input: &str, parse_rule: impl Fn(&mut Parser) -> ParseR
     }
 }
 
-pub fn lex(scanner: &mut Scanner) -> LexResult<Vec<Token>> {
+pub fn lex_overall(scanner: &mut Scanner) -> LexResult<Vec<Token>> {
     let lex_map = lex_phrase("map");
     let lex_plus = lex_phrase("+");
 
@@ -167,7 +167,7 @@ pub enum TokenKind {
     Newline,
 }
 
-pub fn parse(parser: &mut Parser) -> ParseResult<Program> {
+pub fn parse_overall(parser: &mut Parser) -> ParseResult<Program> {
     let result = parse_program(parser)?;
 
     if parser.is_done() {

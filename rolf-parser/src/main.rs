@@ -1,4 +1,4 @@
-use rolf_parser::parser::{lex, parse, Parser, Scanner};
+use rolf_parser::parser::{lex_overall, parse_overall, Parser, Scanner};
 
 fn main() {
     test_lex("ctrl");
@@ -18,13 +18,13 @@ fn main() {
 }
 
 fn test_lex(input: &str) {
-    println!("{}: {:#?}", input, lex(&mut Scanner::new(input)));
+    println!("{}: {:#?}", input, lex_overall(&mut Scanner::new(input)));
 }
 
 fn test_parse(input: &str) {
-    match lex(&mut Scanner::new(input)) {
+    match lex_overall(&mut Scanner::new(input)) {
         Ok(tokens) => {
-            println!("{}: {:?}", input, parse(&mut Parser::new(tokens)));
+            println!("{}: {:?}", input, parse_overall(&mut Parser::new(tokens)));
         }
         Err(err) => eprintln!("{} - error: {:?}", input, err),
     }
