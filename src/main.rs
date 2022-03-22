@@ -231,7 +231,7 @@ fn run(
 
     let mut command;
 
-    let mut command_queue = (*config_ast).clone();
+    let mut command_queue = config_ast.clone();
 
     // Main input loop
     loop {
