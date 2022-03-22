@@ -312,13 +312,7 @@ fn run(
                 }
             }
             InputMode::Command => {
-                let line_from_user = get_cmd_line_input(
-                    w,
-                    ":",
-                    &runtime,
-                    &mut fm,
-                    config,
-                )?;
+                let line_from_user = get_cmd_line_input(w, ":", &runtime, &mut fm, config)?;
 
                 // If there was no input line returned, then the user aborted the use of the
                 // command line. Thus, we only need to do anything when an input line is actually
@@ -342,12 +336,7 @@ fn run(
 
                                     let mut stdout_lock = w.lock();
 
-                                    queue_search_jump(
-                                        &mut stdout_lock,
-                                        &runtime,
-                                        &mut fm,
-                                        config,
-                                    )?;
+                                    queue_search_jump(&mut stdout_lock, &runtime, &mut fm, config)?;
                                 }
                             }
                             "search-back" => {
@@ -363,12 +352,7 @@ fn run(
 
                                     let mut stdout_lock = w.lock();
 
-                                    queue_search_jump(
-                                        &mut stdout_lock,
-                                        &runtime,
-                                        &mut fm,
-                                        config,
-                                    )?;
+                                    queue_search_jump(&mut stdout_lock, &runtime, &mut fm, config)?;
                                 }
                             }
                             "rename" => {
@@ -384,13 +368,8 @@ fn run(
                                     current_file_path.file_name().unwrap().to_str().unwrap(),
                                 );
 
-                                let new_name = get_cmd_line_input(
-                                    w,
-                                    "Rename: ",
-                                    &runtime,
-                                    &mut fm,
-                                    config,
-                                )?;
+                                let new_name =
+                                    get_cmd_line_input(w, "Rename: ", &runtime, &mut fm, config)?;
 
                                 if let Some(new_name) = new_name {
                                     let new_file_path = current_file_path
@@ -412,12 +391,7 @@ fn run(
 
                                     let mut stdout_lock = w.lock();
 
-                                    queue_search_jump(
-                                        &mut stdout_lock,
-                                        &runtime,
-                                        &mut fm,
-                                        config,
-                                    )?;
+                                    queue_search_jump(&mut stdout_lock, &runtime, &mut fm, config)?;
                                 }
                             }
                             _ => {
@@ -503,12 +477,7 @@ fn run(
 
                 let old_current_dir = fm.dir_states.current_dir.clone();
                 if !fm.dir_states.current_entries.is_empty() {
-                    save_location(
-                        &mut fm.left_paths,
-                        &fm.dir_states,
-                        second_entry_index,
-                        fm.second,
-                    );
+                    save_location(&mut fm, second_entry_index);
                 }
 
                 if let Some(parent_dir) = fm.dir_states.prev_dir.clone() {
@@ -603,18 +572,7 @@ fn run(
                         &fm.selections,
                     )?;
 
-                    queue_third_column(
-                        &mut stdout_lock,
-                        &runtime,
-                        &mut fm.image_handles,
-                        &fm.dir_states,
-                        &fm.left_paths,
-                        &fm.available_execs,
-                        fm.drawing_info,
-                        (fm.second.starting_index + fm.second.display_offset) as usize,
-                        &fm.selections,
-                        config,
-                    )?;
+                    queue_third_column(&mut stdout_lock, &runtime, &mut fm, config)?;
 
                     queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
                 }
@@ -650,18 +608,7 @@ fn run(
                         &fm.selections,
                     )?;
 
-                    queue_third_column(
-                        &mut stdout_lock,
-                        &runtime,
-                        &mut fm.image_handles,
-                        &fm.dir_states,
-                        &fm.left_paths,
-                        &fm.available_execs,
-                        fm.drawing_info,
-                        (fm.second.starting_index + fm.second.display_offset) as usize,
-                        &fm.selections,
-                        config,
-                    )?;
+                    queue_third_column(&mut stdout_lock, &runtime, &mut fm, config)?;
 
                     queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
                 }
@@ -681,22 +628,12 @@ fn run(
                 fm.input_mode = InputMode::Command;
             }
             "search-next" => {
-                queue_search_jump(
-                    &mut stdout_lock,
-                    &runtime,
-                    &mut fm,
-                    config,
-                )?;
+                queue_search_jump(&mut stdout_lock, &runtime, &mut fm, config)?;
             }
             "search-prev" => {
                 fm.should_search_forwards = !fm.should_search_forwards;
 
-                queue_search_jump(
-                    &mut stdout_lock,
-                    &runtime,
-                    &mut fm,
-                    config,
-                )?;
+                queue_search_jump(&mut stdout_lock, &runtime, &mut fm, config)?;
 
                 fm.should_search_forwards = !fm.should_search_forwards;
             }
@@ -725,18 +662,7 @@ fn run(
                 )?;
             }
             "redraw" => {
-                redraw_upper(
-                    &mut stdout_lock,
-                    &mut fm.drawing_info,
-                    &runtime,
-                    &mut fm.image_handles,
-                    &fm.dir_states,
-                    &fm.left_paths,
-                    &fm.available_execs,
-                    fm.second,
-                    &fm.selections,
-                    config,
-                )?;
+                redraw_upper(&mut stdout_lock, &runtime, &mut fm, config)?;
 
                 queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
             }
@@ -917,10 +843,7 @@ fn get_cmd_line_input(
                             'c' => {
                                 // TODO(Chris): Consider refactoring the queue_... call and the
                                 // resulting Ok(Some(...)) in a function
-                                let result = queue_cleanup_cmd_line_exit(
-                                    &mut stdout_lock,
-                                    fm,
-                                )?;
+                                let result = queue_cleanup_cmd_line_exit(&mut stdout_lock, fm)?;
 
                                 return Ok(Some(result));
                             }
@@ -953,10 +876,7 @@ fn get_cmd_line_input(
                     }
                 }
                 KeyCode::Enter => {
-                    let result = queue_cleanup_cmd_line_exit(
-                        &mut stdout_lock,
-                        fm,
-                    )?;
+                    let result = queue_cleanup_cmd_line_exit(&mut stdout_lock, fm)?;
 
                     return Ok(Some(result));
                 }
@@ -974,7 +894,8 @@ fn get_cmd_line_input(
                     if cursor_index > 0 {
                         if event.modifiers.contains(KeyModifiers::ALT) {
                             let ending_index = cursor_index;
-                            cursor_index = line_edit::find_prev_word_pos(&fm.input_line, cursor_index);
+                            cursor_index =
+                                line_edit::find_prev_word_pos(&fm.input_line, cursor_index);
                             fm.input_line.replace_range(cursor_index..ending_index, "");
                         } else {
                             fm.input_line.remove(cursor_index - 1);
@@ -984,10 +905,7 @@ fn get_cmd_line_input(
                     }
                 }
                 KeyCode::Esc => {
-                    let result = queue_cleanup_cmd_line_exit(
-                        &mut stdout_lock,
-                        fm,
-                    )?;
+                    let result = queue_cleanup_cmd_line_exit(&mut stdout_lock, fm)?;
 
                     return Ok(Some(result));
                 }
@@ -995,18 +913,7 @@ fn get_cmd_line_input(
             },
             Event::Mouse(_) => (),
             Event::Resize(_, _) => {
-                redraw_upper(
-                    &mut stdout_lock,
-                    &mut fm.drawing_info,
-                    runtime,
-                    &mut fm.image_handles,
-                    &fm.dir_states,
-                    &fm.left_paths,
-                    &fm.available_execs,
-                    fm.second,
-                    &fm.selections,
-                    config,
-                )?;
+                redraw_upper(&mut stdout_lock, runtime, fm, config)?;
             }
         }
 
@@ -1040,12 +947,7 @@ fn enter_entry(
         return Ok(());
     }
 
-    save_location(
-        &mut fm.left_paths,
-        &fm.dir_states,
-        second_entry_index,
-        fm.second,
-    );
+    save_location(fm, second_entry_index);
 
     let selected_entry_path = &fm.dir_states.current_entries[second_entry_index as usize]
         .dir_entry
@@ -1271,18 +1173,7 @@ fn queue_entry_changed(
         &fm.selections,
     )?;
 
-    queue_third_column(
-        stdout_lock,
-        runtime,
-        &mut fm.image_handles,
-        &fm.dir_states,
-        &fm.left_paths,
-        &fm.available_execs,
-        fm.drawing_info,
-        (fm.second.starting_index + fm.second.display_offset) as usize,
-        &fm.selections,
-        config,
-    )?;
+    queue_third_column(stdout_lock, runtime, fm, config)?;
 
     // NOTE(Chris): We flush here, so the current function is more than a "queue_" function
     stdout_lock.flush()?;
@@ -1311,10 +1202,7 @@ fn queue_cleanup_cmd_line_exit(
     Ok(result)
 }
 
-fn cleanup_cmd_line_exit(
-    stdout_lock: &mut StdoutLock,
-    fm: &mut FileManager,
-) -> io::Result<()> {
+fn cleanup_cmd_line_exit(stdout_lock: &mut StdoutLock, fm: &mut FileManager) -> io::Result<()> {
     stdout_lock.flush()?;
     fm.input_line.clear();
     fm.input_mode = InputMode::Normal;
@@ -1349,46 +1237,17 @@ fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm:
 // Redraw everything except the bottom info line.
 fn redraw_upper(
     stdout_lock: &mut StdoutLock,
-    drawing_info: &mut DrawingInfo,
     runtime: &Runtime,
-    image_handles: &mut Vec<DrawHandle>,
-    dir_states: &DirStates,
-    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
-    available_execs: &HashMap<&str, std::path::PathBuf>,
-    second: ColumnInfo,
-    selections: &SelectionsMap,
+    fm: &mut FileManager,
     config: &Config,
 ) -> crossterm::Result<()> {
     queue!(stdout_lock, terminal::Clear(ClearType::All))?;
 
-    update_drawing_info_from_resize(drawing_info)?;
+    update_drawing_info_from_resize(&mut fm.drawing_info)?;
 
-    queue_first_column(
-        stdout_lock,
-        dir_states,
-        left_paths,
-        *drawing_info,
-        selections,
-    )?;
-    queue_second_column(
-        stdout_lock,
-        *drawing_info,
-        &dir_states.current_entries,
-        second,
-        selections,
-    )?;
-    queue_third_column(
-        stdout_lock,
-        runtime,
-        image_handles,
-        dir_states,
-        left_paths,
-        available_execs,
-        *drawing_info,
-        (second.starting_index + second.display_offset) as usize,
-        selections,
-        config,
-    )?;
+    queue_first_column(stdout_lock, fm)?;
+    queue_second_column(stdout_lock, fm)?;
+    queue_third_column(stdout_lock, runtime, fm, config)?;
 
     Ok(())
 }
@@ -1562,68 +1421,39 @@ fn queue_all_columns(
     fm: &mut FileManager,
     config: &Config,
 ) -> crossterm::Result<()> {
-    queue_first_column(
-        stdout_lock,
-        &fm.dir_states,
-        &fm.left_paths,
-        fm.drawing_info,
-        &fm.selections,
-    )?;
-    queue_second_column(
-        stdout_lock,
-        fm.drawing_info,
-        &fm.dir_states.current_entries,
-        fm.second,
-        &fm.selections,
-    )?;
-    queue_third_column(
-        stdout_lock,
-        runtime,
-        &mut fm.image_handles,
-        &fm.dir_states,
-        &fm.left_paths,
-        &fm.available_execs,
-        fm.drawing_info,
-        (fm.second.starting_index + fm.second.display_offset) as usize,
-        &fm.selections,
-        config,
-    )?;
+    queue_first_column(stdout_lock, fm)?;
+    queue_second_column(stdout_lock, fm)?;
+    queue_third_column(stdout_lock, runtime, fm, config)?;
 
     queue_bottom_info_line(stdout_lock, fm)?;
 
     Ok(())
 }
 
-fn queue_first_column(
-    w: &mut StdoutLock,
-    dir_states: &DirStates,
-    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
-    drawing_info: DrawingInfo,
-    selections: &SelectionsMap,
-) -> crossterm::Result<()> {
-    if let Some(prev_dir) = &dir_states.prev_dir {
+fn queue_first_column(w: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Result<()> {
+    if let Some(prev_dir) = &fm.dir_states.prev_dir {
         let result_column = find_correct_location(
-            left_paths,
-            drawing_info.column_height,
+            &fm.left_paths,
+            fm.drawing_info.column_height,
             prev_dir,
-            &dir_states.prev_entries,
-            &dir_states.current_dir,
+            &fm.dir_states.prev_entries,
+            &fm.dir_states.current_dir,
         );
         queue_entries_column(
             w,
-            drawing_info.first_left_x,
-            drawing_info.first_right_x,
-            drawing_info.column_bot_y,
-            &dir_states.prev_entries,
+            fm.drawing_info.first_left_x,
+            fm.drawing_info.first_right_x,
+            fm.drawing_info.column_bot_y,
+            &fm.dir_states.prev_entries,
             result_column,
-            selections,
+            &fm.selections,
         )?;
     } else {
         queue_oneline_column(
             w,
-            drawing_info.first_left_x,
-            drawing_info.first_right_x,
-            drawing_info.column_bot_y,
+            fm.drawing_info.first_left_x,
+            fm.drawing_info.first_right_x,
+            fm.drawing_info.column_bot_y,
             "",
         )?;
     }
@@ -1632,21 +1462,15 @@ fn queue_first_column(
 
 // All this function actually does is call queue_entries_column, but it's here to match the naming
 // scheme of queue_first_column and queue_third_column
-fn queue_second_column(
-    w: &mut StdoutLock,
-    drawing_info: DrawingInfo,
-    entries: &[DirEntryInfo],
-    second: ColumnInfo,
-    selections: &SelectionsMap,
-) -> crossterm::Result<()> {
+fn queue_second_column(w: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Result<()> {
     queue_entries_column(
         w,
-        drawing_info.second_left_x,
-        drawing_info.second_right_x,
-        drawing_info.column_bot_y,
-        entries,
-        second,
-        selections,
+        fm.drawing_info.second_left_x,
+        fm.drawing_info.second_right_x,
+        fm.drawing_info.column_bot_y,
+        &fm.dir_states.current_entries,
+        fm.second,
+        &fm.selections,
     )?;
 
     Ok(())
@@ -1655,13 +1479,7 @@ fn queue_second_column(
 fn queue_third_column(
     w: &mut StdoutLock,
     runtime: &Runtime,
-    handles: &mut HandlesVec,
-    dir_states: &DirStates,
-    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
-    available_execs: &HashMap<&str, std::path::PathBuf>,
-    drawing_info: DrawingInfo,
-    change_index: usize,
-    selections: &SelectionsMap,
+    fm: &mut FileManager,
     config: &Config,
 ) -> crossterm::Result<()> {
     match config.image_protocol {
@@ -1675,39 +1493,41 @@ fn queue_third_column(
         _ => (),
     }
 
-    let left_x = drawing_info.third_left_x;
-    let right_x = drawing_info.third_right_x;
+    let left_x = fm.drawing_info.third_left_x;
+    let right_x = fm.drawing_info.third_right_x;
     // let right_x = drawing_info.width / 2 + 20;
 
-    queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
+    let change_index = (fm.second.starting_index + fm.second.display_offset) as usize;
 
-    if dir_states.current_entries.len() <= 0 {
-        queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
+    queue_blank_column(w, left_x, right_x, fm.drawing_info.column_height)?;
+
+    if fm.dir_states.current_entries.len() <= 0 {
+        queue_blank_column(w, left_x, right_x, fm.drawing_info.column_height)?;
     } else {
-        let display_entry = &dir_states.current_entries[change_index];
+        let display_entry = &fm.dir_states.current_entries[change_index];
 
         let file_type = display_entry.dir_entry.file_type().unwrap();
 
         if file_type.is_dir() {
             queue_third_column_dir(
                 w,
-                left_paths,
+                &fm.left_paths,
                 left_x,
                 right_x,
-                drawing_info.column_bot_y,
+                fm.drawing_info.column_bot_y,
                 display_entry,
                 runtime,
-                handles,
-                selections,
+                &mut fm.image_handles,
+                &fm.selections,
             )?;
         } else if file_type.is_file() {
             queue_third_column_file(
                 w,
                 runtime,
-                handles,
+                &mut fm.image_handles,
                 display_entry,
-                available_execs,
-                drawing_info,
+                &fm.available_execs,
+                fm.drawing_info,
                 left_x,
                 right_x,
                 config,
@@ -1721,37 +1541,37 @@ fn queue_third_column(
                     if underlying_file_type.is_dir() {
                         queue_third_column_dir(
                             w,
-                            left_paths,
+                            &fm.left_paths,
                             left_x,
                             right_x,
-                            drawing_info.column_bot_y,
+                            fm.drawing_info.column_bot_y,
                             display_entry,
                             runtime,
-                            handles,
-                            selections,
+                            &mut fm.image_handles,
+                            &fm.selections,
                         )?;
                     } else if underlying_file_type.is_file() {
                         queue_third_column_file(
                             w,
                             runtime,
-                            handles,
+                            &mut fm.image_handles,
                             display_entry,
-                            available_execs,
-                            drawing_info,
+                            &fm.available_execs,
+                            fm.drawing_info,
                             left_x,
                             right_x,
                             config,
                         )?;
                     } else {
-                        queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
+                        queue_blank_column(w, left_x, right_x, fm.drawing_info.column_height)?;
                     }
                 }
                 Err(_) => {
-                    queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
+                    queue_blank_column(w, left_x, right_x, fm.drawing_info.column_height)?;
                 }
             }
         } else {
-            queue_blank_column(w, left_x, right_x, drawing_info.column_height)?;
+            queue_blank_column(w, left_x, right_x, fm.drawing_info.column_height)?;
         }
     }
 
@@ -2635,24 +2455,15 @@ fn cmp_dir_entry_info(entry_info_1: &DirEntryInfo, entry_info_2: &DirEntryInfo) 
     }
 }
 
-fn save_location(
-    left_paths: &mut HashMap<
-        std::path::PathBuf,
-        DirLocation,
-        std::collections::hash_map::RandomState,
-    >,
-    dir_states: &DirStates,
-    second_entry_index: u16,
-    second: ColumnInfo,
-) {
-    left_paths.insert(
-        dir_states.current_dir.clone(),
+fn save_location(fm: &mut FileManager, second_entry_index: u16) {
+    fm.left_paths.insert(
+        fm.dir_states.current_dir.clone(),
         DirLocation {
-            dir_path: dir_states.current_entries[second_entry_index as usize]
+            dir_path: fm.dir_states.current_entries[second_entry_index as usize]
                 .dir_entry
                 .path(),
-            starting_index: second.starting_index,
-            display_offset: second.display_offset,
+            starting_index: fm.second.starting_index,
+            display_offset: fm.second.display_offset,
         },
     );
 }
