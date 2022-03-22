@@ -562,14 +562,9 @@ fn run(
 
                     update_entries_column(
                         &mut stdout_lock,
-                        fm.drawing_info.second_left_x,
-                        fm.drawing_info.second_right_x,
-                        fm.drawing_info.column_bot_y,
-                        &fm.dir_states.current_entries,
+                        &mut fm,
                         old_display_offset,
                         old_starting_index,
-                        fm.second,
-                        &fm.selections,
                     )?;
 
                     queue_third_column(&mut stdout_lock, &runtime, &mut fm, config)?;
@@ -598,14 +593,9 @@ fn run(
 
                     update_entries_column(
                         &mut stdout_lock,
-                        fm.drawing_info.second_left_x,
-                        fm.drawing_info.second_right_x,
-                        fm.drawing_info.column_bot_y,
-                        &fm.dir_states.current_entries,
+                        &mut fm,
                         old_display_offset,
                         old_starting_index,
-                        fm.second,
-                        &fm.selections,
                     )?;
 
                     queue_third_column(&mut stdout_lock, &runtime, &mut fm, config)?;
@@ -1159,18 +1149,11 @@ fn queue_entry_changed(
     old_display_offset: u16,
     config: &Config,
 ) -> crossterm::Result<()> {
-    let second_column = fm.drawing_info.second_left_x;
-
     update_entries_column(
         stdout_lock,
-        second_column,
-        fm.drawing_info.second_right_x,
-        fm.drawing_info.column_bot_y,
-        &fm.dir_states.current_entries,
+        fm,
         old_display_offset,
         old_starting_index,
-        fm.second,
-        &fm.selections,
     )?;
 
     queue_third_column(stdout_lock, runtime, fm, config)?;
@@ -2470,17 +2453,17 @@ fn save_location(fm: &mut FileManager, second_entry_index: u16) {
 
 fn update_entries_column(
     w: &mut io::StdoutLock,
-    left_x: u16,
-    right_x: u16,
-    column_bot_y: u16,
-    entries: &[DirEntryInfo],
+    fm: &mut FileManager,
     old_offset: u16,
     old_start_index: u16,
-    new: ColumnInfo,
-    selections: &SelectionsMap,
 ) -> crossterm::Result<()> {
+    let left_x = fm.drawing_info.second_left_x;
+    let right_x = fm.drawing_info.second_right_x;
+    let column_bot_y = fm.drawing_info.column_bot_y;
+    let new = fm.second;
+
     if new.starting_index != old_start_index {
-        queue_entries_column(w, left_x, right_x, column_bot_y, entries, new, selections)?;
+        queue_entries_column(w, left_x, right_x, column_bot_y, &fm.dir_states.current_entries, new, &fm.selections)?;
         return Ok(());
     }
 
@@ -2489,24 +2472,24 @@ fn update_entries_column(
     // Update the old offset
     queue_full_entry(
         w,
-        entries,
+        &fm.dir_states.current_entries,
         left_x,
         right_x,
         old_offset,
         old_start_index,
-        selections,
+        &fm.selections,
         false,
     )?;
 
     // Update the new offset
     queue_full_entry(
         w,
-        entries,
+        &fm.dir_states.current_entries,
         left_x,
         right_x,
         new.display_offset,
         new.starting_index,
-        selections,
+        &fm.selections,
         true,
     )?;
 
