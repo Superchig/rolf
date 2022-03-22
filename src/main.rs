@@ -1455,14 +1455,11 @@ fn queue_third_column(w: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Re
         if file_type.is_dir() {
             queue_third_column_dir(
                 w,
-                &fm.left_paths,
+                fm,
                 left_x,
                 right_x,
                 fm.drawing_info.column_bot_y,
-                display_entry,
-                &fm.runtime,
-                &mut fm.image_handles,
-                &fm.selections,
+                file_path,
             )?;
         } else if file_type.is_file() {
             queue_third_column_file(w, fm, file_path, left_x, right_x)?;
@@ -1475,14 +1472,11 @@ fn queue_third_column(w: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Re
                     if underlying_file_type.is_dir() {
                         queue_third_column_dir(
                             w,
-                            &fm.left_paths,
+                            fm,
                             left_x,
                             right_x,
                             fm.drawing_info.column_bot_y,
-                            display_entry,
-                            &fm.runtime,
-                            &mut fm.image_handles,
-                            &fm.selections,
+                            file_path,
                         )?;
                     } else if underlying_file_type.is_file() {
                         queue_third_column_file(w, fm, file_path, left_x, right_x)?;
@@ -1526,18 +1520,13 @@ macro_rules! spawn_async_draw {
 
 fn queue_third_column_dir(
     w: &mut StdoutLock,
-    left_paths: &HashMap<std::path::PathBuf, DirLocation>,
+    fm: &mut FileManager,
     left_x: u16,
     right_x: u16,
     column_bot_y: u16,
-    display_entry: &DirEntryInfo,
-    runtime: &Runtime,
-    handles: &mut HandlesVec,
-    selections: &SelectionsMap,
+    third_dir: PathBuf,
 ) -> crossterm::Result<()> {
-    let third_dir = display_entry.dir_entry.path();
-
-    let (display_offset, starting_index) = match left_paths.get(&third_dir) {
+    let (display_offset, starting_index) = match fm.left_paths.get(&third_dir) {
         Some(dir_location) => (dir_location.display_offset, dir_location.starting_index),
         None => (0, 0),
     };
@@ -1559,8 +1548,8 @@ fn queue_third_column_dir(
     w.flush()?;
 
     spawn_async_draw!(
-        runtime,
-        handles,
+        fm.runtime,
+        fm.image_handles,
         preview_dir,
         third_dir,
         display_offset,
@@ -1568,7 +1557,7 @@ fn queue_third_column_dir(
         column_bot_y,
         left_x,
         right_x,
-        selections.clone(),
+        fm.selections.clone(),
     );
 
     Ok(())
