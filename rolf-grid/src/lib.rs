@@ -74,6 +74,16 @@ where
     pub fn size(&self) -> (u16, u16) {
         (self.grid.width, self.grid.height)
     }
+
+    pub fn clear_logical(&mut self) {
+        for x in 0..self.grid.width {
+            for y in 0..self.grid.height {
+                let mut cell = self.grid.get_mut(x, y);
+                cell.ch = ' ';
+                cell.style = Style::default();
+            }
+        }
+    }
 }
 
 impl Screen<Stdout> {
@@ -164,6 +174,14 @@ impl<T> Grid<T> {
     }
 
     fn get_mut(&mut self, x: u16, y: u16) -> &mut T {
+        if x > self.width - 1 {
+            panic!("Width is too large: {}", self.width);
+        }
+
+        if y > self.height - 1 {
+            panic!("Height is too large: {}", self.height);
+        }
+
         &mut self.buffer[coords_to_index(self.width, x, y)]
     }
 }

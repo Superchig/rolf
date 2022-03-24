@@ -15,7 +15,55 @@ fn main() -> io::Result<()> {
 
     let (width, height) = screen.size();
 
+    let items = vec![
+        "10.bak",
+        "11.bak",
+        "12.bak",
+        "13.bak",
+        "14.bak",
+        "15.bak",
+        "16.bak",
+        "17.bak",
+        "18.bak",
+        "1.bak",
+        "2.bak",
+        "3.bak",
+        "4.bak",
+        "5.bak",
+        "6.bak",
+        "7.bak",
+        "8.bak",
+        "9.bak",
+        "basic.svg",
+        "Cargo.lock",
+        "Cargo.toml",
+        "ci",
+        "demo.gif",
+        "flamegraph.svg",
+        "LICENSE",
+        "link_dir",
+        "link_invalid",
+        "link_txt",
+        "none",
+        "perf.data",
+        "perf.data.old",
+        "README.md",
+        "rolf-grid",
+        "rolf-parser",
+        "rolfrc",
+        "rustfmt.toml",
+        "src",
+        "ssl",
+        "stderr.txt",
+        "target",
+    ];
+
+    let mut file_top_ind = 0;
+    let mut file_curr_ind = 10;
+
     loop {
+        screen.clear_logical();
+
         screen.set_cell(0, 0, '┌');
         screen.set_cell(width - 1, 0, '┐');
         screen.set_cell(0, height - 1, '└');
@@ -52,9 +100,22 @@ fn main() -> io::Result<()> {
             Style::new(Attribute::Underlined | Attribute::Bold),
         );
         screen.set_cell(x, y, '@');
-        screen.show()?;
 
-        screen.set_cell(x, y, ' ');
+        for y in 1..=height - 2 {
+            let ind = file_top_ind + y - 1;
+
+            let draw_style = if ind == file_curr_ind {
+                Style::new(Attribute::Reverse)
+            } else {
+                Style::new(Attribute::None)
+            };
+
+            let file_name = &items[ind as usize];
+
+            draw_str(&mut screen, 50, y, file_name, draw_style);
+        }
+
+        screen.show()?;
 
         let event = event::read()?;
 
@@ -80,10 +141,26 @@ fn main() -> io::Result<()> {
                         x -= 1;
                     }
                 }
-                KeyCode::Char('q') => break,
+                KeyCode::Char('J') => {
+                    file_curr_ind += 1;
+                }
+                KeyCode::Char('K') => {
+                    if file_curr_ind > 0 {
+                        file_curr_ind -= 1;
+                    }
+                }
                 KeyCode::Char('s') => {
                     is_cursor_visible = !is_cursor_visible;
                 }
+                KeyCode::Char('+') => {
+                    file_top_ind += 1;
+                }
+                KeyCode::Char('-') => {
+                    if file_top_ind > 0 {
+                        file_top_ind -= 1;
+                    }
+                }
+                KeyCode::Char('q') => break,
                 _ => (),
             },
             Event::Mouse(..) => (),
