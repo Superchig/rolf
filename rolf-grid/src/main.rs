@@ -37,7 +37,20 @@ fn main() -> io::Result<()> {
             screen.hide_cursor();
         }
         draw_str(&mut screen, 10, 1, "Welcome!", Style::new(Attribute::Bold));
-        draw_str(&mut screen, 10, 3, "This is underlined.", Style::new(Attribute::Underlined));
+        draw_str(
+            &mut screen,
+            10,
+            3,
+            "This is underlined.",
+            Style::new(Attribute::Underlined),
+        );
+        draw_str(
+            &mut screen,
+            10,
+            5,
+            "This is underlined and bold.",
+            Style::new(Attribute::Underlined | Attribute::Bold),
+        );
         screen.set_cell(x, y, '@');
         screen.show()?;
 

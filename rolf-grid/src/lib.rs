@@ -6,7 +6,7 @@ use crossterm::{
 };
 use std::{
     io::{self, Write},
-    ops::BitOr,
+    ops::{BitAnd, BitOr},
 };
 
 pub struct Screen<T>
@@ -90,8 +90,9 @@ impl Screen<Stdout> {
                         queue!(
                             &mut stdout_lock,
                             style::SetAttribute(style::Attribute::Reset),
-                            style::SetAttribute(cell.style.attribute.to_crossterm()),
                         )?;
+
+                        cell.style.attribute.queue_crossterm(&mut stdout_lock)?;
 
                         self.last_style = cell.style;
                     }
@@ -202,15 +203,28 @@ impl Attribute {
     pub const Reverse: Attribute = Attribute(0b00001000);
     pub const Hidden: Attribute = Attribute(0b00010000);
 
-    fn to_crossterm(self) -> style::Attribute {
-        match self {
-            Self::None => style::Attribute::Reset,
-            Self::Bold => style::Attribute::Bold,
-            Self::Dim => style::Attribute::Dim,
-            Self::Underlined => style::Attribute::Underlined,
-            Self::Reverse => style::Attribute::Reverse,
-            _ => unreachable!("Unsupported attribute: {:?}", self),
+    fn queue_crossterm<T>(self, output: &mut T) -> io::Result<()>
+    where
+        T: Write,
+    {
+        if self.contains(Self::Bold) {
+            queue!(output, style::SetAttribute(style::Attribute::Bold))?;
         }
+
+        if self.contains(Self::Dim) {
+            queue!(output, style::SetAttribute(style::Attribute::Dim))?;
+        }
+        if self.contains(Self::Underlined) {
+            queue!(output, style::SetAttribute(style::Attribute::Underlined))?;
+        }
+        if self.contains(Self::Reverse) {
+            queue!(output, style::SetAttribute(style::Attribute::Reverse))?;
+        }
+        if self.contains(Self::Hidden) {
+            queue!(output, style::SetAttribute(style::Attribute::Hidden))?;
+        }
+
+        Ok(())
     }
 }
 
@@ -219,6 +233,20 @@ impl BitOr for Attribute {
 
     fn bitor(self, rhs: Self) -> Self::Output {
         Self(self.0 | rhs.0)
+    }
+}
+
+impl BitAnd for Attribute {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl Attribute {
+    fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
     }
 }
 
@@ -234,5 +262,17 @@ mod tests {
         grid.set(3, 4, 'Z');
 
         assert_eq!(grid.get(2, 3), &'a');
+    }
+
+    #[test]
+    fn test_attribute_contains() {
+        let attr1 = Attribute::Bold | Attribute::Underlined;
+        let attr2 = Attribute::Bold;
+
+        assert!(attr1.contains(attr2));
+
+        let attr3 = Attribute::Dim;
+
+        assert!(!attr1.contains(attr3));
     }
 }
