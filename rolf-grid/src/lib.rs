@@ -1,6 +1,3 @@
-// FIXME(Chris): Reenable dead code warning
-pub mod grid;
-
 use io::Stdout;
 
 use crossterm::{cursor, queue, style, terminal::{self, EnterAlternateScreen, LeaveAlternateScreen}, execute};
