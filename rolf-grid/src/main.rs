@@ -8,13 +8,24 @@ fn main() -> io::Result<()> {
 
     screen.activate()?;
 
-    let x = 10;
+    let mut x = 10;
     let mut y = 10;
 
-    screen.set_cell(0, 0, '┌');
+    let (width, height) = screen.size();
 
-    for y in 1..=20 {
+    screen.set_cell(0, 0, '┌');
+    screen.set_cell(width - 1, 0, '┐');
+    screen.set_cell(0, height - 1, '└');
+    screen.set_cell(width - 1, height - 1, '┘');
+
+    for y in 1..height - 1 {
         screen.set_cell(0, y, '│');
+        screen.set_cell(width - 1, y, '│');
+    }
+
+    for x in 1..width - 1 {
+        screen.set_cell(x, 0, '─');
+        screen.set_cell(x, height - 1, '─');
     }
 
     loop {
@@ -29,10 +40,24 @@ fn main() -> io::Result<()> {
         match event {
             Event::Key(key_event) => match key_event.code {
                 KeyCode::Char('j') => {
-                    y = clamp(y + 1, 0, 20);
+                    if y < height - 1 {
+                        y += 1;
+                    }
                 }
                 KeyCode::Char('k') => {
-                    y = clamp(y - 1, 0, 20);
+                    if y > 0 {
+                        y -= 1;
+                    }
+                }
+                KeyCode::Char('l') => {
+                    if x < width - 1 {
+                        x += 1;
+                    }
+                }
+                KeyCode::Char('h') => {
+                    if x > 0 {
+                        x -= 1;
+                    }
                 }
                 KeyCode::Char('q') => break,
                 _ => (),
@@ -45,17 +70,4 @@ fn main() -> io::Result<()> {
     screen.deactivate()?;
 
     Ok(())
-}
-
-fn clamp<T>(value: T, min: T, max: T) -> T
-where
-    T: PartialOrd<T>,
-{
-    if value < min {
-        min
-    } else if value > max {
-        max
-    } else {
-        value
-    }
 }

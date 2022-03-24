@@ -50,6 +50,10 @@ where
 
         Ok(())
     }
+
+    pub fn size(&self) -> (u16, u16) {
+        (self.grid.width, self.grid.height)
+    }
 }
 
 impl Screen<Stdout> {
