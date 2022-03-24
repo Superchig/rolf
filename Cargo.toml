@@ -6,7 +6,8 @@ edition = "2021"
 
 [workspace]
 members = [
-  "rolf-parser"
+  "rolf-parser",
+  "rolf-grid",
 ]
 
 [dependencies]
@@ -24,6 +25,9 @@ nanoserde = "0.1.29" # For parsing json
 
 [dependencies.rolf-parser]
 path = "rolf-parser"
+
+[dependencies.rolf-grid]
+path = "rolf-grid"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.32.0"

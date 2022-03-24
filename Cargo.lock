@@ -571,12 +571,20 @@ dependencies = [
  "libc",
  "nanoserde",
  "open",
+ "rolf-grid",
  "rolf-parser",
  "tempfile",
  "tokio",
  "which",
  "whoami",
  "windows",
+]
+
+[[package]]
+name = "rolf-grid"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
 ]
 
 [[package]]
