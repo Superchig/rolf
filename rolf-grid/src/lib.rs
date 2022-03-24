@@ -1,7 +1,13 @@
 use io::Stdout;
 
-use crossterm::{cursor, queue, style, terminal::{self, EnterAlternateScreen, LeaveAlternateScreen}, execute};
-use std::io::{self, Write};
+use crossterm::{
+    cursor, execute, queue, style,
+    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use std::{
+    io::{self, Write},
+    ops::BitOr,
+};
 
 pub struct Screen<T>
 where
@@ -11,6 +17,8 @@ where
     grid: Grid<Cell>,
     prev_grid: Grid<Cell>,
     cursor_display: (u16, u16),
+    should_show_cursor: bool,
+    last_style: Style,
 }
 
 impl<T> Screen<T>
@@ -25,16 +33,28 @@ where
             grid: Grid::new(width, height),
             prev_grid: Grid::new(width, height),
             cursor_display: (0, 0),
+            should_show_cursor: false,
+            last_style: Style::default(),
         })
     }
 
     pub fn show_cursor(&mut self, x: u16, y: u16) {
         self.cursor_display = (x, y);
+        self.should_show_cursor = true;
+    }
+
+    pub fn hide_cursor(&mut self) {
+        self.should_show_cursor = false;
     }
 
     pub fn set_cell(&mut self, x: u16, y: u16, ch: char) {
+        self.set_cell_style(x, y, ch, Style::default());
+    }
+
+    pub fn set_cell_style(&mut self, x: u16, y: u16, ch: char, style: Style) {
         let mut cell = self.grid.get_mut(x, y);
         cell.ch = ch;
+        cell.style = style;
     }
 
     pub fn activate(&mut self) -> io::Result<()> {
@@ -66,6 +86,16 @@ impl Screen<Stdout> {
                 let prev_cell = self.prev_grid.get(x, y);
 
                 if cell != prev_cell {
+                    if cell.style != self.last_style {
+                        queue!(
+                            &mut stdout_lock,
+                            style::SetAttribute(style::Attribute::Reset),
+                            style::SetAttribute(cell.style.attribute.to_crossterm()),
+                        )?;
+
+                        self.last_style = cell.style;
+                    }
+
                     queue!(
                         &mut stdout_lock,
                         cursor::MoveTo(x, y),
@@ -82,10 +112,15 @@ impl Screen<Stdout> {
             }
         }
 
-        queue!(
-            &mut stdout_lock,
-            cursor::MoveTo(self.cursor_display.0, self.cursor_display.1),
-        )?;
+        if self.should_show_cursor {
+            queue!(
+                &mut stdout_lock,
+                cursor::MoveTo(self.cursor_display.0, self.cursor_display.1),
+                cursor::Show,
+            )?;
+        } else {
+            queue!(&mut stdout_lock, cursor::Hide,)?;
+        }
 
         stdout_lock.flush()?;
 
@@ -139,6 +174,52 @@ fn coords_to_index(width: u16, x: u16, y: u16) -> usize {
 #[derive(Clone, Copy, Default, PartialEq)]
 pub struct Cell {
     ch: char,
+    style: Style,
+}
+
+#[derive(Clone, Copy, Default, PartialEq)]
+pub struct Style {
+    attribute: Attribute,
+}
+
+impl Style {
+    pub fn new(attribute: Attribute) -> Self {
+        Self { attribute }
+    }
+}
+
+// https://docs.rs/crossterm/0.20.0/crossterm/style/enum.Attribute.html#platform-specific-notes
+// Based on the attributes available on both Windows and Unix in crossterm
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct Attribute(u8);
+
+#[allow(non_upper_case_globals, dead_code)]
+impl Attribute {
+    pub const None: Attribute = Attribute(0b00000000);
+    pub const Bold: Attribute = Attribute(0b00000001);
+    pub const Dim: Attribute = Attribute(0b00000010);
+    pub const Underlined: Attribute = Attribute(0b00000100);
+    pub const Reverse: Attribute = Attribute(0b00001000);
+    pub const Hidden: Attribute = Attribute(0b00010000);
+
+    fn to_crossterm(self) -> style::Attribute {
+        match self {
+            Self::None => style::Attribute::Reset,
+            Self::Bold => style::Attribute::Bold,
+            Self::Dim => style::Attribute::Dim,
+            Self::Underlined => style::Attribute::Underlined,
+            Self::Reverse => style::Attribute::Reverse,
+            _ => unreachable!("Unsupported attribute: {:?}", self),
+        }
+    }
+}
+
+impl BitOr for Attribute {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
 }
 
 #[cfg(test)]
