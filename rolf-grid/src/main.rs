@@ -1,7 +1,7 @@
 use std::io;
 
 use crossterm::event::{self, Event, KeyCode};
-use rolf_grid::{Attribute, Screen, Style};
+use rolf_grid::{Attribute, Screen, Style, Color};
 
 fn main() -> io::Result<()> {
     let mut screen = Screen::new(io::stdout())?;
@@ -84,33 +84,47 @@ fn main() -> io::Result<()> {
         } else {
             screen.hide_cursor();
         }
-        draw_str(&mut screen, 10, 1, "Welcome!", Style::new(Attribute::Bold));
+        draw_str(
+            &mut screen,
+            10,
+            1,
+            "Welcome!",
+            Style::new_attr(Attribute::Bold)
+        );
         draw_str(
             &mut screen,
             10,
             3,
             "This is underlined.",
-            Style::new(Attribute::Underlined),
+            Style::new_attr(Attribute::Underlined),
         );
         draw_str(
             &mut screen,
             10,
             5,
             "This is underlined and bold.",
-            Style::new(Attribute::Underlined | Attribute::Bold),
+            Style::new_attr(Attribute::Underlined | Attribute::Bold),
         );
         screen.set_cell(x, y, '@');
 
         for y in 1..=height - 2 {
             let ind = file_top_ind + y - 1;
 
-            let draw_style = if ind == file_curr_ind {
-                Style::new(Attribute::Reverse)
+            let mut draw_style = if ind == file_curr_ind {
+                Style::new_attr(Attribute::Reverse)
             } else {
-                Style::new(Attribute::None)
+                Style::new_attr(Attribute::None)
             };
 
-            let file_name = &items[ind as usize];
+            if ind < 5 {
+                draw_style.fg = Color::Blue;
+            }
+
+            let file_name = if (ind as usize) < items.len() {
+                items[ind as usize]
+            } else {
+                ""
+            };
 
             draw_str(&mut screen, 50, y, file_name, draw_style);
         }
@@ -142,7 +156,9 @@ fn main() -> io::Result<()> {
                     }
                 }
                 KeyCode::Char('J') => {
-                    file_curr_ind += 1;
+                    if (file_curr_ind as usize) < items.len() - 1 {
+                        file_curr_ind += 1;
+                    }
                 }
                 KeyCode::Char('K') => {
                     if file_curr_ind > 0 {

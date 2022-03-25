@@ -14,6 +14,7 @@ where
     T: Write,
 {
     output: T,
+    output_buf: Vec<u8>,
     grid: Grid<Cell>,
     prev_grid: Grid<Cell>,
     cursor_display: (u16, u16),
@@ -30,6 +31,7 @@ where
 
         Ok(Self {
             output: screen_output,
+            output_buf: vec![],
             grid: Grid::new(width, height),
             prev_grid: Grid::new(width, height),
             cursor_display: (0, 0),
@@ -98,20 +100,37 @@ impl Screen<Stdout> {
                 if cell != prev_cell {
                     if cell.style != self.last_style {
                         queue!(
-                            &mut stdout_lock,
+                            &mut self.output_buf,
                             style::SetAttribute(style::Attribute::Reset),
                         )?;
 
-                        cell.style.attribute.queue_crossterm(&mut stdout_lock)?;
+                        cell.style.attribute.queue_crossterm(&mut self.output_buf)?;
+
+                        if cell.style.fg != Color::Foreground && cell.style.bg != Color::Background
+                        {
+                            queue!(
+                                &mut self.output_buf,
+                                style::SetColors(style::Colors::new(
+                                    cell.style.fg.to_crossterm(),
+                                    cell.style.bg.to_crossterm()
+                                )),
+                            )?;
+                        } else if cell.style.bg != Color::Background {
+                            queue!(
+                                &mut self.output_buf,
+                                style::SetBackgroundColor(cell.style.bg.to_crossterm()),
+                            )?;
+                        } else if cell.style.fg != Color::Foreground {
+                            queue!(
+                                &mut self.output_buf,
+                                style::SetForegroundColor(cell.style.fg.to_crossterm()),
+                            )?;
+                        }
 
                         self.last_style = cell.style;
                     }
 
-                    queue!(
-                        &mut stdout_lock,
-                        cursor::MoveTo(x, y),
-                        style::Print(cell.ch)
-                    )?;
+                    queue!(&mut self.output_buf, cursor::MoveTo(x, y), style::Print(cell.ch))?;
                 }
 
                 // Update the previous buffer
@@ -124,14 +143,19 @@ impl Screen<Stdout> {
         }
 
         if self.should_show_cursor {
+            let move_to_cmd = cursor::MoveTo(self.cursor_display.0, self.cursor_display.1);
+
             queue!(
-                &mut stdout_lock,
-                cursor::MoveTo(self.cursor_display.0, self.cursor_display.1),
+                &mut self.output_buf,
+                move_to_cmd,
                 cursor::Show,
             )?;
         } else {
-            queue!(&mut stdout_lock, cursor::Hide,)?;
+            queue!(&mut self.output_buf, cursor::Hide,)?;
         }
+
+        stdout_lock.write_all(&self.output_buf)?;
+        self.output_buf.clear();
 
         stdout_lock.flush()?;
 
@@ -196,14 +220,88 @@ pub struct Cell {
     style: Style,
 }
 
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Style {
-    attribute: Attribute,
+    pub attribute: Attribute,
+    pub fg: Color,
+    pub bg: Color,
 }
 
 impl Style {
-    pub fn new(attribute: Attribute) -> Self {
-        Self { attribute }
+    pub fn new(attribute: Attribute, fg: Color, bg: Color) -> Self {
+        Self { attribute, fg, bg }
+    }
+
+    pub fn new_attr(attribute: Attribute) -> Self {
+        Self {
+            attribute,
+            ..Default::default()
+        }
+    }
+
+    pub fn new_color(fg: Color, bg: Color) -> Self {
+        Self {
+            fg,
+            bg,
+            ..Default::default()
+        }
+    }
+}
+
+impl Default for Style {
+    fn default() -> Self {
+        Self {
+            attribute: Attribute::default(),
+            fg: Color::Foreground,
+            bg: Color::Background,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Color {
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+    BrightBlack,
+    BrightRed,
+    BrightGreen,
+    BrightYellow,
+    BrightBlue,
+    BrightMagenta,
+    BrightCyan,
+    BrightWhite,
+    Foreground, // Default foreground color
+    Background, // Default background color
+}
+
+impl Color {
+    fn to_crossterm(self) -> style::Color {
+        match self {
+            Self::Black => style::Color::Black,
+            Self::Red => style::Color::DarkRed,
+            Self::Green => style::Color::DarkGreen,
+            Self::Yellow => style::Color::DarkYellow,
+            Self::Blue => style::Color::DarkBlue,
+            Self::Magenta => style::Color::DarkMagenta,
+            Self::Cyan => style::Color::DarkCyan,
+            Self::White => style::Color::DarkGrey,
+            Self::BrightBlack => style::Color::Grey,
+            Self::BrightRed => style::Color::Red,
+            Self::BrightGreen => style::Color::Green,
+            Self::BrightYellow => style::Color::Yellow,
+            Self::BrightBlue => style::Color::Blue,
+            Self::BrightMagenta => style::Color::Magenta,
+            Self::BrightCyan => style::Color::Cyan,
+            Self::BrightWhite => style::Color::White,
+            Self::Foreground => unreachable!("Foreground not convertible to a crossterm color!"),
+            Self::Background => unreachable!("Background not convertible to a crossterm color!"),
+        }
     }
 }
 
