@@ -1,3 +1,6 @@
+// FIXME(Chris): Remove the dead_code warning suppressions
+#![allow(dead_code, unused_macros)]
+
 #![allow(
     clippy::absurd_extreme_comparisons,
     clippy::too_many_arguments,
