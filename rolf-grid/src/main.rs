@@ -1,7 +1,7 @@
 use std::io;
 
 use crossterm::event::{self, Event, KeyCode};
-use rolf_grid::{Attribute, Screen, Style, Color};
+use rolf_grid::{Attribute, Color, Screen, Style};
 
 fn main() -> io::Result<()> {
     let mut screen = Screen::new(io::stdout())?;
@@ -13,7 +13,7 @@ fn main() -> io::Result<()> {
 
     let mut is_cursor_visible = true;
 
-    let (width, height) = screen.size();
+    let (mut width, mut height) = screen.size();
 
     let items = vec![
         "10.bak",
@@ -89,7 +89,7 @@ fn main() -> io::Result<()> {
             10,
             1,
             "Welcome!",
-            Style::new_attr(Attribute::Bold)
+            Style::new_attr(Attribute::Bold),
         );
         draw_str(
             &mut screen,
@@ -107,27 +107,11 @@ fn main() -> io::Result<()> {
         );
         screen.set_cell(x, y, '@');
 
-        for y in 1..=height - 2 {
-            let ind = file_top_ind + y - 1;
+        draw_scroller(&mut screen, height, 50, file_top_ind, file_curr_ind, &items);
 
-            let mut draw_style = if ind == file_curr_ind {
-                Style::new_attr(Attribute::Reverse)
-            } else {
-                Style::new_attr(Attribute::None)
-            };
+        draw_scroller(&mut screen, height, 70, file_top_ind, file_curr_ind, &items);
 
-            if ind < 5 {
-                draw_style.fg = Color::Blue;
-            }
-
-            let file_name = if (ind as usize) < items.len() {
-                items[ind as usize]
-            } else {
-                ""
-            };
-
-            draw_str(&mut screen, 50, y, file_name, draw_style);
-        }
+        draw_scroller(&mut screen, height, 90, 5, 10, &items);
 
         screen.show()?;
 
@@ -180,7 +164,12 @@ fn main() -> io::Result<()> {
                 _ => (),
             },
             Event::Mouse(..) => (),
-            Event::Resize(_, _) => (),
+            Event::Resize(new_width, new_height) => {
+                width = new_width;
+                height = new_height;
+
+                screen.resize_clear_draw(width, height)?;
+            }
         }
     }
 
@@ -193,5 +182,29 @@ fn draw_str(screen: &mut Screen<io::Stdout>, x: u16, y: u16, string: &str, style
     for (i, ch) in string.char_indices() {
         let i: u16 = i.try_into().expect("Should be able to fit into a u16.");
         screen.set_cell_style(x + i, y, ch, style);
+    }
+}
+
+fn draw_scroller(screen: &mut Screen<io::Stdout>, height: u16, left_x: u16, file_top_ind: u16, file_curr_ind: u16, items: &[&str]) {
+    for y in 1..=height - 2 {
+        let ind = file_top_ind + y - 1;
+
+        let mut draw_style = if ind == file_curr_ind {
+            Style::new_attr(Attribute::Reverse)
+        } else {
+            Style::new_attr(Attribute::None)
+        };
+
+        if ind < 5 {
+            draw_style.fg = Color::Blue;
+        }
+
+        let file_name = if (ind as usize) < items.len() {
+            items[ind as usize]
+        } else {
+            ""
+        };
+
+        draw_str(screen, left_x, y, file_name, draw_style);
     }
 }

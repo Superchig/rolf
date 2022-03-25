@@ -2,7 +2,7 @@ use io::Stdout;
 
 use crossterm::{
     cursor, execute, queue, style,
-    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen, ClearType},
 };
 use std::{
     io::{self, Write},
@@ -78,13 +78,29 @@ where
     }
 
     pub fn clear_logical(&mut self) {
-        for x in 0..self.grid.width {
-            for y in 0..self.grid.height {
-                let mut cell = self.grid.get_mut(x, y);
+        Self::clear_grid(&mut self.grid);
+    }
+
+    fn clear_grid(grid: &mut Grid<Cell>) {
+        for x in 0..grid.width {
+            for y in 0..grid.height {
+                let mut cell = grid.get_mut(x, y);
                 cell.ch = ' ';
                 cell.style = Style::default();
             }
         }
+    }
+
+    pub fn resize_clear_draw(&mut self, width: u16, height: u16) -> io::Result<()> {
+        self.prev_grid.resize_blunt(width, height, Cell::default());
+        self.grid.resize_blunt(width, height, Cell::default());
+
+        Self::clear_grid(&mut self.prev_grid);
+        Self::clear_grid(&mut self.grid);
+
+        execute!(&mut self.output, terminal::Clear(ClearType::All))?;
+
+        Ok(())
     }
 }
 
@@ -182,6 +198,12 @@ where
             height,
             buffer: vec![T::default(); (width * height).into()],
         }
+    }
+
+    fn resize_blunt(&mut self, width: u16, height: u16, value: T) {
+        self.width = width;
+        self.height = height;
+        self.buffer.resize((width * height).into(), value);
     }
 }
 
