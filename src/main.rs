@@ -524,6 +524,37 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                         height: fm.drawing_info.column_height,
                     };
 
+                    // NOTE(Chris): We keep this code block before the preview drawing
+                    // functionality order to properly set up the Loading... message.
+                    if has_changed_entry {
+                        let second_entry =
+                            &fm.dir_states.current_entries[second_entry_index as usize];
+
+                        fm.preview_data = PreviewData::Loading;
+
+                        if second_entry.file_type == RecordedFileType::Directory
+                            || second_entry.file_type == RecordedFileType::DirectorySymlink
+                        {
+                            // The second entry is the path of the directory for the third column
+                            let third_dir_path = second_entry.dir_entry.path();
+
+                            let dir_preview_tx = tx.clone();
+
+                            std::thread::spawn(move || {
+                                let preview_entry_info =
+                                    get_sorted_entries(&third_dir_path).unwrap();
+
+                                let len = preview_entry_info.len();
+
+                                dir_preview_tx
+                                    .send(InputEvent::PreviewLoaded(PreviewData::Directory {
+                                        entries_info: preview_entry_info,
+                                    }))
+                                    .expect("Unable to send on channel");
+                            });
+                        }
+                    }
+
                     match &fm.preview_data {
                         PreviewData::Loading => {
                             draw_str(
@@ -561,35 +592,6 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                     draw_bottom_info_line(screen_lock, &mut fm);
 
                     screen_lock.show()?;
-
-                    if has_changed_entry {
-                        let second_entry =
-                            &fm.dir_states.current_entries[second_entry_index as usize];
-
-                        fm.preview_data = PreviewData::Loading;
-
-                        if second_entry.file_type == RecordedFileType::Directory
-                            || second_entry.file_type == RecordedFileType::DirectorySymlink
-                        {
-                            // The second entry is the path of the directory for the third column
-                            let third_dir_path = second_entry.dir_entry.path();
-
-                            let dir_preview_tx = tx.clone();
-
-                            std::thread::spawn(move || {
-                                let preview_entry_info =
-                                    get_sorted_entries(&third_dir_path).unwrap();
-
-                                let len = preview_entry_info.len();
-
-                                dir_preview_tx
-                                    .send(InputEvent::PreviewLoaded(PreviewData::Directory {
-                                        entries_info: preview_entry_info,
-                                    }))
-                                    .expect("Unable to send on channel");
-                            });
-                        }
-                    }
                 }
 
                 let event = rx.recv().unwrap();
