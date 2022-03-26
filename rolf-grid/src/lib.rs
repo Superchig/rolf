@@ -68,7 +68,7 @@ where
 
     pub fn deactivate_direct(output: &mut T) -> io::Result<()> {
         terminal::disable_raw_mode()?;
-        execute!(output, LeaveAlternateScreen)?;
+        execute!(output, LeaveAlternateScreen, cursor::Show)?;
 
         Ok(())
     }

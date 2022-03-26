@@ -1688,6 +1688,7 @@ async fn preview_source_file(
 }
 
 fn draw_bottom_info_line(screen: &mut Screen, fm: &mut FileManager) {
+    // TODO(Chris): Display info for empty directory when in empty directory, like in lf
     if fm.dir_states.current_entries.len() <= 0 {
         return;
     }
