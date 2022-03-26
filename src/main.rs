@@ -38,6 +38,7 @@ use std::io::{self, BufRead, BufWriter, StdoutLock, Write};
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
@@ -200,6 +201,8 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
         },
 
         config: _config.clone(),
+
+        preview_data: PreviewData::Loading,
     };
 
     update_drawing_info_from_resize(&mut fm.drawing_info)?;
@@ -208,6 +211,22 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
     let screen = Mutex::new(screen);
 
     let mut command_queue = config_ast.clone();
+
+    let (tx, rx) = channel();
+
+    let crossterm_input_tx = tx.clone();
+
+    // Crossterm input loop
+    std::thread::spawn(move || loop {
+        let crossterm_event = event::read().expect("Unable to read crossterm event");
+
+        crossterm_input_tx
+            .send(InputEvent::CrosstermEvent(crossterm_event))
+            .expect("Unable to send on channel");
+    });
+
+    let mut prev_dir_display = String::new();
+    let mut prev_second_entry_index = 0;
 
     // Main input loop
     'input: loop {
@@ -399,12 +418,18 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
 
                 command_queue.clear();
 
+                // Main drawing code
                 {
                     // NOTE(Chris): Recompute second_entry_index since the relevant values may have
                     // been modified
                     let second_entry_index = fm.second.starting_index + fm.second.display_offset;
 
                     let current_dir_display = format_current_dir(&fm.dir_states, home_path);
+
+                    let has_changed_entry = current_dir_display != prev_dir_display
+                        || second_entry_index != prev_second_entry_index;
+                    prev_dir_display.clone_from(&current_dir_display);
+                    prev_second_entry_index = second_entry_index;
 
                     let curr_entry;
                     let file_stem = if fm.dir_states.current_entries.len() <= 0 {
@@ -499,30 +524,90 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                         height: fm.drawing_info.column_height,
                     };
 
-                    draw_column(
-                        screen_lock,
-                        third_column_rect,
-                        0,
-                        0,
-                        &fm.dir_states.current_entries,
-                    );
+                    match &fm.preview_data {
+                        PreviewData::Loading => {
+                            draw_str(
+                                screen_lock,
+                                third_column_rect.left_x + 1,
+                                third_column_rect.top_y,
+                                "Loading...",
+                                Style::new_attr(rolf_grid::Attribute::Reverse),
+                            );
+                        }
+                        PreviewData::Directory { entries_info } => {
+                            let third_dir = &fm.dir_states.current_entries
+                                [second_entry_index as usize]
+                                .dir_entry
+                                .path();
+
+                            let (display_offset, starting_index) =
+                                match fm.left_paths.get(third_dir) {
+                                    Some(dir_location) => {
+                                        (dir_location.display_offset, dir_location.starting_index)
+                                    }
+                                    None => (0, 0),
+                                };
+
+                            draw_column(
+                                screen_lock,
+                                third_column_rect,
+                                0,
+                                0,
+                                entries_info,
+                            );
+                        }
+                    }
 
                     draw_bottom_info_line(screen_lock, &mut fm);
 
                     screen_lock.show()?;
-                }
 
-                let event = event::read()?;
+                    if has_changed_entry {
+                        let second_entry =
+                            &fm.dir_states.current_entries[second_entry_index as usize];
 
-                match event {
-                    Event::Key(event) => {
-                        if let Some(bound_command) = fm.config.keybindings.get(&event) {
-                            // FIXME(Chris): Handle the possible error here
-                            command_queue.push(parse_statement_from(bound_command).unwrap());
+                        fm.preview_data = PreviewData::Loading;
+
+                        if second_entry.file_type == RecordedFileType::Directory
+                            || second_entry.file_type == RecordedFileType::DirectorySymlink
+                        {
+                            // The second entry is the path of the directory for the third column
+                            let third_dir_path = second_entry.dir_entry.path();
+
+                            let dir_preview_tx = tx.clone();
+
+                            std::thread::spawn(move || {
+                                let preview_entry_info =
+                                    get_sorted_entries(&third_dir_path).unwrap();
+
+                                let len = preview_entry_info.len();
+
+                                dir_preview_tx
+                                    .send(InputEvent::PreviewLoaded(PreviewData::Directory {
+                                        entries_info: preview_entry_info,
+                                    }))
+                                    .expect("Unable to send on channel");
+                            });
                         }
                     }
-                    Event::Mouse(_) => (),
-                    Event::Resize(_, _) => {}
+                }
+
+                let event = rx.recv().unwrap();
+
+                match event {
+                    InputEvent::CrosstermEvent(event) => match event {
+                        Event::Key(event) => {
+                            if let Some(bound_command) = fm.config.keybindings.get(&event) {
+                                // FIXME(Chris): Handle the possible error here
+                                command_queue.push(parse_statement_from(bound_command).unwrap());
+                            }
+                        }
+                        Event::Mouse(_) => (),
+                        Event::Resize(_, _) => {}
+                    },
+                    InputEvent::PreviewLoaded(preview_data) => {
+                        fm.preview_data = preview_data;
+                    }
                 }
             }
             InputMode::Command => {
@@ -648,6 +733,8 @@ struct FileManager<'a> {
     drawing_info: DrawingInfo,
 
     config: Config,
+
+    preview_data: PreviewData,
 }
 
 enum InputMode {
@@ -680,6 +767,11 @@ struct DrawingInfo {
 struct ColumnInfo {
     starting_index: u16,
     display_offset: u16,
+}
+
+enum InputEvent {
+    CrosstermEvent(crossterm::event::Event),
+    PreviewLoaded(PreviewData),
 }
 
 fn draw_column(
@@ -1872,7 +1964,7 @@ impl DirStates {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum RecordedFileType {
     File,
     Directory,
@@ -1938,196 +2030,9 @@ fn save_location(fm: &mut FileManager, second_entry_index: u16) {
     );
 }
 
-fn update_entries_column(
-    w: &mut io::StdoutLock,
-    fm: &mut FileManager,
-    old_offset: u16,
-    old_start_index: u16,
-) -> crossterm::Result<()> {
-    let left_x = fm.drawing_info.second_left_x;
-    let right_x = fm.drawing_info.second_right_x;
-    let column_bot_y = fm.drawing_info.column_bot_y;
-    let new = fm.second;
-
-    if new.starting_index != old_start_index {
-        queue_entries_column(
-            w,
-            left_x,
-            right_x,
-            column_bot_y,
-            &fm.dir_states.current_entries,
-            new,
-            &fm.selections,
-        )?;
-        return Ok(());
-    }
-
-    queue!(w, style::SetAttribute(Attribute::Reset))?;
-
-    // Update the old offset
-    queue_full_entry(
-        w,
-        &fm.dir_states.current_entries,
-        left_x,
-        right_x,
-        old_offset,
-        old_start_index,
-        &fm.selections,
-        false,
-    )?;
-
-    // Update the new offset
-    queue_full_entry(
-        w,
-        &fm.dir_states.current_entries,
-        left_x,
-        right_x,
-        new.display_offset,
-        new.starting_index,
-        &fm.selections,
-        true,
-    )?;
-
-    Ok(())
-}
-
-// NOTE(Chris): This draws outside of the left_x -> right_x line, drawing markers of selection to
-// at left_x - 1.
-fn queue_full_entry(
-    w: &mut io::StdoutLock,
-    entries: &[DirEntryInfo],
-    left_x: u16,
-    right_x: u16,
-    display_offset: u16,
-    starting_index: u16,
-    selections: &SelectionsMap,
-    highlighted: bool,
-) -> crossterm::Result<()> {
-    let new_entry_index = starting_index + display_offset;
-    let new_entry_info = &entries[new_entry_index as usize];
-    let new_file_type = new_entry_info.metadata.file_type();
-
-    if new_file_type.is_dir() {
-        queue!(
-            w,
-            style::SetForegroundColor(Color::DarkBlue),
-            style::SetAttribute(Attribute::Bold),
-        )?;
-    } else if new_file_type.is_file() {
-        queue!(w, style::SetForegroundColor(Color::White))?;
-    } else if new_file_type.is_symlink() {
-        let color = match std::fs::metadata(new_entry_info.dir_entry.path()) {
-            Ok(_) => Color::DarkCyan,
-            // This assumes that if there is an error, it is because the symlink points to an
-            // invalid target
-            Err(_) => Color::DarkRed,
-        };
-
-        queue!(
-            w,
-            style::SetForegroundColor(color),
-            style::SetAttribute(Attribute::Bold)
-        )?;
-    }
-
-    let w: &mut io::StdoutLock = w;
-    let left_x = left_x;
-    let right_x = right_x;
-    let display_offset = display_offset;
-    let file_name = new_entry_info.dir_entry.file_name();
-    let file_name = file_name.to_str().unwrap();
-    let inner_left_x = left_x + 1;
-    let mut curr_x = inner_left_x; // This is the cell which we are about to print into.
-
-    if selections.contains_key(&new_entry_info.dir_entry.path()) {
-        queue!(
-            w,
-            cursor::MoveTo(left_x, display_offset + 1),
-            style::SetBackgroundColor(Color::DarkMagenta),
-            style::Print(' '),
-            style::SetBackgroundColor(Color::Reset),
-        )?;
-    } else {
-        queue!(
-            w,
-            cursor::MoveTo(left_x, display_offset + 1),
-            style::SetBackgroundColor(Color::Reset),
-            style::Print(' ')
-        )?;
-    }
-
-    if highlighted {
-        queue!(w, style::SetAttribute(Attribute::Reverse))?;
-    }
-
-    queue!(
-        w,
-        cursor::MoveTo(curr_x, display_offset + 1),
-        style::Print(' ')
-    )?; // 1 is the starting y for columns
-    curr_x += 1;
-
-    // NOTE(Chris): In lf, we start by printing an initial space. This is already done above.
-    // If the file name is smaller than the column width - 2, print the name and then add spaces
-    // until the end of the column
-    // If the file name is exactly the column width - 2, print the name and then add spaces until
-    // the end of the column (which is now just one space)
-    // If the file name is more than the column width - 2, print the name until the end of column -
-    // 2, then add a "~" (this is in column - 1),
-    // then add spaces until the end of the column (which is now just one space)
-
-    // NOTE(Chris): "until" here means up to and including that cell
-    // The "end of column" is the last cell in the column
-    // A column does not include the gaps in between columns (there's an uncolored gap on the side
-    // of each column, resulting in there being a two-cell gap between any two columns)
-
-    // This is the number of cells in the column. If right_x and left_x were equal, there would
-    // still be exactly one cell in the column, which is why we add 1.
-    let col_width = (right_x - left_x + 1) as usize;
-
-    let file_name_len = file_name.chars().count();
-
-    if file_name_len <= col_width - 2 {
-        queue!(w, style::Print(file_name))?;
-        // This conversion is fine since file_name.len() can't be longer than
-        // the terminal width in this instance.
-        curr_x += file_name.len() as u16;
-    } else {
-        // Print the name until the end of column - 2
-        for ch in file_name.chars() {
-            // If curr_x == right_x - 1, then a character was printed into right_x - 2 in the
-            // previous iteration of the loop
-            if curr_x == right_x - 1 {
-                break;
-            }
-
-            queue!(w, style::Print(ch))?;
-
-            curr_x += 1;
-        }
-
-        assert!(curr_x == right_x - 1);
-
-        // This '~' is now in column - 1
-        queue!(w, style::Print('~'))?;
-        curr_x += 1;
-    }
-
-    while curr_x <= right_x {
-        queue!(w, style::Print(' '))?;
-
-        curr_x += 1;
-    }
-
-    if new_file_type.is_dir() || new_file_type.is_symlink() {
-        queue!(w, style::SetAttribute(Attribute::NormalIntensity))?;
-    }
-
-    if highlighted {
-        queue!(w, style::SetAttribute(Attribute::NoReverse))?;
-    }
-
-    Ok(())
+enum PreviewData {
+    Loading,
+    Directory { entries_info: Vec<DirEntryInfo> },
 }
 
 #[derive(Clone, Copy)]
@@ -2189,105 +2094,6 @@ fn buf_entries_column(
                 Style::default(),
             );
         }
-    }
-
-    Ok(())
-}
-
-fn queue_entries_column(
-    w: &mut io::StdoutLock,
-    left_x: u16,
-    right_x: u16,
-    bottom_y: u16,
-    entries: &[DirEntryInfo],
-    column: ColumnInfo,
-    selections: &SelectionsMap,
-) -> crossterm::Result<()> {
-    let mut curr_y = 1; // 1 is the starting y for columns
-
-    queue!(w, style::SetAttribute(Attribute::Reset))?;
-    if entries.len() <= 0 {
-        queue!(
-            w,
-            cursor::MoveTo(left_x, curr_y),
-            style::Print("  "),
-            style::SetAttribute(Attribute::Reverse),
-            style::SetForegroundColor(Color::White),
-            style::Print("empty"),
-            style::SetAttribute(Attribute::Reset),
-            style::Print(" "),
-        )?;
-
-        let mut curr_x = left_x + 8; // Length of "  empty "
-
-        while curr_x <= right_x {
-            queue!(w, style::Print(' '))?;
-
-            curr_x += 1;
-        }
-
-        curr_y += 1;
-    } else {
-        let our_entries = &entries[column.starting_index as usize..];
-        for _entry in our_entries {
-            if curr_y > bottom_y {
-                break;
-            }
-
-            let is_curr_entry = curr_y - 1 == column.display_offset;
-
-            queue_full_entry(
-                w,
-                entries,
-                left_x,
-                right_x,
-                curr_y - 1,
-                column.starting_index,
-                selections,
-                is_curr_entry,
-            )?;
-
-            curr_y += 1;
-        }
-    }
-
-    let col_width = right_x - left_x + 1;
-
-    // NOTE(Chris): This loop is redundant when this function is used to draw in the third column,
-    // since that column is cleared in preparation for asynchronous drawing.
-    // Ensure that the bottom of "short buffers" are properly cleared
-    while curr_y <= bottom_y {
-        queue!(w, cursor::MoveTo(left_x, curr_y))?;
-
-        for _ in 0..=col_width {
-            queue!(w, style::Print(' '))?;
-        }
-
-        curr_y += 1;
-    }
-
-    Ok(())
-}
-
-fn queue_blank_column(
-    w: &mut StdoutLock,
-    left_x: u16,
-    right_x: u16,
-    column_height: u16,
-) -> crossterm::Result<()> {
-    let mut curr_y = 1; // 1 is the starting y for columns
-
-    while curr_y <= column_height {
-        queue!(w, cursor::MoveTo(left_x, curr_y))?;
-
-        let mut curr_x = left_x;
-        while curr_x <= right_x {
-            queue!(w, style::Print(' '))?;
-
-            curr_x += 1;
-        }
-
-        curr_y += 1;
     }
 
     Ok(())
