@@ -887,9 +887,7 @@ fn set_preview_data_with_thread(
 
     match second_entry.file_type {
         RecordedFileType::Directory | RecordedFileType::DirectorySymlink => {
-            let can_draw = Arc::new(AtomicBool::new(true));
-            let can_draw_clone = Arc::clone(&can_draw);
-            let dir_preview_tx = tx.clone();
+            let (can_draw_clone, preview_tx) = clone_thread_helpers(fm, tx);
 
             let preview_image_handle = std::thread::spawn(move || {
                 let preview_entry_info = get_sorted_entries(&third_file_path).unwrap();
@@ -899,17 +897,12 @@ fn set_preview_data_with_thread(
                 let can_display = can_draw_clone.load(std::sync::atomic::Ordering::Acquire);
 
                 if can_display {
-                    dir_preview_tx
+                    preview_tx
                         .send(InputEvent::PreviewLoaded(PreviewData::Directory {
                             entries_info: preview_entry_info,
                         }))
                         .expect("Unable to send on channel");
                 }
-            });
-
-            fm.image_handles.push(DrawHandle {
-                handle: preview_image_handle,
-                can_draw,
             });
         }
         RecordedFileType::File | RecordedFileType::FileSymlink => {
@@ -920,11 +913,9 @@ fn set_preview_data_with_thread(
 
                     match ext {
                         "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
-                            let can_draw = Arc::new(AtomicBool::new(true));
-                            let can_draw_clone = Arc::clone(&can_draw);
-                            let tx_image = tx.clone();
-                            let ext_string = ext.to_string();
+                            let (can_draw_clone, preview_tx) = clone_thread_helpers(fm, tx);
 
+                            let ext_string = ext.to_string();
                             let drawing_info = fm.drawing_info;
                             let image_protocol = fm.config.image_protocol;
 
@@ -946,17 +937,12 @@ fn set_preview_data_with_thread(
                                     can_draw_clone.load(std::sync::atomic::Ordering::Acquire);
 
                                 if can_display_image {
-                                    tx_image
+                                    preview_tx
                                         .send(InputEvent::PreviewLoaded(PreviewData::ImageBuffer {
                                             buffer: image_buffer,
                                         }))
                                         .expect("Unable to send on channel");
                                 }
-                            });
-
-                            fm.image_handles.push(DrawHandle {
-                                handle: preview_image_handle,
-                                can_draw,
                             });
                         }
                         _ => match fm.available_execs.get("highlight") {
@@ -966,6 +952,9 @@ fn set_preview_data_with_thread(
                                 };
                             }
                             Some(highlight) => {
+                                fm.preview_data = PreviewData::UncoloredFile {
+                                    path: third_file_path,
+                                };
                                 // spawn_async_draw!(
                                 //     fm.runtime,
                                 //     fm.image_handles,
@@ -992,6 +981,19 @@ fn set_preview_data_with_thread(
         }
         _ => (),
     }
+}
+
+fn clone_thread_helpers(
+    fm: &mut FileManager,
+    tx: &Sender<InputEvent>,
+) -> (Arc<AtomicBool>, Sender<InputEvent>) {
+    let can_draw = Arc::new(AtomicBool::new(true));
+    let can_draw_clone = Arc::clone(&can_draw);
+    let preview_tx = tx.clone();
+
+    fm.image_handles.push(DrawHandle { can_draw });
+
+    (can_draw_clone, preview_tx)
 }
 
 fn draw_column(
@@ -1452,7 +1454,6 @@ fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm:
 
 // Handle for a task which displays an image
 struct DrawHandle {
-    handle: JoinHandle<()>,
     can_draw: Arc<AtomicBool>,
 }
 
