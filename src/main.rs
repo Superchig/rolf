@@ -307,8 +307,7 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                     );
                                 }
                                 "open" => {
-                                    // FIXME(Chris): Reimplement this
-                                    // enter_entry(&mut screen_lock, &mut fm, second_entry_index)?;
+                                    enter_entry(&mut fm, second_entry_index)?;
                                 }
                                 // NOTE(Chris): lf doesn't actually provide a specific command for this, instead using
                                 // a default keybinding that takes advantage of EDITOR
@@ -579,11 +578,13 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                     None => (0, 0),
                                 };
 
+                            let entry_index = starting_index + display_offset;
+
                             draw_column(
                                 screen_lock,
                                 third_column_rect,
-                                0,
-                                0,
+                                starting_index,
+                                entry_index,
                                 entries_info,
                             );
                         }
@@ -1054,11 +1055,7 @@ fn set_current_dir<P: AsRef<Path>>(
     Ok(())
 }
 
-fn enter_entry(
-    stdout_lock: &mut StdoutLock,
-    fm: &mut FileManager,
-    second_entry_index: u16,
-) -> crossterm::Result<()> {
+fn enter_entry(fm: &mut FileManager, second_entry_index: u16) -> crossterm::Result<()> {
     // NOTE(Chris): We only need to abort asynchronous "image" drawing if we're opening a
     // directory¸ since we're now drawing directory previews asychronously with the same system as
     // the image drawing.
