@@ -474,6 +474,8 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                         ),
                     );
 
+                    draw_first_column(screen_lock, &mut fm);
+
                     // FIXME(Chris): Refactor this into FileManager or DrawingInfo
                     let second_column_rect = Rect {
                         left_x: fm.drawing_info.second_left_x,
@@ -747,6 +749,36 @@ fn draw_column(
         for x in name_pos_x + file_name_len..rect.right_x() {
             screen.set_cell_style(x, y, ' ', draw_style);
         }
+    }
+}
+
+fn draw_first_column(screen: &mut Screen, fm: &mut FileManager) {
+    let first_column_rect = Rect {
+        left_x: fm.drawing_info.first_left_x,
+        top_y: 1,
+        width: fm.drawing_info.first_right_x - fm.drawing_info.first_left_x,
+        height: fm.drawing_info.column_height,
+    };
+
+    if let Some(prev_dir) = &fm.dir_states.prev_dir {
+        let result_column_info = find_correct_location(
+            &fm.left_paths,
+            fm.drawing_info.column_height,
+            prev_dir,
+            &fm.dir_states.prev_entries,
+            &fm.dir_states.current_dir,
+        );
+
+        let starting_index = result_column_info.starting_index;
+        let entry_index = result_column_info.starting_index + result_column_info.display_offset;
+
+        draw_column(
+            screen,
+            first_column_rect,
+            starting_index,
+            entry_index,
+            &fm.dir_states.prev_entries,
+        );
     }
 }
 
