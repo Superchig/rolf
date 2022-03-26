@@ -125,6 +125,11 @@ where
             curr_x += 1;
         }
     }
+
+    pub fn set_dead(&mut self, x: u16, y: u16, is_dead: bool) {
+        let mut cell = self.grid.get_mut(x, y);
+        cell.is_dead = is_dead;
+    }
 }
 
 impl Screen<Stdout> {
@@ -136,7 +141,7 @@ impl Screen<Stdout> {
                 let cell = self.grid.get(x, y);
                 let prev_cell = self.prev_grid.get(x, y);
 
-                if cell != prev_cell {
+                if cell != prev_cell && !cell.is_dead {
                     if cell.style != self.last_style {
                         queue!(
                             &mut self.output_buf,
@@ -272,13 +277,13 @@ impl LineBuilder {
 
     pub fn push(&mut self, ch: char, style: Style) -> &mut Self {
         self.last_style = style;
-        self.cells.push(Cell { ch, style });
+        self.cells.push(Cell { ch, style, is_dead: false });
         self
     }
     
     pub fn push_str(&mut self, string: &str) -> &mut Self {
         for ch in string.chars() {
-            self.cells.push(Cell { ch, style: self.last_style });
+            self.cells.push(Cell { ch, style: self.last_style, is_dead: false });
         }
         self
     }
@@ -308,6 +313,8 @@ impl LineBuilder {
 pub struct Cell {
     ch: char,
     style: Style,
+    // A dead cell won't be updated until it's made alive
+    is_dead: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]

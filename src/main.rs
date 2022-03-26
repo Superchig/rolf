@@ -40,12 +40,12 @@ use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::vec::Vec;
 
-use image::{ColorType, GenericImageView, ImageEncoder};
+use image::{ColorType, GenericImageView, ImageBuffer, ImageEncoder, Rgba};
 
 use tokio::runtime::{Builder, Runtime};
-use tokio::task::JoinHandle;
 
 use crossterm::{
     cursor,
@@ -523,6 +523,26 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                         height: fm.drawing_info.column_height,
                     };
 
+                    if has_changed_entry {
+                        for x in fm.drawing_info.third_left_x..=fm.drawing_info.width - 1 {
+                            for y in 1..=fm.drawing_info.column_bot_y {
+                                screen_lock.set_dead(x, y, false);
+                            }
+                        }
+
+                        match fm.config.image_protocol {
+                            ImageProtocol::Kitty => {
+                                // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
+                                let mut w = io::stdout();
+                                w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
+                            }
+                            ImageProtocol::ITerm2 => {
+                                // NOTE(Chris): We don't actually need to do anything here, it seems
+                            }
+                            _ => (),
+                        }
+                    }
+
                     if !fm.dir_states.current_entries.is_empty() {
                         // NOTE(Chris): We keep this code block before the preview drawing
                         // functionality order to properly set up the Loading... message.
@@ -555,9 +575,87 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                     });
                                 }
                                 RecordedFileType::File | RecordedFileType::FileSymlink => {
-                                    fm.preview_data = PreviewData::UncoloredFile {
-                                        path: third_file_path,
-                                    };
+                                    if let Some(os_str_ext) = third_file_path.extension() {
+                                        if let Some(ext) = os_str_ext.to_str() {
+                                            let ext = ext.to_lowercase();
+                                            let ext = ext.as_str();
+
+                                            match ext {
+                                                // "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
+                                                "png" | "jpg" | "jpeg" => {
+                                                    let can_draw = Arc::new(AtomicBool::new(true));
+                                                    let can_draw_clone = Arc::clone(&can_draw);
+                                                    let tx_image = tx.clone();
+                                                    let ext_string = ext.to_string();
+
+                                                    let preview_image_handle = std::thread::spawn(
+                                                        move || {
+                                                            let image_buffer =
+                                                                match preview_image_or_video(
+                                                                    fm.drawing_info.win_pixels,
+                                                                    third_file_path,
+                                                                    ext_string,
+                                                                    fm.drawing_info.width,
+                                                                    fm.drawing_info.height,
+                                                                    fm.drawing_info.third_left_x,
+                                                                    fm.config.image_protocol,
+                                                                ) {
+                                                                    Ok(image_buffer) => {
+                                                                        image_buffer
+                                                                    }
+                                                                    Err(_) => return,
+                                                                };
+
+                                                            let can_display_image = can_draw_clone.load(std::sync::atomic::Ordering::Acquire);
+
+                                                            if can_display_image {
+                                                                tx_image.send(
+                                                                    InputEvent::PreviewLoaded(
+                                                                        PreviewData::ImageBuffer {
+                                                                            buffer: image_buffer,
+                                                                        },
+                                                                    ),
+                                                                ).expect("Unable to send on channel");
+                                                            }
+                                                        },
+                                                    );
+
+                                                    fm.image_handles.push(DrawHandle {
+                                                        handle: preview_image_handle,
+                                                        can_draw,
+                                                    });
+                                                }
+                                                _ => match fm.available_execs.get("highlight") {
+                                                    None => {
+                                                        fm.preview_data =
+                                                            PreviewData::UncoloredFile {
+                                                                path: third_file_path,
+                                                            };
+                                                    }
+                                                    Some(highlight) => {
+                                                        // spawn_async_draw!(
+                                                        //     fm.runtime,
+                                                        //     fm.image_handles,
+                                                        //     preview_source_file,
+                                                        //     fm.drawing_info,
+                                                        //     third_file,
+                                                        //     left_x,
+                                                        //     right_x,
+                                                        //     highlight.to_path_buf()
+                                                        // );
+                                                    }
+                                                },
+                                            }
+                                        } else {
+                                            fm.preview_data = PreviewData::UncoloredFile {
+                                                path: third_file_path,
+                                            };
+                                        }
+                                    } else {
+                                        fm.preview_data = PreviewData::UncoloredFile {
+                                            path: third_file_path,
+                                        };
+                                    }
                                 }
                                 _ => (),
                             }
@@ -645,6 +743,48 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                     }
 
                                     curr_y += 1;
+                                }
+                            }
+                            PreviewData::ImageBuffer { buffer } => {
+                                match fm.config.image_protocol {
+                                    ImageProtocol::Kitty => {
+                                        let raw_img = buffer.as_raw();
+
+                                        let stdout = io::stdout();
+                                        let mut w = stdout.lock();
+
+                                        let path = store_in_tmp_file(raw_img)?;
+
+                                        queue!(
+                                            w,
+                                            cursor::MoveTo(fm.drawing_info.third_left_x, 1),
+                                            // Hide the "Should display!" / "Loading..." message
+                                            style::Print("               "),
+                                            cursor::MoveTo(fm.drawing_info.third_left_x, 1),
+                                        )?;
+
+                                        write!(
+                                            w,
+                                            "\x1b_Gf=32,s={},v={},a=T,t=t;{}\x1b\\",
+                                            buffer.width(),
+                                            buffer.height(),
+                                            base64::encode(path.to_str().unwrap())
+                                        )?;
+
+                                        w.flush()?;
+
+                                        for x in
+                                            fm.drawing_info.third_left_x..=fm.drawing_info.width - 1
+                                        {
+                                            for y in 1..=fm.drawing_info.column_bot_y {
+                                                screen_lock.set_dead(x, y, true);
+                                            }
+                                        }
+                                    }
+                                    _ => panic!(
+                                        "Unsupported image protocol: {:?}",
+                                        fm.config.image_protocol
+                                    ),
                                 }
                             }
                         }
@@ -1303,7 +1443,7 @@ fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm:
 
 // Handle for a task which displays an image
 struct DrawHandle {
-    handle: JoinHandle<crossterm::Result<()>>,
+    handle: JoinHandle<()>,
     can_draw: Arc<AtomicBool>,
 }
 
@@ -1395,8 +1535,7 @@ async fn preview_uncolored_file(
     Ok(())
 }
 
-async fn preview_image_or_video(
-    can_display_image: Arc<AtomicBool>,
+fn preview_image_or_video(
     win_pixels: WindowPixels,
     third_file: PathBuf,
     ext: String,
@@ -1404,7 +1543,7 @@ async fn preview_image_or_video(
     height: u16,
     left_x: u16,
     image_protocol: ImageProtocol,
-) -> crossterm::Result<()> {
+) -> io::Result<ImageBufferRgba> {
     let win_px_width = win_pixels.width;
     let win_px_height = win_pixels.height;
 
@@ -1595,161 +1734,9 @@ async fn preview_image_or_video(
         }
     }
 
-    let stdout = io::stdout();
-
     let rgba = img.to_rgba8();
 
-    match image_protocol {
-        ImageProtocol::Kitty => {
-            let raw_img = rgba.as_raw();
-
-            let mut w = stdout.lock();
-            let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
-
-            if can_display_image {
-                let path = store_in_tmp_file(raw_img)?;
-
-                queue!(
-                    w,
-                    cursor::MoveTo(left_x, 1),
-                    // Hide the "Should display!" / "Loading..." message
-                    style::Print("               "),
-                    cursor::MoveTo(left_x, 1),
-                )?;
-
-                write!(
-                    w,
-                    "\x1b_Gf=32,s={},v={},a=T,t=t;{}\x1b\\",
-                    img.width(),
-                    img.height(),
-                    base64::encode(path.to_str().unwrap())
-                )?;
-
-                w.flush()?;
-            }
-        }
-        ImageProtocol::ITerm2 => {
-            let mut png_data = vec![];
-            {
-                let mut writer = BufWriter::new(&mut png_data);
-                PngEncoder::new(&mut writer)
-                    .write_image(&rgba, rgba.width(), rgba.height(), ColorType::Rgba8)
-                    .unwrap();
-            }
-
-            let mut w = stdout.lock();
-            let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
-
-            if can_display_image {
-                if cfg!(windows) {
-                    queue!(w, cursor::MoveTo(left_x, 1), style::Print("  "),)?;
-                } else {
-                    // By adding 2, we match the location of lf's Loading...
-                    let inner_left_x = left_x + 2;
-
-                    queue!(
-                        w,
-                        cursor::MoveTo(inner_left_x, 1),
-                        style::Print("          "),
-                        cursor::MoveTo(left_x, 1),
-                    )?;
-                }
-
-                write!(
-                    w,
-                    "\x1b]1337;File=size={};inline=1:{}\x1b\\",
-                    png_data.len(),
-                    base64::encode(png_data),
-                )?;
-
-                w.flush()?;
-            }
-        }
-        _ => (),
-    }
-
-    Ok(())
-}
-
-async fn preview_source_file(
-    can_display_image: Arc<AtomicBool>,
-    drawing_info: DrawingInfo,
-    third_file: PathBuf,
-    left_x: u16,
-    right_x: u16,
-    highlight: PathBuf,
-) -> crossterm::Result<()> {
-    let inner_left_x = left_x + 2;
-
-    // TODO(Chris): Actually show that something went wrong
-    let output = Command::new(highlight)
-        .arg("-O")
-        .arg("ansi")
-        .arg("--max-size=500K")
-        .arg(&third_file)
-        .output()
-        .unwrap();
-
-    let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
-
-    if can_display_image {
-        // NOTE(Chris): Since we're locking can_display_image above and stdout here, we should be
-        // wary of deadlock
-        let stdout = io::stdout();
-        let mut w = stdout.lock();
-
-        // Clear the first line, in case there's a Loading... message already there
-        queue!(&mut w, cursor::MoveTo(inner_left_x, 1))?;
-        for _curr_x in inner_left_x..=right_x {
-            queue!(&mut w, style::Print(' '))?;
-        }
-
-        // TODO(Chris): Handle case when file is not valid utf8
-        if let Ok(text) = std::str::from_utf8(&output.stdout) {
-            let mut curr_y = 1; // Columns start at y = 1
-            queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
-
-            queue!(&mut w, terminal::DisableLineWrap)?;
-
-            for ch in text.as_bytes() {
-                if curr_y > drawing_info.column_bot_y {
-                    break;
-                }
-
-                if *ch == b'\n' {
-                    curr_y += 1;
-
-                    queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
-                } else {
-                    // NOTE(Chris): We write directly to stdout so as to
-                    // allow the ANSI escape codes to match the end of a
-                    // line
-                    w.write_all(&[*ch])?;
-                }
-            }
-
-            queue!(&mut w, terminal::EnableLineWrap)?;
-
-            // TODO(Chris): Figure out why the right-most edge of the
-            // terminal sometimes has a character that should be one beyond
-            // that right-most edge. This bug occurs when right-most edge
-            // isn't blanked out (as is currently done below).
-
-            // Clear the right-most edge of the terminal, since it might
-            // have been drawn over when printing file contents
-            for curr_y in 1..=drawing_info.column_bot_y {
-                queue!(
-                    &mut w,
-                    cursor::MoveTo(drawing_info.width, curr_y),
-                    style::Print(' ')
-                )?;
-            }
-        }
-
-        w.flush()?;
-    }
-
-    Ok(())
+    Ok(rgba)
 }
 
 fn draw_bottom_info_line(screen: &mut Screen, fm: &mut FileManager) {
@@ -1889,7 +1876,6 @@ fn abort_image_handles(image_handles: &mut Vec<DrawHandle>) {
         image_handle
             .can_draw
             .store(false, std::sync::atomic::Ordering::Release);
-        image_handle.handle.abort();
     }
 }
 
@@ -2098,10 +2084,13 @@ fn save_location(fm: &mut FileManager, second_entry_index: u16) {
     );
 }
 
+type ImageBufferRgba = ImageBuffer<Rgba<u8>, Vec<u8>>;
+
 enum PreviewData {
     Loading,
     Directory { entries_info: Vec<DirEntryInfo> },
     UncoloredFile { path: PathBuf },
+    ImageBuffer { buffer: ImageBufferRgba },
 }
 
 #[derive(Clone, Copy)]
