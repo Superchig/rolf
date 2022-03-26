@@ -216,18 +216,6 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
 
         let second_bottom_index = fm.second.starting_index + fm.drawing_info.column_height;
 
-        // TODO(Chris): Use the unicode-segmentation package to count graphemes
-        // Add 1 because of the ':' that is displayed after user_host_display
-        // Add 1 again because of the '/' that is displayed at the end of current_dir_display
-        // let remaining_width = fm.drawing_info.width as usize
-        //     - (fm.user_host_display.len() + 1 + current_dir_display.len() + 1);
-
-        // let file_stem = if file_stem.len() > remaining_width {
-        //     String::from(&file_stem[..remaining_width])
-        // } else {
-        //     String::from(file_stem)
-        // };
-
         match fm.input_mode {
             InputMode::Normal => {
                 for stm in &command_queue {
@@ -423,14 +411,75 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                     // been modified
                     let second_entry_index = fm.second.starting_index + fm.second.display_offset;
 
+                    let current_dir_display = format_current_dir(&fm.dir_states, home_path);
+
+                    let curr_entry;
+                    let file_stem = if fm.dir_states.current_entries.len() <= 0 {
+                        ""
+                    } else {
+                        curr_entry = fm.dir_states.current_entries[second_entry_index as usize]
+                            .dir_entry
+                            .file_name();
+                        curr_entry.to_str().unwrap()
+                    };
+
+                    // TODO(Chris): Use the unicode-segmentation package to count graphemes
+                    // Add 1 because of the ':' that is displayed after user_host_display
+                    // Add 1 again because of the '/' that is displayed at the end of current_dir_display
+                    let remaining_width = fm.drawing_info.width as usize
+                        - (fm.user_host_display.len() + 1 + current_dir_display.len() + 1);
+
+                    let file_stem = if file_stem.len() > remaining_width {
+                        String::from(&file_stem[..remaining_width])
+                    } else {
+                        String::from(file_stem)
+                    };
+
                     let mut screen_lock = screen.lock().expect("Failed to lock screen mutex!");
                     let screen_lock = &mut *screen_lock;
-
                     screen_lock.clear_logical();
 
-                    draw_str(screen_lock, 0, 0, "Hello!", rolf_grid::Style::default());
-
-                    draw_str(screen_lock, 0, 1, "There!", rolf_grid::Style::default());
+                    let user_host_len = fm.user_host_display.len().try_into().unwrap();
+                    draw_str(
+                        screen_lock,
+                        0,
+                        0,
+                        &fm.user_host_display,
+                        rolf_grid::Style::new(
+                            rolf_grid::Attribute::Bold,
+                            rolf_grid::Color::Green,
+                            rolf_grid::Color::Background,
+                        ),
+                    );
+                    draw_str(
+                        screen_lock,
+                        user_host_len,
+                        0,
+                        ":",
+                        rolf_grid::Style::default(),
+                    );
+                    draw_str(
+                        screen_lock,
+                        user_host_len + 1, // From the ":"
+                        0,
+                        &format!("{}{}", current_dir_display, path::MAIN_SEPARATOR),
+                        rolf_grid::Style::new(
+                            rolf_grid::Attribute::Bold,
+                            rolf_grid::Color::Blue,
+                            rolf_grid::Color::Background,
+                        ),
+                    );
+                    draw_str(
+                        screen_lock,
+                        user_host_len + 1 + current_dir_display.len() as u16 + 1,
+                        0,
+                        &file_stem,
+                        rolf_grid::Style::new(
+                            rolf_grid::Attribute::Bold,
+                            rolf_grid::Color::Foreground,
+                            rolf_grid::Color::Background,
+                        ),
+                    );
 
                     // FIXME(Chris): Refactor this into FileManager or DrawingInfo
                     let second_column_rect = Rect {
