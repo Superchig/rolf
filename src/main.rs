@@ -38,7 +38,7 @@ use std::io::{self, BufRead, BufReader, BufWriter, StdoutLock, Write};
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::vec::Vec;
@@ -545,120 +545,9 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
 
                     if !fm.dir_states.current_entries.is_empty() {
                         // NOTE(Chris): We keep this code block before the preview drawing
-                        // functionality order to properly set up the Loading... message.
+                        // functionality in order to properly set up the Loading... message.
                         if has_changed_entry {
-                            let second_entry =
-                                &fm.dir_states.current_entries[second_entry_index as usize];
-
-                            fm.preview_data = PreviewData::Loading;
-
-                            let third_file_path = second_entry.dir_entry.path();
-
-                            match second_entry.file_type {
-                                RecordedFileType::Directory
-                                | RecordedFileType::DirectorySymlink => {
-                                    let dir_preview_tx = tx.clone();
-
-                                    std::thread::spawn(move || {
-                                        let preview_entry_info =
-                                            get_sorted_entries(&third_file_path).unwrap();
-
-                                        let len = preview_entry_info.len();
-
-                                        dir_preview_tx
-                                            .send(InputEvent::PreviewLoaded(
-                                                PreviewData::Directory {
-                                                    entries_info: preview_entry_info,
-                                                },
-                                            ))
-                                            .expect("Unable to send on channel");
-                                    });
-                                }
-                                RecordedFileType::File | RecordedFileType::FileSymlink => {
-                                    if let Some(os_str_ext) = third_file_path.extension() {
-                                        if let Some(ext) = os_str_ext.to_str() {
-                                            let ext = ext.to_lowercase();
-                                            let ext = ext.as_str();
-
-                                            match ext {
-                                                // "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
-                                                "png" | "jpg" | "jpeg" => {
-                                                    let can_draw = Arc::new(AtomicBool::new(true));
-                                                    let can_draw_clone = Arc::clone(&can_draw);
-                                                    let tx_image = tx.clone();
-                                                    let ext_string = ext.to_string();
-
-                                                    let preview_image_handle = std::thread::spawn(
-                                                        move || {
-                                                            let image_buffer =
-                                                                match preview_image_or_video(
-                                                                    fm.drawing_info.win_pixels,
-                                                                    third_file_path,
-                                                                    ext_string,
-                                                                    fm.drawing_info.width,
-                                                                    fm.drawing_info.height,
-                                                                    fm.drawing_info.third_left_x,
-                                                                    fm.config.image_protocol,
-                                                                ) {
-                                                                    Ok(image_buffer) => {
-                                                                        image_buffer
-                                                                    }
-                                                                    Err(_) => return,
-                                                                };
-
-                                                            let can_display_image = can_draw_clone.load(std::sync::atomic::Ordering::Acquire);
-
-                                                            if can_display_image {
-                                                                tx_image.send(
-                                                                    InputEvent::PreviewLoaded(
-                                                                        PreviewData::ImageBuffer {
-                                                                            buffer: image_buffer,
-                                                                        },
-                                                                    ),
-                                                                ).expect("Unable to send on channel");
-                                                            }
-                                                        },
-                                                    );
-
-                                                    fm.image_handles.push(DrawHandle {
-                                                        handle: preview_image_handle,
-                                                        can_draw,
-                                                    });
-                                                }
-                                                _ => match fm.available_execs.get("highlight") {
-                                                    None => {
-                                                        fm.preview_data =
-                                                            PreviewData::UncoloredFile {
-                                                                path: third_file_path,
-                                                            };
-                                                    }
-                                                    Some(highlight) => {
-                                                        // spawn_async_draw!(
-                                                        //     fm.runtime,
-                                                        //     fm.image_handles,
-                                                        //     preview_source_file,
-                                                        //     fm.drawing_info,
-                                                        //     third_file,
-                                                        //     left_x,
-                                                        //     right_x,
-                                                        //     highlight.to_path_buf()
-                                                        // );
-                                                    }
-                                                },
-                                            }
-                                        } else {
-                                            fm.preview_data = PreviewData::UncoloredFile {
-                                                path: third_file_path,
-                                            };
-                                        }
-                                    } else {
-                                        fm.preview_data = PreviewData::UncoloredFile {
-                                            path: third_file_path,
-                                        };
-                                    }
-                                }
-                                _ => (),
-                            }
+                            set_preview_data_with_thread(&mut fm, &tx, second_entry_index);
                         }
 
                         match &fm.preview_data {
@@ -983,6 +872,126 @@ struct ColumnInfo {
 enum InputEvent {
     CrosstermEvent(crossterm::event::Event),
     PreviewLoaded(PreviewData),
+}
+
+fn set_preview_data_with_thread(
+    fm: &mut FileManager,
+    tx: &Sender<InputEvent>,
+    second_entry_index: u16,
+) {
+    let second_entry = &fm.dir_states.current_entries[second_entry_index as usize];
+
+    fm.preview_data = PreviewData::Loading;
+
+    let third_file_path = second_entry.dir_entry.path();
+
+    match second_entry.file_type {
+        RecordedFileType::Directory | RecordedFileType::DirectorySymlink => {
+            let can_draw = Arc::new(AtomicBool::new(true));
+            let can_draw_clone = Arc::clone(&can_draw);
+            let dir_preview_tx = tx.clone();
+
+            let preview_image_handle = std::thread::spawn(move || {
+                let preview_entry_info = get_sorted_entries(&third_file_path).unwrap();
+
+                let len = preview_entry_info.len();
+
+                let can_display = can_draw_clone.load(std::sync::atomic::Ordering::Acquire);
+
+                if can_display {
+                    dir_preview_tx
+                        .send(InputEvent::PreviewLoaded(PreviewData::Directory {
+                            entries_info: preview_entry_info,
+                        }))
+                        .expect("Unable to send on channel");
+                }
+            });
+
+            fm.image_handles.push(DrawHandle {
+                handle: preview_image_handle,
+                can_draw,
+            });
+        }
+        RecordedFileType::File | RecordedFileType::FileSymlink => {
+            if let Some(os_str_ext) = third_file_path.extension() {
+                if let Some(ext) = os_str_ext.to_str() {
+                    let ext = ext.to_lowercase();
+                    let ext = ext.as_str();
+
+                    match ext {
+                        "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
+                            let can_draw = Arc::new(AtomicBool::new(true));
+                            let can_draw_clone = Arc::clone(&can_draw);
+                            let tx_image = tx.clone();
+                            let ext_string = ext.to_string();
+
+                            let drawing_info = fm.drawing_info;
+                            let image_protocol = fm.config.image_protocol;
+
+                            let preview_image_handle = std::thread::spawn(move || {
+                                let image_buffer = match preview_image_or_video(
+                                    drawing_info.win_pixels,
+                                    third_file_path,
+                                    ext_string,
+                                    drawing_info.width,
+                                    drawing_info.height,
+                                    drawing_info.third_left_x,
+                                    image_protocol,
+                                ) {
+                                    Ok(image_buffer) => image_buffer,
+                                    Err(_) => return,
+                                };
+
+                                let can_display_image =
+                                    can_draw_clone.load(std::sync::atomic::Ordering::Acquire);
+
+                                if can_display_image {
+                                    tx_image
+                                        .send(InputEvent::PreviewLoaded(PreviewData::ImageBuffer {
+                                            buffer: image_buffer,
+                                        }))
+                                        .expect("Unable to send on channel");
+                                }
+                            });
+
+                            fm.image_handles.push(DrawHandle {
+                                handle: preview_image_handle,
+                                can_draw,
+                            });
+                        }
+                        _ => match fm.available_execs.get("highlight") {
+                            None => {
+                                fm.preview_data = PreviewData::UncoloredFile {
+                                    path: third_file_path,
+                                };
+                            }
+                            Some(highlight) => {
+                                // spawn_async_draw!(
+                                //     fm.runtime,
+                                //     fm.image_handles,
+                                //     preview_source_file,
+                                //     fm.drawing_info,
+                                //     third_file,
+                                //     left_x,
+                                //     right_x,
+                                //     highlight.to_path_buf()
+                                // );
+                            }
+                        },
+                    }
+                } else {
+                    fm.preview_data = PreviewData::UncoloredFile {
+                        path: third_file_path,
+                    };
+                }
+            } else {
+                fm.preview_data = PreviewData::UncoloredFile {
+                    path: third_file_path,
+                };
+            }
+        }
+        _ => (),
+    }
 }
 
 fn draw_column(
