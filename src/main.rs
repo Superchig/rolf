@@ -666,7 +666,15 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                             }
                         }
                         Event::Mouse(_) => (),
-                        Event::Resize(_, _) => {}
+                        Event::Resize(width, height) => {
+                            let mut screen_lock =
+                                screen.lock().expect("Failed to lock screen mutex!");
+                            let screen_lock = &mut *screen_lock;
+
+                            screen_lock.resize_clear_draw(width, height)?;
+
+                            update_drawing_info_from_resize(&mut fm.drawing_info)?;
+                        }
                     },
                     InputEvent::PreviewLoaded(preview_data) => {
                         fm.preview_data = preview_data;
