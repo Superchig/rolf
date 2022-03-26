@@ -1,7 +1,7 @@
 use std::io;
 
 use crossterm::event::{self, Event, KeyCode};
-use rolf_grid::{Attribute, Color, Screen, Style};
+use rolf_grid::{Attribute, Color, LineBuilder, Screen, Style};
 
 fn main() -> io::Result<()> {
     let mut screen = Screen::new(io::stdout())?;
@@ -61,6 +61,18 @@ fn main() -> io::Result<()> {
     let mut file_top_ind = 0;
     let mut file_curr_ind = 10;
 
+    let mut line_builder = LineBuilder::new();
+    line_builder
+        .push_str("This line has a ")
+        .use_fg_color(Color::Blue)
+        .push_str("blue")
+        .use_fg_color(Color::Foreground)
+        .push_str(" word and a ")
+        .use_attribute(Attribute::Bold)
+        .push_str("bold")
+        .use_attribute(Attribute::None)
+        .push_str(" word.");
+
     loop {
         screen.clear_logical();
 
@@ -112,6 +124,8 @@ fn main() -> io::Result<()> {
         draw_scroller(&mut screen, height, 70, file_top_ind, file_curr_ind, &items);
 
         draw_scroller(&mut screen, height, 90, 5, 10, &items);
+
+        screen.build_line(1, height - 2, &line_builder);
 
         screen.show()?;
 
@@ -185,7 +199,14 @@ fn draw_str(screen: &mut Screen<io::Stdout>, x: u16, y: u16, string: &str, style
     }
 }
 
-fn draw_scroller(screen: &mut Screen<io::Stdout>, height: u16, left_x: u16, file_top_ind: u16, file_curr_ind: u16, items: &[&str]) {
+fn draw_scroller(
+    screen: &mut Screen<io::Stdout>,
+    height: u16,
+    left_x: u16,
+    file_top_ind: u16,
+    file_curr_ind: u16,
+    items: &[&str],
+) {
     for y in 1..=height - 2 {
         let ind = file_top_ind + y - 1;
 

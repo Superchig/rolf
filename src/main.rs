@@ -33,7 +33,6 @@ use which::which;
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
 use std::env;
-use std::ffi::{OsStr, OsString};
 use std::fs::{self, DirEntry, Metadata};
 use std::io::{self, BufRead, BufWriter, StdoutLock, Write};
 use std::path::{self, Path, PathBuf};
@@ -51,11 +50,11 @@ use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyModifiers},
     execute, queue,
-    style::{self, Attribute, Color, Stylize},
+    style::{self, Attribute, Color},
     terminal::{self, ClearType},
 };
 
-use rolf_grid::Style;
+use rolf_grid::{LineBuilder, Style};
 use rolf_parser::parser::{parse, parse_statement_from, Program, Statement};
 
 type Screen = rolf_grid::Screen<io::Stdout>;
@@ -337,9 +336,6 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                     if !fm.dir_states.current_entries.is_empty() {
                                         abort_image_handles(&mut fm.image_handles);
 
-                                        let old_starting_index = fm.second.starting_index;
-                                        let old_display_offset = fm.second.display_offset;
-
                                         fm.second.starting_index = 0;
                                         fm.second.display_offset = 0;
                                     }
@@ -347,9 +343,6 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                 "bottom" => {
                                     if !fm.dir_states.current_entries.is_empty() {
                                         abort_image_handles(&mut fm.image_handles);
-
-                                        let old_starting_index = fm.second.starting_index;
-                                        let old_display_offset = fm.second.display_offset;
 
                                         if fm.dir_states.current_entries.len()
                                             <= (fm.drawing_info.column_height as usize)
@@ -511,6 +504,8 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                         0,
                         &fm.dir_states.current_entries,
                     );
+
+                    draw_bottom_info_line(screen_lock, &mut fm);
 
                     screen_lock.show()?;
                 }
@@ -1566,6 +1561,136 @@ async fn preview_source_file(
     Ok(())
 }
 
+fn draw_bottom_info_line(screen: &mut Screen, fm: &mut FileManager) {
+    if fm.dir_states.current_entries.len() <= 0 {
+        return;
+    }
+
+    let updated_second_entry_index = fm.second.starting_index + fm.second.display_offset;
+
+    let extra_perms = os_abstract::get_extra_perms(
+        &fm.dir_states.current_entries[updated_second_entry_index as usize].metadata,
+    );
+
+    let mode_str = &extra_perms.mode;
+
+    let mut draw_style = Style::new_attr(rolf_grid::Attribute::Bold);
+
+    let mut info_line_builder = LineBuilder::new();
+
+    let colored_mode = {
+        let mut colored_mode = vec![];
+        // The Windows mode string is only 6 characters long, so this avoids the Windows mode
+        // string.
+        if mode_str.len() > 6 {
+            // TODO(Chris): Reimplement this on Windows
+            // queue!(colored_mode, style::SetAttribute(Attribute::Bold)).unwrap();
+        }
+        for (index, byte) in mode_str.bytes().enumerate() {
+            if index > 3 {
+                draw_style.attribute = rolf_grid::Attribute::None;
+            }
+
+            match &[byte] {
+                b"d" => {
+                    draw_style.fg = rolf_grid::Color::Blue;
+                    info_line_builder.push(byte as char, draw_style);
+                }
+                b"r" => {
+                    draw_style.fg = rolf_grid::Color::Yellow;
+                    info_line_builder.push(byte as char, draw_style);
+                }
+                b"w" => {
+                    draw_style.fg = rolf_grid::Color::Red;
+                    info_line_builder.push(byte as char, draw_style);
+                }
+                b"x" => {
+                    draw_style.fg = rolf_grid::Color::Green;
+                    info_line_builder.push(byte as char, draw_style);
+                }
+                b"-" => {
+                    draw_style.fg = rolf_grid::Color::Blue;
+                    info_line_builder.push(byte as char, draw_style);
+                }
+                b"l" => {
+                    draw_style.attribute = rolf_grid::Attribute::None;
+                    draw_style.fg = rolf_grid::Color::Cyan;
+
+                    info_line_builder.push(byte as char, draw_style);
+
+                    draw_style.attribute = rolf_grid::Attribute::Bold;
+                    draw_style.fg = rolf_grid::Color::Foreground;
+                }
+                b"c" | b"b" => {
+                    queue!(colored_mode, style::SetForegroundColor(Color::DarkYellow),).unwrap();
+                    colored_mode.push(byte);
+                }
+                _ => {
+                    queue!(colored_mode, style::SetForegroundColor(Color::Reset),).unwrap();
+                    colored_mode.push(byte);
+                }
+            }
+        }
+
+        colored_mode
+    };
+
+    // TODO(Chris): Display user/group names in white if they are not the current user/the current
+    // user is not in the group
+
+    if let Some(hard_link_count) = extra_perms.hard_link_count {
+        info_line_builder
+            .use_fg_color(rolf_grid::Color::Red)
+            .use_attribute(rolf_grid::Attribute::Bold)
+            .push_str(&format!(" {:2}", hard_link_count));
+    }
+
+    if let Some(user_name) = extra_perms.user_name {
+        info_line_builder
+            .use_fg_color(rolf_grid::Color::Yellow)
+            .use_attribute(rolf_grid::Attribute::Bold)
+            .push_str(&format!(" {:2}", user_name));
+    }
+
+    if let Some(group_name) = extra_perms.group_name {
+        info_line_builder
+            .use_fg_color(rolf_grid::Color::Yellow)
+            .use_attribute(rolf_grid::Attribute::Bold)
+            .push_str(&format!(" {}", group_name));
+    }
+
+    if let Some(size) = extra_perms.size {
+        info_line_builder
+            .use_fg_color(rolf_grid::Color::Green)
+            .use_attribute(rolf_grid::Attribute::Bold)
+            .push_str(&format!(" {:4}", human_size(size)));
+    }
+
+    if let Some(modify_date_time) = extra_perms.modify_date_time {
+        info_line_builder
+            .use_fg_color(rolf_grid::Color::Blue)
+            .use_attribute(rolf_grid::Attribute::None)
+            .push_str(" ")
+            .push_str(&modify_date_time);
+    }
+
+    let display_position = format!(
+        "{}/{}",
+        updated_second_entry_index + 1,
+        fm.dir_states.current_entries.len()
+    );
+
+    screen.build_line(0, fm.drawing_info.height - 1, &info_line_builder);
+
+    draw_str(
+        screen,
+        fm.drawing_info.width - (display_position.len() as u16),
+        fm.drawing_info.height - 1,
+        &display_position,
+        rolf_grid::Style::default(),
+    );
+}
+
 fn abort_image_handles(image_handles: &mut Vec<DrawHandle>) {
     while !image_handles.is_empty() {
         let image_handle = image_handles.pop().unwrap();
@@ -1588,47 +1713,6 @@ fn store_in_tmp_file(buf: &[u8]) -> std::result::Result<std::path::PathBuf, io::
     tmpfile.write_all(buf)?;
     tmpfile.flush()?;
     Ok(path)
-}
-
-// Queues a third column with a single highlighted line
-fn queue_oneline_column(
-    w: &mut StdoutLock,
-    left_x: u16,
-    right_x: u16,
-    column_bot_y: u16,
-    message: &str,
-) -> crossterm::Result<()> {
-    let mut curr_y = 1; // 1 is the starting y for columns
-    let col_width = right_x - left_x + 1;
-
-    queue!(
-        w,
-        cursor::MoveTo(left_x, curr_y),
-        style::SetAttribute(Attribute::Reverse),
-        style::SetForegroundColor(Color::White),
-        style::Print(message),
-        style::SetAttribute(Attribute::NoReverse),
-    )?;
-    queue!(w, cursor::MoveTo(left_x + (message.len() as u16), curr_y))?;
-    for _ in message.len()..(col_width as usize) {
-        queue!(w, style::Print(' '))?;
-    }
-
-    curr_y += 1;
-
-    // NOTE(Chris): This loop is redundant when this function is used to draw in the third column,
-    // Ensure that the bottom of "short buffers" are properly cleared
-    while curr_y <= column_bot_y {
-        queue!(w, cursor::MoveTo(left_x, curr_y))?;
-
-        for _ in 0..col_width {
-            queue!(w, style::Print(' '))?;
-        }
-
-        curr_y += 1;
-    }
-
-    Ok(())
 }
 
 fn format_current_dir(dir_states: &DirStates, home_path: &Path) -> String {

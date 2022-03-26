@@ -110,6 +110,21 @@ where
 
         Ok(())
     }
+
+    pub fn build_line(&mut self, x: u16, y: u16, builder: &LineBuilder) {
+        let mut curr_x = x;
+
+        for cell in &builder.cells {
+            if curr_x >= self.grid.width {
+                break;
+            }
+
+            let grid_cell = self.grid.get_mut(curr_x, y);
+            *grid_cell = *cell;
+
+            curr_x += 1;
+        }
+    }
 }
 
 impl Screen<Stdout> {
@@ -242,6 +257,51 @@ impl<T> Grid<T> {
 
 fn coords_to_index(width: u16, x: u16, y: u16) -> usize {
     (y * width + x).into()
+}
+
+#[derive(Default)]
+pub struct LineBuilder {
+    cells: Vec<Cell>,
+    last_style: Style,
+}
+
+impl LineBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn push(&mut self, ch: char, style: Style) -> &mut Self {
+        self.last_style = style;
+        self.cells.push(Cell { ch, style });
+        self
+    }
+    
+    pub fn push_str(&mut self, string: &str) -> &mut Self {
+        for ch in string.chars() {
+            self.cells.push(Cell { ch, style: self.last_style });
+        }
+        self
+    }
+
+    pub fn use_style(&mut self, style: Style) -> &mut Self {
+        self.last_style = style;
+        self
+    }
+
+    pub fn use_fg_color(&mut self, fg_color: Color) -> &mut Self {
+        self.last_style.fg = fg_color;
+        self
+    }
+
+    pub fn use_bg_color(&mut self, bg_color: Color) -> &mut Self {
+        self.last_style.bg = bg_color;
+        self
+    }
+
+    pub fn use_attribute(&mut self, attribute: Attribute) -> &mut Self {
+        self.last_style.attribute = attribute;
+        self
+    }
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
