@@ -61,8 +61,6 @@ pub fn lex_overall(scanner: &mut Scanner) -> LexResult<Vec<Token>> {
             }
         }
 
-        eprintln!("failed tokens: {:#?}", tokens);
-
         return Err(LexError::RemainingInput);
     }
 

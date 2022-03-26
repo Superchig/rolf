@@ -179,6 +179,8 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
 
         input_line: String::new(),
 
+        input_cursor: 0,
+
         input_mode: InputMode::Normal,
 
         user_host_display: format!("{}@{}", user_name, host_name),
@@ -234,452 +236,400 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
 
         let second_bottom_index = fm.second.starting_index + fm.drawing_info.column_height;
 
-        match fm.input_mode {
-            InputMode::Normal => {
-                for stm in &command_queue {
-                    match stm {
-                        Statement::Map(map) => {
-                            let key_event = config::to_key(&map.key.key);
-                            fm.config
-                                .keybindings
-                                .insert(key_event, map.cmd_name.clone());
+        for stm in &command_queue {
+            match stm {
+                Statement::Map(map) => {
+                    let key_event = config::to_key(&map.key.key);
+                    fm.config
+                        .keybindings
+                        .insert(key_event, map.cmd_name.clone());
+                }
+                Statement::CommandUse(command_use) => {
+                    let command: &str = &command_use.name;
+
+                    match command {
+                        "quit" => {
+                            break 'input;
                         }
-                        Statement::CommandUse(command_use) => {
-                            let command: &str = &command_use.name;
+                        "down" => {
+                            if !fm.dir_states.current_entries.is_empty()
+                                && (second_entry_index as usize)
+                                    < fm.dir_states.current_entries.len() - 1
+                            {
+                                abort_image_handles(&mut fm.image_handles);
 
-                            match command {
-                                "quit" => {
-                                    break 'input;
+                                if fm.second.display_offset
+                                    >= (fm.drawing_info.column_height - SCROLL_OFFSET - 1)
+                                    && (second_bottom_index as usize)
+                                        < fm.dir_states.current_entries.len()
+                                {
+                                    fm.second.starting_index += 1;
+                                } else if second_entry_index < second_bottom_index {
+                                    fm.second.display_offset += 1;
                                 }
-                                "down" => {
-                                    if !fm.dir_states.current_entries.is_empty()
-                                        && (second_entry_index as usize)
-                                            < fm.dir_states.current_entries.len() - 1
-                                    {
-                                        abort_image_handles(&mut fm.image_handles);
-
-                                        if fm.second.display_offset
-                                            >= (fm.drawing_info.column_height - SCROLL_OFFSET - 1)
-                                            && (second_bottom_index as usize)
-                                                < fm.dir_states.current_entries.len()
-                                        {
-                                            fm.second.starting_index += 1;
-                                        } else if second_entry_index < second_bottom_index {
-                                            fm.second.display_offset += 1;
-                                        }
-                                    }
-                                }
-                                "up" => {
-                                    if !fm.dir_states.current_entries.is_empty() {
-                                        abort_image_handles(&mut fm.image_handles);
-
-                                        if fm.second.display_offset <= (SCROLL_OFFSET)
-                                            && fm.second.starting_index > 0
-                                        {
-                                            fm.second.starting_index -= 1;
-                                        } else if second_entry_index > 0 {
-                                            fm.second.display_offset -= 1;
-                                        }
-                                    }
-                                }
-                                "updir" => {
-                                    abort_image_handles(&mut fm.image_handles);
-
-                                    let old_current_dir = fm.dir_states.current_dir.clone();
-                                    if !fm.dir_states.current_entries.is_empty() {
-                                        save_location(&mut fm, second_entry_index);
-                                    }
-
-                                    if let Some(parent_dir) = fm.dir_states.prev_dir.clone() {
-                                        set_current_dir(
-                                            parent_dir,
-                                            &mut fm.dir_states,
-                                            &mut fm.match_positions,
-                                        )?;
-                                    }
-
-                                    fm.second = find_correct_location(
-                                        &fm.left_paths,
-                                        fm.drawing_info.column_height,
-                                        &fm.dir_states.current_dir,
-                                        &fm.dir_states.current_entries,
-                                        &old_current_dir,
-                                    );
-                                }
-                                "open" => {
-                                    enter_entry(&mut fm, second_entry_index)?;
-                                }
-                                // NOTE(Chris): lf doesn't actually provide a specific command for this, instead using
-                                // a default keybinding that takes advantage of EDITOR
-                                "edit" => {
-                                    let editor = match std::env::var("VISUAL") {
-                                        Err(std::env::VarError::NotPresent) => {
-                                            match std::env::var("EDITOR") {
-                                                Err(std::env::VarError::NotPresent) => {
-                                                    String::from("")
-                                                }
-                                                Err(err) => panic!("{}", err),
-                                                Ok(editor) => editor,
-                                            }
-                                        }
-                                        Err(err) => panic!("{}", err),
-                                        Ok(visual) => visual,
-                                    };
-
-                                    // It'd be nice if we could do breaking on blocks to exit this whole
-                                    // match statement early, but labeling blocks is still in unstable,
-                                    // as seen in https://github.com/rust-lang/rust/issues/48594
-                                    if !editor.is_empty() {
-                                        let selected_entry = &fm.dir_states.current_entries
-                                            [second_entry_index as usize];
-
-                                        let shell_command = format!(
-                                            "{} {}",
-                                            editor,
-                                            selected_entry
-                                                .dir_entry
-                                                .path()
-                                                .to_str()
-                                                .expect("Failed to convert path to string")
-                                        );
-
-                                        Command::new("sh")
-                                            .arg("-c")
-                                            .arg(shell_command)
-                                            .status()
-                                            .expect("failed to execute editor command");
-                                    }
-                                }
-                                "top" => {
-                                    if !fm.dir_states.current_entries.is_empty() {
-                                        abort_image_handles(&mut fm.image_handles);
-
-                                        fm.second.starting_index = 0;
-                                        fm.second.display_offset = 0;
-                                    }
-                                }
-                                "bottom" => {
-                                    if !fm.dir_states.current_entries.is_empty() {
-                                        abort_image_handles(&mut fm.image_handles);
-
-                                        if fm.dir_states.current_entries.len()
-                                            <= (fm.drawing_info.column_height as usize)
-                                        {
-                                            fm.second.starting_index = 0;
-                                            fm.second.display_offset =
-                                                fm.dir_states.current_entries.len() as u16 - 1;
-                                        } else {
-                                            fm.second.display_offset =
-                                                fm.drawing_info.column_height - 1;
-                                            fm.second.starting_index =
-                                                fm.dir_states.current_entries.len() as u16
-                                                    - fm.second.display_offset
-                                                    - 1;
-                                        }
-                                    }
-                                }
-                                "search" => {
-                                    assert!(fm.input_line.len() <= 0);
-
-                                    fm.input_line.push_str("search ");
-
-                                    fm.input_mode = InputMode::Command;
-                                }
-                                "search-back" => {
-                                    assert!(fm.input_line.len() <= 0);
-
-                                    fm.input_line.push_str("search-back ");
-
-                                    fm.input_mode = InputMode::Command;
-                                }
-                                "search-next" => {}
-                                "search-prev" => {}
-                                "toggle" => {
-                                    let selected_entry =
-                                        &fm.dir_states.current_entries[second_entry_index as usize];
-
-                                    let entry_path = selected_entry.dir_entry.path();
-
-                                    let remove = fm.selections.remove(&entry_path);
-                                    if remove.is_none() {
-                                        fm.selections
-                                            .insert(entry_path, second_entry_index as usize);
-                                    }
-                                }
-                                "read" => {
-                                    fm.input_mode = InputMode::Command;
-                                }
-                                _ => (),
                             }
                         }
+                        "up" => {
+                            if !fm.dir_states.current_entries.is_empty() {
+                                abort_image_handles(&mut fm.image_handles);
+
+                                if fm.second.display_offset <= (SCROLL_OFFSET)
+                                    && fm.second.starting_index > 0
+                                {
+                                    fm.second.starting_index -= 1;
+                                } else if second_entry_index > 0 {
+                                    fm.second.display_offset -= 1;
+                                }
+                            }
+                        }
+                        "updir" => {
+                            abort_image_handles(&mut fm.image_handles);
+
+                            let old_current_dir = fm.dir_states.current_dir.clone();
+                            if !fm.dir_states.current_entries.is_empty() {
+                                save_location(&mut fm, second_entry_index);
+                            }
+
+                            if let Some(parent_dir) = fm.dir_states.prev_dir.clone() {
+                                set_current_dir(
+                                    parent_dir,
+                                    &mut fm.dir_states,
+                                    &mut fm.match_positions,
+                                )?;
+                            }
+
+                            fm.second = find_correct_location(
+                                &fm.left_paths,
+                                fm.drawing_info.column_height,
+                                &fm.dir_states.current_dir,
+                                &fm.dir_states.current_entries,
+                                &old_current_dir,
+                            );
+                        }
+                        "open" => {
+                            enter_entry(&mut fm, second_entry_index)?;
+                        }
+                        // NOTE(Chris): lf doesn't actually provide a specific command for this, instead using
+                        // a default keybinding that takes advantage of EDITOR
+                        "edit" => {
+                            let editor = match std::env::var("VISUAL") {
+                                Err(std::env::VarError::NotPresent) => {
+                                    match std::env::var("EDITOR") {
+                                        Err(std::env::VarError::NotPresent) => String::from(""),
+                                        Err(err) => panic!("{}", err),
+                                        Ok(editor) => editor,
+                                    }
+                                }
+                                Err(err) => panic!("{}", err),
+                                Ok(visual) => visual,
+                            };
+
+                            // It'd be nice if we could do breaking on blocks to exit this whole
+                            // match statement early, but labeling blocks is still in unstable,
+                            // as seen in https://github.com/rust-lang/rust/issues/48594
+                            if !editor.is_empty() {
+                                let selected_entry =
+                                    &fm.dir_states.current_entries[second_entry_index as usize];
+
+                                let shell_command = format!(
+                                    "{} {}",
+                                    editor,
+                                    selected_entry
+                                        .dir_entry
+                                        .path()
+                                        .to_str()
+                                        .expect("Failed to convert path to string")
+                                );
+
+                                Command::new("sh")
+                                    .arg("-c")
+                                    .arg(shell_command)
+                                    .status()
+                                    .expect("failed to execute editor command");
+                            }
+                        }
+                        "top" => {
+                            if !fm.dir_states.current_entries.is_empty() {
+                                abort_image_handles(&mut fm.image_handles);
+
+                                fm.second.starting_index = 0;
+                                fm.second.display_offset = 0;
+                            }
+                        }
+                        "bottom" => {
+                            if !fm.dir_states.current_entries.is_empty() {
+                                abort_image_handles(&mut fm.image_handles);
+
+                                if fm.dir_states.current_entries.len()
+                                    <= (fm.drawing_info.column_height as usize)
+                                {
+                                    fm.second.starting_index = 0;
+                                    fm.second.display_offset =
+                                        fm.dir_states.current_entries.len() as u16 - 1;
+                                } else {
+                                    fm.second.display_offset = fm.drawing_info.column_height - 1;
+                                    fm.second.starting_index = fm.dir_states.current_entries.len()
+                                        as u16
+                                        - fm.second.display_offset
+                                        - 1;
+                                }
+                            }
+                        }
+                        "search" => {
+                            assert!(fm.input_line.len() <= 0);
+
+                            fm.input_line.push_str("search ");
+
+                            fm.input_mode = InputMode::Command;
+                        }
+                        "search-back" => {
+                            assert!(fm.input_line.len() <= 0);
+
+                            fm.input_line.push_str("search-back ");
+
+                            fm.input_mode = InputMode::Command;
+                        }
+                        "search-next" => {}
+                        "search-prev" => {}
+                        "toggle" => {
+                            let selected_entry =
+                                &fm.dir_states.current_entries[second_entry_index as usize];
+
+                            let entry_path = selected_entry.dir_entry.path();
+
+                            let remove = fm.selections.remove(&entry_path);
+                            if remove.is_none() {
+                                fm.selections
+                                    .insert(entry_path, second_entry_index as usize);
+                            }
+                        }
+                        "read" => {
+                            fm.input_mode = InputMode::Command;
+                        }
+                        _ => (),
+                    }
+                }
+            }
+        }
+
+        command_queue.clear();
+
+        // Main drawing code
+        {
+            // NOTE(Chris): Recompute second_entry_index since the relevant values may have
+            // been modified
+            let second_entry_index = fm.second.starting_index + fm.second.display_offset;
+
+            let current_dir_display = format_current_dir(&fm.dir_states, home_path);
+
+            let has_changed_entry = current_dir_display != prev_dir_display
+                || second_entry_index != prev_second_entry_index;
+            prev_dir_display.clone_from(&current_dir_display);
+            prev_second_entry_index = second_entry_index;
+
+            let curr_entry;
+            let file_stem = if fm.dir_states.current_entries.len() <= 0 {
+                ""
+            } else {
+                curr_entry = fm.dir_states.current_entries[second_entry_index as usize]
+                    .dir_entry
+                    .file_name();
+                curr_entry.to_str().unwrap()
+            };
+
+            // TODO(Chris): Use the unicode-segmentation package to count graphemes
+            // Add 1 because of the ':' that is displayed after user_host_display
+            // Add 1 again because of the '/' that is displayed at the end of current_dir_display
+            let remaining_width = fm.drawing_info.width as usize
+                - (fm.user_host_display.len() + 1 + current_dir_display.len() + 1);
+
+            let file_stem = if file_stem.len() > remaining_width {
+                String::from(&file_stem[..remaining_width])
+            } else {
+                String::from(file_stem)
+            };
+
+            let mut screen_lock = screen.lock().expect("Failed to lock screen mutex!");
+            let screen_lock = &mut *screen_lock;
+            screen_lock.clear_logical();
+
+            let user_host_len = fm.user_host_display.len().try_into().unwrap();
+            draw_str(
+                screen_lock,
+                0,
+                0,
+                &fm.user_host_display,
+                rolf_grid::Style::new(
+                    rolf_grid::Attribute::Bold,
+                    rolf_grid::Color::Green,
+                    rolf_grid::Color::Background,
+                ),
+            );
+            draw_str(
+                screen_lock,
+                user_host_len,
+                0,
+                ":",
+                rolf_grid::Style::default(),
+            );
+            draw_str(
+                screen_lock,
+                user_host_len + 1, // From the ":"
+                0,
+                &format!("{}{}", current_dir_display, path::MAIN_SEPARATOR),
+                rolf_grid::Style::new(
+                    rolf_grid::Attribute::Bold,
+                    rolf_grid::Color::Blue,
+                    rolf_grid::Color::Background,
+                ),
+            );
+            draw_str(
+                screen_lock,
+                user_host_len + 1 + current_dir_display.len() as u16 + 1,
+                0,
+                &file_stem,
+                rolf_grid::Style::new(
+                    rolf_grid::Attribute::Bold,
+                    rolf_grid::Color::Foreground,
+                    rolf_grid::Color::Background,
+                ),
+            );
+
+            draw_first_column(screen_lock, &mut fm);
+
+            // FIXME(Chris): Refactor this into FileManager or DrawingInfo
+            let second_column_rect = Rect {
+                left_x: fm.drawing_info.second_left_x,
+                top_y: 1,
+                width: fm.drawing_info.second_right_x - fm.drawing_info.second_left_x,
+                height: fm.drawing_info.column_height,
+            };
+
+            draw_column(
+                screen_lock,
+                second_column_rect,
+                fm.second.starting_index,
+                second_entry_index,
+                &fm.dir_states.current_entries,
+            );
+
+            let third_column_rect = Rect {
+                left_x: fm.drawing_info.third_left_x,
+                top_y: 1,
+                width: fm.drawing_info.third_right_x - fm.drawing_info.third_left_x,
+                height: fm.drawing_info.column_height,
+            };
+
+            if has_changed_entry {
+                for x in fm.drawing_info.third_left_x..=fm.drawing_info.width - 1 {
+                    for y in 1..=fm.drawing_info.column_bot_y {
+                        screen_lock.set_dead(x, y, false);
                     }
                 }
 
-                command_queue.clear();
-
-                // Main drawing code
-                {
-                    // NOTE(Chris): Recompute second_entry_index since the relevant values may have
-                    // been modified
-                    let second_entry_index = fm.second.starting_index + fm.second.display_offset;
-
-                    let current_dir_display = format_current_dir(&fm.dir_states, home_path);
-
-                    let has_changed_entry = current_dir_display != prev_dir_display
-                        || second_entry_index != prev_second_entry_index;
-                    prev_dir_display.clone_from(&current_dir_display);
-                    prev_second_entry_index = second_entry_index;
-
-                    let curr_entry;
-                    let file_stem = if fm.dir_states.current_entries.len() <= 0 {
-                        ""
-                    } else {
-                        curr_entry = fm.dir_states.current_entries[second_entry_index as usize]
-                            .dir_entry
-                            .file_name();
-                        curr_entry.to_str().unwrap()
-                    };
-
-                    // TODO(Chris): Use the unicode-segmentation package to count graphemes
-                    // Add 1 because of the ':' that is displayed after user_host_display
-                    // Add 1 again because of the '/' that is displayed at the end of current_dir_display
-                    let remaining_width = fm.drawing_info.width as usize
-                        - (fm.user_host_display.len() + 1 + current_dir_display.len() + 1);
-
-                    let file_stem = if file_stem.len() > remaining_width {
-                        String::from(&file_stem[..remaining_width])
-                    } else {
-                        String::from(file_stem)
-                    };
-
-                    let mut screen_lock = screen.lock().expect("Failed to lock screen mutex!");
-                    let screen_lock = &mut *screen_lock;
-                    screen_lock.clear_logical();
-
-                    let user_host_len = fm.user_host_display.len().try_into().unwrap();
-                    draw_str(
-                        screen_lock,
-                        0,
-                        0,
-                        &fm.user_host_display,
-                        rolf_grid::Style::new(
-                            rolf_grid::Attribute::Bold,
-                            rolf_grid::Color::Green,
-                            rolf_grid::Color::Background,
-                        ),
-                    );
-                    draw_str(
-                        screen_lock,
-                        user_host_len,
-                        0,
-                        ":",
-                        rolf_grid::Style::default(),
-                    );
-                    draw_str(
-                        screen_lock,
-                        user_host_len + 1, // From the ":"
-                        0,
-                        &format!("{}{}", current_dir_display, path::MAIN_SEPARATOR),
-                        rolf_grid::Style::new(
-                            rolf_grid::Attribute::Bold,
-                            rolf_grid::Color::Blue,
-                            rolf_grid::Color::Background,
-                        ),
-                    );
-                    draw_str(
-                        screen_lock,
-                        user_host_len + 1 + current_dir_display.len() as u16 + 1,
-                        0,
-                        &file_stem,
-                        rolf_grid::Style::new(
-                            rolf_grid::Attribute::Bold,
-                            rolf_grid::Color::Foreground,
-                            rolf_grid::Color::Background,
-                        ),
-                    );
-
-                    draw_first_column(screen_lock, &mut fm);
-
-                    // FIXME(Chris): Refactor this into FileManager or DrawingInfo
-                    let second_column_rect = Rect {
-                        left_x: fm.drawing_info.second_left_x,
-                        top_y: 1,
-                        width: fm.drawing_info.second_right_x - fm.drawing_info.second_left_x,
-                        height: fm.drawing_info.column_height,
-                    };
-
-                    draw_column(
-                        screen_lock,
-                        second_column_rect,
-                        fm.second.starting_index,
-                        second_entry_index,
-                        &fm.dir_states.current_entries,
-                    );
-
-                    let third_column_rect = Rect {
-                        left_x: fm.drawing_info.third_left_x,
-                        top_y: 1,
-                        width: fm.drawing_info.third_right_x - fm.drawing_info.third_left_x,
-                        height: fm.drawing_info.column_height,
-                    };
-
-                    if has_changed_entry {
-                        for x in fm.drawing_info.third_left_x..=fm.drawing_info.width - 1 {
-                            for y in 1..=fm.drawing_info.column_bot_y {
-                                screen_lock.set_dead(x, y, false);
-                            }
-                        }
-
-                        match fm.config.image_protocol {
-                            ImageProtocol::Kitty => {
-                                // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
-                                let mut w = io::stdout();
-                                w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
-                            }
-                            ImageProtocol::ITerm2 => {
-                                // NOTE(Chris): We don't actually need to do anything here, it seems
-                            }
-                            _ => (),
-                        }
+                match fm.config.image_protocol {
+                    ImageProtocol::Kitty => {
+                        // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
+                        let mut w = io::stdout();
+                        w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
                     }
+                    ImageProtocol::ITerm2 => {
+                        // NOTE(Chris): We don't actually need to do anything here, it seems
+                    }
+                    _ => (),
+                }
+            }
 
-                    if !fm.dir_states.current_entries.is_empty() {
-                        // NOTE(Chris): We keep this code block before the preview drawing
-                        // functionality in order to properly set up the Loading... message.
-                        if has_changed_entry {
-                            set_preview_data_with_thread(&mut fm, &tx, second_entry_index);
-                        }
+            if !fm.dir_states.current_entries.is_empty() {
+                // NOTE(Chris): We keep this code block before the preview drawing
+                // functionality in order to properly set up the Loading... message.
+                if has_changed_entry {
+                    set_preview_data_with_thread(&mut fm, &tx, second_entry_index);
+                }
 
-                        match &fm.preview_data {
-                            PreviewData::Loading => {
+                match &fm.preview_data {
+                    PreviewData::Loading => {
+                        draw_str(
+                            screen_lock,
+                            third_column_rect.left_x + 2,
+                            third_column_rect.top_y,
+                            "Loading...",
+                            Style::new_attr(rolf_grid::Attribute::Reverse),
+                        );
+                    }
+                    PreviewData::Blank => (),
+                    PreviewData::Directory { entries_info } => {
+                        let third_dir = &fm.dir_states.current_entries[second_entry_index as usize]
+                            .dir_entry
+                            .path();
+
+                        let (display_offset, starting_index) = match fm.left_paths.get(third_dir) {
+                            Some(dir_location) => {
+                                (dir_location.display_offset, dir_location.starting_index)
+                            }
+                            None => (0, 0),
+                        };
+
+                        let entry_index = starting_index + display_offset;
+
+                        draw_column(
+                            screen_lock,
+                            third_column_rect,
+                            starting_index,
+                            entry_index,
+                            entries_info,
+                        );
+                    }
+                    PreviewData::UncoloredFile { path } => {
+                        // TODO(Chris): Handle permission errors here
+                        let file = fs::File::open(path)?;
+                        let reader = BufReader::new(file);
+
+                        let draw_style = rolf_grid::Style::default();
+
+                        let inner_left_x = fm.drawing_info.third_left_x + 2;
+
+                        // NOTE(Chris): 1 is the top_y for all columns
+                        let mut curr_y = 1;
+
+                        let third_width = fm.drawing_info.third_right_x - inner_left_x;
+
+                        for line in reader.lines() {
+                            // TODO(Chris): Handle UTF-8 errors here, possibly by just
+                            // showing an error line
+                            let line = match line {
+                                Ok(line) => line,
+                                Err(_) => break,
+                            };
+
+                            if curr_y > fm.drawing_info.column_bot_y {
+                                break;
+                            }
+
+                            if line.len() < (third_width as usize) {
+                                draw_str(screen_lock, inner_left_x, curr_y, &line, draw_style);
+                            } else {
                                 draw_str(
                                     screen_lock,
-                                    third_column_rect.left_x + 2,
-                                    third_column_rect.top_y,
-                                    "Loading...",
-                                    Style::new_attr(rolf_grid::Attribute::Reverse),
+                                    inner_left_x,
+                                    curr_y,
+                                    &line[0..third_width as usize],
+                                    draw_style,
                                 );
                             }
-                            PreviewData::Blank => (),
-                            PreviewData::Directory { entries_info } => {
-                                let third_dir = &fm.dir_states.current_entries
-                                    [second_entry_index as usize]
-                                    .dir_entry
-                                    .path();
 
-                                let (display_offset, starting_index) =
-                                    match fm.left_paths.get(third_dir) {
-                                        Some(dir_location) => (
-                                            dir_location.display_offset,
-                                            dir_location.starting_index,
-                                        ),
-                                        None => (0, 0),
-                                    };
+                            curr_y += 1;
+                        }
+                    }
+                    PreviewData::ImageBuffer { buffer } => {
+                        match fm.config.image_protocol {
+                            ImageProtocol::Kitty => {
+                                let raw_img = buffer.as_raw();
 
-                                let entry_index = starting_index + display_offset;
-
-                                draw_column(
-                                    screen_lock,
-                                    third_column_rect,
-                                    starting_index,
-                                    entry_index,
-                                    entries_info,
-                                );
-                            }
-                            PreviewData::UncoloredFile { path } => {
-                                // TODO(Chris): Handle permission errors here
-                                let file = fs::File::open(path)?;
-                                let reader = BufReader::new(file);
-
-                                let draw_style = rolf_grid::Style::default();
-
-                                let inner_left_x = fm.drawing_info.third_left_x + 2;
-
-                                // NOTE(Chris): 1 is the top_y for all columns
-                                let mut curr_y = 1;
-
-                                let third_width = fm.drawing_info.third_right_x - inner_left_x;
-
-                                for line in reader.lines() {
-                                    // TODO(Chris): Handle UTF-8 errors here, possibly by just
-                                    // showing an error line
-                                    let line = match line {
-                                        Ok(line) => line,
-                                        Err(_) => break,
-                                    };
-
-                                    if curr_y > fm.drawing_info.column_bot_y {
-                                        break;
-                                    }
-
-                                    if line.len() < (third_width as usize) {
-                                        draw_str(
-                                            screen_lock,
-                                            inner_left_x,
-                                            curr_y,
-                                            &line,
-                                            draw_style,
-                                        );
-                                    } else {
-                                        draw_str(
-                                            screen_lock,
-                                            inner_left_x,
-                                            curr_y,
-                                            &line[0..third_width as usize],
-                                            draw_style,
-                                        );
-                                    }
-
-                                    curr_y += 1;
-                                }
-                            }
-                            PreviewData::ImageBuffer { buffer } => {
-                                match fm.config.image_protocol {
-                                    ImageProtocol::Kitty => {
-                                        let raw_img = buffer.as_raw();
-
-                                        let stdout = io::stdout();
-                                        let mut w = stdout.lock();
-
-                                        let path = store_in_tmp_file(raw_img)?;
-
-                                        queue!(
-                                            w,
-                                            cursor::MoveTo(fm.drawing_info.third_left_x, 1),
-                                            // Hide the "Should display!" / "Loading..." message
-                                            style::Print("               "),
-                                            cursor::MoveTo(fm.drawing_info.third_left_x, 1),
-                                        )?;
-
-                                        write!(
-                                            w,
-                                            "\x1b_Gf=32,s={},v={},a=T,t=t;{}\x1b\\",
-                                            buffer.width(),
-                                            buffer.height(),
-                                            base64::encode(path.to_str().unwrap())
-                                        )?;
-
-                                        w.flush()?;
-
-                                        for x in
-                                            fm.drawing_info.third_left_x..=fm.drawing_info.width - 1
-                                        {
-                                            for y in 1..=fm.drawing_info.column_bot_y {
-                                                screen_lock.set_dead(x, y, true);
-                                            }
-                                        }
-                                    }
-                                    _ => panic!(
-                                        "Unsupported image protocol: {:?}",
-                                        fm.config.image_protocol
-                                    ),
-                                }
-                            }
-                            PreviewData::RawBytes { bytes } => {
                                 let stdout = io::stdout();
                                 let mut w = stdout.lock();
 
-                                let inner_left_x = fm.drawing_info.third_left_x + 2;
+                                let path = store_in_tmp_file(raw_img)?;
 
                                 queue!(
                                     w,
@@ -689,161 +639,170 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                     cursor::MoveTo(fm.drawing_info.third_left_x, 1),
                                 )?;
 
-                                let mut curr_y = 1; // Columns start at y = 1
-                                queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
+                                write!(
+                                    w,
+                                    "\x1b_Gf=32,s={},v={},a=T,t=t;{}\x1b\\",
+                                    buffer.width(),
+                                    buffer.height(),
+                                    base64::encode(path.to_str().unwrap())
+                                )?;
 
-                                queue!(&mut w, terminal::DisableLineWrap)?;
+                                w.flush()?;
 
-                                for ch in bytes {
-                                    if curr_y > fm.drawing_info.column_bot_y {
-                                        break;
-                                    }
-
-                                    if *ch == b'\n' {
-                                        curr_y += 1;
-
-                                        queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
-                                    } else {
-                                        // NOTE(Chris): We write directly to stdout so as to
-                                        // allow the ANSI escape codes to match the end of a
-                                        // line
-                                        w.write_all(&[*ch])?;
-                                    }
-                                }
-
-                                queue!(&mut w, terminal::EnableLineWrap)?;
-
-                                // TODO(Chris): Refactor this into a function, since it's
-                                // used three times (if you include the modification of the
-                                // set_dead bool)
                                 for x in fm.drawing_info.third_left_x..=fm.drawing_info.width - 1 {
                                     for y in 1..=fm.drawing_info.column_bot_y {
                                         screen_lock.set_dead(x, y, true);
                                     }
                                 }
                             }
+                            _ => {
+                                panic!("Unsupported image protocol: {:?}", fm.config.image_protocol)
+                            }
                         }
                     }
+                    PreviewData::RawBytes { bytes } => {
+                        let stdout = io::stdout();
+                        let mut w = stdout.lock();
 
+                        let inner_left_x = fm.drawing_info.third_left_x + 2;
+
+                        queue!(
+                            w,
+                            cursor::MoveTo(fm.drawing_info.third_left_x, 1),
+                            // Hide the "Should display!" / "Loading..." message
+                            style::Print("               "),
+                            cursor::MoveTo(fm.drawing_info.third_left_x, 1),
+                        )?;
+
+                        let mut curr_y = 1; // Columns start at y = 1
+                        queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
+
+                        queue!(&mut w, terminal::DisableLineWrap)?;
+
+                        for ch in bytes {
+                            if curr_y > fm.drawing_info.column_bot_y {
+                                break;
+                            }
+
+                            if *ch == b'\n' {
+                                curr_y += 1;
+
+                                queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
+                            } else {
+                                // NOTE(Chris): We write directly to stdout so as to
+                                // allow the ANSI escape codes to match the end of a
+                                // line
+                                w.write_all(&[*ch])?;
+                            }
+                        }
+
+                        queue!(&mut w, terminal::EnableLineWrap)?;
+
+                        // TODO(Chris): Refactor this into a function, since it's
+                        // used three times (if you include the modification of the
+                        // set_dead bool)
+                        for x in fm.drawing_info.third_left_x..=fm.drawing_info.width - 1 {
+                            for y in 1..=fm.drawing_info.column_bot_y {
+                                screen_lock.set_dead(x, y, true);
+                            }
+                        }
+                    }
+                }
+            }
+
+            match fm.input_mode {
+                InputMode::Normal => {
                     draw_bottom_info_line(screen_lock, &mut fm);
 
-                    screen_lock.show()?;
+                    screen_lock.hide_cursor();
                 }
+                InputMode::Command => {
+                    screen_lock.set_cell(0, fm.drawing_info.height - 1, ':');
 
-                let event = rx.recv().unwrap();
+                    draw_str(
+                        screen_lock,
+                        1, // To make room for ':'
+                        fm.drawing_info.height - 1,
+                        &fm.input_line,
+                        rolf_grid::Style::default(),
+                    );
 
-                match event {
-                    InputEvent::CrosstermEvent(event) => match event {
-                        Event::Key(event) => {
+                    screen_lock.show_cursor(
+                        (fm.input_cursor + 1).try_into().unwrap(),
+                        fm.drawing_info.height - 1,
+                    );
+                }
+            }
+
+            screen_lock.show()?;
+        }
+
+        let event = rx.recv().unwrap();
+
+        match event {
+            InputEvent::CrosstermEvent(event) => match event {
+                Event::Key(event) => {
+                    match fm.input_mode {
+                        InputMode::Normal => {
                             if let Some(bound_command) = fm.config.keybindings.get(&event) {
                                 // FIXME(Chris): Handle the possible error here
                                 command_queue.push(parse_statement_from(bound_command).unwrap());
                             }
                         }
-                        Event::Mouse(_) => (),
-                        Event::Resize(width, height) => {
-                            let mut screen_lock =
-                                screen.lock().expect("Failed to lock screen mutex!");
-                            let screen_lock = &mut *screen_lock;
+                        InputMode::Command => match event.code {
+                            KeyCode::Esc => {
+                                fm.input_mode = InputMode::Normal;
 
-                            screen_lock.resize_clear_draw(width, height)?;
+                                fm.input_line.clear();
+                                fm.input_cursor = 0;
+                            }
+                            KeyCode::Char(ch) => {
+                                fm.input_line.insert(fm.input_cursor, ch);
+                                fm.input_cursor += 1;
+                            }
+                            KeyCode::Enter => {
+                                if let Ok(stm) = parse_statement_from(&fm.input_line) {
+                                    command_queue.push(stm);
+                                }
 
-                            update_drawing_info_from_resize(&mut fm.drawing_info)?;
-                        }
-                    },
-                    InputEvent::PreviewLoaded(preview_data) => {
-                        fm.preview_data = preview_data;
+                                fm.input_mode = InputMode::Normal;
+
+                                fm.input_line.clear();
+                                fm.input_cursor = 0;
+                            }
+                            KeyCode::Left => {
+                                if fm.input_cursor > 0 {
+                                    fm.input_cursor -= 1;
+                                }
+                            }
+                            KeyCode::Right => {
+                                if fm.input_cursor < fm.input_line.len() {
+                                    fm.input_cursor += 1;
+                                }
+                            }
+                            KeyCode::Backspace => {
+                                if fm.input_cursor > 0 {
+                                    fm.input_line.remove(fm.input_cursor - 1);
+                                    
+                                    fm.input_cursor -= 1;
+                                }
+                            }
+                            _ => (),
+                        },
                     }
                 }
-            }
-            InputMode::Command => {
-                // let line_from_user = get_cmd_line_input(w, ":", &mut fm)?;
+                Event::Mouse(_) => (),
+                Event::Resize(width, height) => {
+                    let mut screen_lock = screen.lock().expect("Failed to lock screen mutex!");
+                    let screen_lock = &mut *screen_lock;
 
-                // // If there was no input line returned, then the user aborted the use of the
-                // // command line. Thus, we only need to do anything when an input line is actually
-                // // returned.
-                // if let Some(line_from_user) = line_from_user {
-                //     let trimmed_input_line = line_from_user.trim();
-                //     let spaced_words: Vec<&str> = trimmed_input_line.split_whitespace().collect();
+                    screen_lock.resize_clear_draw(width, height)?;
 
-                //     if !spaced_words.is_empty() {
-                //         match spaced_words[0] {
-                //             "search" => {
-                //                 if spaced_words.len() == 2 {
-                //                     let search_term = spaced_words[1];
-
-                //                     fm.match_positions = find_match_positions(
-                //                         &fm.dir_states.current_entries,
-                //                         search_term,
-                //                     );
-
-                //                     fm.should_search_forwards = true;
-                //                 }
-                //             }
-                //             "search-back" => {
-                //                 if spaced_words.len() == 2 {
-                //                     let search_term = spaced_words[1];
-
-                //                     fm.match_positions = find_match_positions(
-                //                         &fm.dir_states.current_entries,
-                //                         search_term,
-                //                     );
-
-                //                     fm.should_search_forwards = false;
-                //                 }
-                //             }
-                //             "rename" => {
-                //                 // Get the full path of the current file
-                //                 let current_file = &fm.dir_states.current_entries
-                //                     [second_entry_index as usize]
-                //                     .dir_entry;
-                //                 let current_file_path = current_file.path();
-
-                //                 // TODO(Chris): Get rid of these unwrap calls (at least the OsStr
-                //                 // to str conversion one)
-                //                 fm.input_line.push_str(
-                //                     current_file_path.file_name().unwrap().to_str().unwrap(),
-                //                 );
-
-                //                 let new_name = get_cmd_line_input(w, "Rename: ", &mut fm)?;
-
-                //                 if let Some(new_name) = new_name {
-                //                     let new_file_path = current_file_path
-                //                         .parent()
-                //                         .unwrap()
-                //                         .join(PathBuf::from(&new_name));
-                //                     fs::rename(current_file_path, new_file_path)?;
-
-                //                     set_current_dir(
-                //                         fm.dir_states.current_dir.clone(),
-                //                         &mut fm.dir_states,
-                //                         &mut fm.match_positions,
-                //                     )?;
-
-                //                     fm.match_positions = find_match_positions(
-                //                         &fm.dir_states.current_entries,
-                //                         &new_name,
-                //                     );
-                //                 }
-                //             }
-                //             _ => {
-                //                 let mut stdout_lock = w.lock();
-
-                //                 queue!(
-                //                     stdout_lock,
-                //                     terminal::Clear(ClearType::CurrentLine),
-                //                     cursor::Hide,
-                //                     cursor::MoveToColumn(0),
-                //                     style::SetForegroundColor(Color::Grey),
-                //                     style::SetBackgroundColor(Color::DarkRed),
-                //                     style::Print(format!("invalid command: {}", spaced_words[0])),
-                //                     style::SetForegroundColor(Color::Reset),
-                //                     style::SetBackgroundColor(Color::Reset),
-                //                 )?;
-                //             }
-                //         }
-                //     }
-                // }
+                    update_drawing_info_from_resize(&mut fm.drawing_info)?;
+                }
+            },
+            InputEvent::PreviewLoaded(preview_data) => {
+                fm.preview_data = preview_data;
             }
         }
     }
@@ -869,6 +828,8 @@ struct FileManager<'a> {
     should_search_forwards: bool,
 
     input_line: String,
+
+    input_cursor: usize,
 
     input_mode: InputMode,
 
@@ -1187,137 +1148,6 @@ fn find_match_positions(current_entries: &[DirEntryInfo], search_term: &str) -> 
             }
         })
         .collect()
-}
-
-fn get_cmd_line_input(
-    w: &mut io::Stdout,
-    prompt: &str,
-    fm: &mut FileManager,
-) -> io::Result<Option<String>> {
-    let mut cursor_index = fm.input_line.len(); // Where a new character will next be entered
-
-    {
-        let mut stdout_lock = w.lock();
-
-        execute!(
-            &mut stdout_lock,
-            cursor::Show,
-            style::SetAttribute(Attribute::Reset)
-        )?;
-    }
-
-    // Command line input loop
-    loop {
-        // Use this scope when displaying the input prompt and current line
-        {
-            let mut stdout_lock = w.lock();
-
-            if prompt.is_empty() {
-                queue!(
-                    &mut stdout_lock,
-                    cursor::MoveTo(0, fm.drawing_info.height - 1),
-                    terminal::Clear(ClearType::CurrentLine),
-                    style::Print(format!(":{}", fm.input_line)),
-                    cursor::MoveTo((1 + cursor_index) as u16, fm.drawing_info.height - 1),
-                )?;
-            } else {
-                queue!(
-                    &mut stdout_lock,
-                    cursor::MoveTo(0, fm.drawing_info.height - 1),
-                    terminal::Clear(ClearType::CurrentLine),
-                    style::Print(format!("{}{}", prompt, fm.input_line)),
-                    cursor::MoveTo(
-                        (prompt.len() + cursor_index) as u16,
-                        fm.drawing_info.height - 1
-                    ),
-                )?;
-            }
-
-            stdout_lock.flush()?;
-        }
-
-        let event = event::read()?;
-
-        match event {
-            Event::Key(event) => match event.code {
-                KeyCode::Char(ch) => {
-                    if event.modifiers.contains(KeyModifiers::CONTROL) {
-                        match ch {
-                            'b' => {
-                                if cursor_index > 0 {
-                                    cursor_index -= 1;
-                                }
-                            }
-                            'f' => {
-                                if cursor_index < fm.input_line.len() {
-                                    cursor_index += 1;
-                                }
-                            }
-                            'a' => cursor_index = 0,
-                            'e' => cursor_index = fm.input_line.len(),
-                            'c' => {}
-                            'k' => {
-                                fm.input_line = fm.input_line.chars().take(cursor_index).collect();
-                            }
-                            _ => (),
-                        }
-                    } else if event.modifiers.contains(KeyModifiers::ALT) {
-                        match ch {
-                            'b' => {
-                                cursor_index =
-                                    line_edit::find_prev_word_pos(&fm.input_line, cursor_index);
-                            }
-                            'f' => {
-                                cursor_index =
-                                    line_edit::find_next_word_pos(&fm.input_line, cursor_index);
-                            }
-                            'd' => {
-                                let ending_index =
-                                    line_edit::find_next_word_pos(&fm.input_line, cursor_index);
-                                fm.input_line.replace_range(cursor_index..ending_index, "");
-                            }
-                            _ => (),
-                        }
-                    } else {
-                        fm.input_line.insert(cursor_index, ch);
-
-                        cursor_index += 1;
-                    }
-                }
-                KeyCode::Enter => {}
-                KeyCode::Left => {
-                    if cursor_index > 0 {
-                        cursor_index -= 1;
-                    }
-                }
-                KeyCode::Right => {
-                    if cursor_index < fm.input_line.len() {
-                        cursor_index += 1;
-                    }
-                }
-                KeyCode::Backspace => {
-                    if cursor_index > 0 {
-                        if event.modifiers.contains(KeyModifiers::ALT) {
-                            let ending_index = cursor_index;
-                            cursor_index =
-                                line_edit::find_prev_word_pos(&fm.input_line, cursor_index);
-                            fm.input_line.replace_range(cursor_index..ending_index, "");
-                        } else {
-                            fm.input_line.remove(cursor_index - 1);
-
-                            cursor_index -= 1;
-                        }
-                    }
-                }
-                KeyCode::Esc => {}
-                _ => (),
-            },
-            Event::Mouse(_) => (),
-            Event::Resize(_, _) => {}
-        }
-
-        assert!(cursor_index <= fm.input_line.len());
-    }
 }
 
 fn set_current_dir<P: AsRef<Path>>(
