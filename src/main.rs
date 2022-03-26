@@ -560,6 +560,7 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                     Style::new_attr(rolf_grid::Attribute::Reverse),
                                 );
                             }
+                            PreviewData::Blank => (),
                             PreviewData::Directory { entries_info } => {
                                 let third_dir = &fm.dir_states.current_entries
                                     [second_entry_index as usize]
@@ -711,21 +712,6 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                 }
 
                                 queue!(&mut w, terminal::EnableLineWrap)?;
-
-                                // TODO(Chris): Figure out why the right-most edge of the
-                                // terminal sometimes has a character that should be one beyond
-                                // that right-most edge. This bug occurs when right-most edge
-                                // isn't blanked out (as is currently done below).
-
-                                // Clear the right-most edge of the terminal, since it might
-                                // have been drawn over when printing file contents
-                                // for curr_y in 1..=drawing_info.column_bot_y {
-                                //     queue!(
-                                //         &mut w,
-                                //         cursor::MoveTo(drawing_info.width, curr_y),
-                                //         style::Print(' ')
-                                //     )?;
-                                // }
 
                                 // TODO(Chris): Refactor this into a function, since it's
                                 // used three times (if you include the modification of the
@@ -1046,7 +1032,9 @@ fn set_preview_data_with_thread(
                 };
             }
         }
-        _ => (),
+        RecordedFileType::InvalidSymlink | RecordedFileType::Other => {
+            fm.preview_data = PreviewData::Blank;
+        }
     }
 }
 
@@ -2165,6 +2153,7 @@ type ImageBufferRgba = ImageBuffer<Rgba<u8>, Vec<u8>>;
 
 enum PreviewData {
     Loading,
+    Blank,
     Directory { entries_info: Vec<DirEntryInfo> },
     UncoloredFile { path: PathBuf },
     ImageBuffer { buffer: ImageBufferRgba },
