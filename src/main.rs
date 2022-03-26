@@ -390,8 +390,6 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                             } else {
                                 let search_term = &command_use.arguments[0];
 
-                                eprintln!("search-back is being used with arguments");
-
                                 search_in_direction(&mut fm, search_term, false)?;
                             }
                         }
