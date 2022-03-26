@@ -523,70 +523,73 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                         height: fm.drawing_info.column_height,
                     };
 
-                    // NOTE(Chris): We keep this code block before the preview drawing
-                    // functionality order to properly set up the Loading... message.
-                    if has_changed_entry {
-                        let second_entry =
-                            &fm.dir_states.current_entries[second_entry_index as usize];
+                    if !fm.dir_states.current_entries.is_empty() {
+                        // NOTE(Chris): We keep this code block before the preview drawing
+                        // functionality order to properly set up the Loading... message.
+                        if has_changed_entry {
+                            let second_entry =
+                                &fm.dir_states.current_entries[second_entry_index as usize];
 
-                        fm.preview_data = PreviewData::Loading;
+                            fm.preview_data = PreviewData::Loading;
 
-                        if second_entry.file_type == RecordedFileType::Directory
-                            || second_entry.file_type == RecordedFileType::DirectorySymlink
-                        {
-                            // The second entry is the path of the directory for the third column
-                            let third_dir_path = second_entry.dir_entry.path();
+                            if second_entry.file_type == RecordedFileType::Directory
+                                || second_entry.file_type == RecordedFileType::DirectorySymlink
+                            {
+                                // The second entry is the path of the directory for the third column
+                                let third_dir_path = second_entry.dir_entry.path();
 
-                            let dir_preview_tx = tx.clone();
+                                let dir_preview_tx = tx.clone();
 
-                            std::thread::spawn(move || {
-                                let preview_entry_info =
-                                    get_sorted_entries(&third_dir_path).unwrap();
+                                std::thread::spawn(move || {
+                                    let preview_entry_info =
+                                        get_sorted_entries(&third_dir_path).unwrap();
 
-                                let len = preview_entry_info.len();
+                                    let len = preview_entry_info.len();
 
-                                dir_preview_tx
-                                    .send(InputEvent::PreviewLoaded(PreviewData::Directory {
-                                        entries_info: preview_entry_info,
-                                    }))
-                                    .expect("Unable to send on channel");
-                            });
+                                    dir_preview_tx
+                                        .send(InputEvent::PreviewLoaded(PreviewData::Directory {
+                                            entries_info: preview_entry_info,
+                                        }))
+                                        .expect("Unable to send on channel");
+                                });
+                            }
                         }
-                    }
 
-                    match &fm.preview_data {
-                        PreviewData::Loading => {
-                            draw_str(
-                                screen_lock,
-                                third_column_rect.left_x + 1,
-                                third_column_rect.top_y,
-                                "Loading...",
-                                Style::new_attr(rolf_grid::Attribute::Reverse),
-                            );
-                        }
-                        PreviewData::Directory { entries_info } => {
-                            let third_dir = &fm.dir_states.current_entries
-                                [second_entry_index as usize]
-                                .dir_entry
-                                .path();
+                        match &fm.preview_data {
+                            PreviewData::Loading => {
+                                draw_str(
+                                    screen_lock,
+                                    third_column_rect.left_x + 1,
+                                    third_column_rect.top_y,
+                                    "Loading...",
+                                    Style::new_attr(rolf_grid::Attribute::Reverse),
+                                );
+                            }
+                            PreviewData::Directory { entries_info } => {
+                                let third_dir = &fm.dir_states.current_entries
+                                    [second_entry_index as usize]
+                                    .dir_entry
+                                    .path();
 
-                            let (display_offset, starting_index) =
-                                match fm.left_paths.get(third_dir) {
-                                    Some(dir_location) => {
-                                        (dir_location.display_offset, dir_location.starting_index)
-                                    }
-                                    None => (0, 0),
-                                };
+                                let (display_offset, starting_index) =
+                                    match fm.left_paths.get(third_dir) {
+                                        Some(dir_location) => (
+                                            dir_location.display_offset,
+                                            dir_location.starting_index,
+                                        ),
+                                        None => (0, 0),
+                                    };
 
-                            let entry_index = starting_index + display_offset;
+                                let entry_index = starting_index + display_offset;
 
-                            draw_column(
-                                screen_lock,
-                                third_column_rect,
-                                starting_index,
-                                entry_index,
-                                entries_info,
-                            );
+                                draw_column(
+                                    screen_lock,
+                                    third_column_rect,
+                                    starting_index,
+                                    entry_index,
+                                    entries_info,
+                                );
+                            }
                         }
                     }
 
