@@ -85,6 +85,11 @@ fn lex_id(scanner: &mut Scanner) -> LexResult<Token> {
             continue;
         }
 
+        if scanner.take(&'-') {
+            buf.push('-');
+            continue;
+        }
+
         break;
     }
 

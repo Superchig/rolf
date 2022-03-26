@@ -56,7 +56,7 @@ use crossterm::{
 };
 
 use rolf_grid::{LineBuilder, Style};
-use rolf_parser::parser::{parse, parse_statement_from, Program, Statement};
+use rolf_parser::parser::{self, parse, parse_statement_from, Program, Statement};
 
 type Screen = rolf_grid::Screen<io::Stdout>;
 
@@ -376,21 +376,35 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                             }
                         }
                         "search" => {
-                            assert!(fm.input_line.len() <= 0);
+                            if command_use.arguments.is_empty() {
+                                enter_command_mode_with(&mut fm, "search ");
+                            } else {
+                                let search_term = &command_use.arguments[0];
 
-                            fm.input_line.push_str("search ");
-
-                            fm.input_mode = InputMode::Command;
+                                search_in_direction(&mut fm, search_term, true)?;
+                            }
                         }
                         "search-back" => {
-                            assert!(fm.input_line.len() <= 0);
+                            if command_use.arguments.is_empty() {
+                                enter_command_mode_with(&mut fm, "search-back ");
+                            } else {
+                                let search_term = &command_use.arguments[0];
 
-                            fm.input_line.push_str("search-back ");
+                                eprintln!("search-back is being used with arguments");
 
-                            fm.input_mode = InputMode::Command;
+                                search_in_direction(&mut fm, search_term, false)?;
+                            }
                         }
-                        "search-next" => {}
-                        "search-prev" => {}
+                        "search-next" => {
+                            search_jump(&mut fm)?;
+                        }
+                        "search-prev" => {
+                            fm.should_search_forwards = !fm.should_search_forwards;
+
+                            search_jump(&mut fm)?;
+
+                            fm.should_search_forwards = !fm.should_search_forwards;
+                        }
                         "toggle" => {
                             let selected_entry =
                                 &fm.dir_states.current_entries[second_entry_index as usize];
@@ -757,18 +771,80 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                 fm.input_cursor = 0;
                             }
                             KeyCode::Char(ch) => {
-                                fm.input_line.insert(fm.input_cursor, ch);
-                                fm.input_cursor += 1;
+                                if event.modifiers.contains(KeyModifiers::CONTROL) {
+                                    match ch {
+                                        'b' => {
+                                            if fm.input_cursor > 0 {
+                                                fm.input_cursor -= 1;
+                                            }
+                                        }
+                                        'f' => {
+                                            if fm.input_cursor < fm.input_line.len() {
+                                                fm.input_cursor += 1;
+                                            }
+                                        }
+                                        'a' => fm.input_cursor = 0,
+                                        'e' => fm.input_cursor = fm.input_line.len(),
+                                        'c' => leave_command_mode(&mut fm),
+                                        'k' => {
+                                            fm.input_line = fm
+                                                .input_line
+                                                .chars()
+                                                .take(fm.input_cursor)
+                                                .collect();
+                                        }
+                                        _ => (),
+                                    }
+                                } else if event.modifiers.contains(KeyModifiers::ALT) {
+                                    match ch {
+                                        'b' => {
+                                            fm.input_cursor = line_edit::find_prev_word_pos(
+                                                &fm.input_line,
+                                                fm.input_cursor,
+                                            );
+                                        }
+                                        'f' => {
+                                            fm.input_cursor = line_edit::find_next_word_pos(
+                                                &fm.input_line,
+                                                fm.input_cursor,
+                                            );
+                                        }
+                                        'd' => {
+                                            let ending_index = line_edit::find_next_word_pos(
+                                                &fm.input_line,
+                                                fm.input_cursor,
+                                            );
+                                            fm.input_line
+                                                .replace_range(fm.input_cursor..ending_index, "");
+                                        }
+                                        _ => (),
+                                    }
+                                } else {
+                                    fm.input_line.insert(fm.input_cursor, ch);
+
+                                    fm.input_cursor += 1;
+                                }
                             }
                             KeyCode::Enter => {
+                                // TODO(Chris): Refactor out this manual checking of "search" or
+                                // "search-back" somehow
                                 if let Ok(stm) = parse_statement_from(&fm.input_line) {
-                                    command_queue.push(stm);
+                                    match &stm {
+                                        Statement::CommandUse(parser::CommandUse {
+                                            name,
+                                            arguments,
+                                        }) => {
+                                            if !((name == "search" || name == "search-back")
+                                                && arguments.is_empty())
+                                            {
+                                                command_queue.push(stm);
+                                            }
+                                        }
+                                        _ => command_queue.push(stm),
+                                    }
                                 }
 
-                                fm.input_mode = InputMode::Normal;
-
-                                fm.input_line.clear();
-                                fm.input_cursor = 0;
+                                leave_command_mode(&mut fm);
                             }
                             KeyCode::Left => {
                                 if fm.input_cursor > 0 {
@@ -782,9 +858,19 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                             }
                             KeyCode::Backspace => {
                                 if fm.input_cursor > 0 {
-                                    fm.input_line.remove(fm.input_cursor - 1);
-                                    
-                                    fm.input_cursor -= 1;
+                                    if event.modifiers.contains(KeyModifiers::ALT) {
+                                        let ending_index = fm.input_cursor;
+                                        fm.input_cursor = line_edit::find_prev_word_pos(
+                                            &fm.input_line,
+                                            fm.input_cursor,
+                                        );
+                                        fm.input_line
+                                            .replace_range(fm.input_cursor..ending_index, "");
+                                    } else {
+                                        fm.input_line.remove(fm.input_cursor - 1);
+
+                                        fm.input_cursor -= 1;
+                                    }
                                 }
                             }
                             _ => (),
@@ -849,6 +935,22 @@ enum InputMode {
     Command,
 }
 
+fn leave_command_mode(fm: &mut FileManager) {
+    fm.input_mode = InputMode::Normal;
+
+    fm.input_line.clear();
+    fm.input_cursor = 0;
+}
+
+fn enter_command_mode_with(fm: &mut FileManager, beginning: &str) {
+    fm.input_mode = InputMode::Command;
+
+    fm.input_line.clear();
+    fm.input_line.push_str(beginning);
+
+    fm.input_cursor = fm.input_line.len();
+}
+
 // NOTE(Chris): When it comes to refactoring many variables into structs, perhaps we should group
 // them by when they are modified. For example, DrawingInfo is modified whenever the terminal
 // window resizes, while ColumnInfo will be modified even when the terminal window isn't resizing.
@@ -879,6 +981,46 @@ struct ColumnInfo {
 enum InputEvent {
     CrosstermEvent(crossterm::event::Event),
     PreviewLoaded(PreviewData),
+}
+
+fn search_jump(fm: &mut FileManager) -> io::Result<()> {
+    if fm.match_positions.len() <= 0 {
+        return Ok(());
+    }
+
+    let second_entry_index = fm.second.starting_index + fm.second.display_offset;
+
+    let next_position = if fm.should_search_forwards {
+        let result = fm
+            .match_positions
+            .iter()
+            .find(|pos| **pos > second_entry_index as usize);
+
+        match result {
+            None => fm.match_positions[0],
+            Some(next_position) => *next_position,
+        }
+    } else {
+        let result = fm
+            .match_positions
+            .iter()
+            .rev()
+            .find(|pos| **pos < second_entry_index as usize);
+
+        match result {
+            None => *fm.match_positions.last().unwrap(),
+            Some(next_position) => *next_position,
+        }
+    };
+
+    fm.second = find_column_pos(
+        fm.dir_states.current_entries.len(),
+        fm.drawing_info.column_height,
+        fm.second,
+        next_position,
+    )?;
+
+    Ok(())
 }
 
 fn set_preview_data_with_thread(
@@ -1127,6 +1269,20 @@ fn insert_executable<'a>(
             panic!("{}", err);
         }
     }
+}
+
+fn search_in_direction(
+    fm: &mut FileManager,
+    search_term: &str,
+    should_search_forwards: bool,
+) -> io::Result<()> {
+    fm.match_positions = find_match_positions(&fm.dir_states.current_entries, search_term);
+
+    fm.should_search_forwards = should_search_forwards;
+
+    search_jump(fm)?;
+
+    Ok(())
 }
 
 fn find_match_positions(current_entries: &[DirEntryInfo], search_term: &str) -> Vec<usize> {
