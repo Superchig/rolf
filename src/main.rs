@@ -448,20 +448,20 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                         &fm.dir_states.current_entries,
                     );
 
-                    // let third_column_rect = Rect {
-                    //     left_x: fm.drawing_info.third_left_x,
-                    //     top_y: 1,
-                    //     width: fm.drawing_info.third_right_x - fm.drawing_info.third_right_x,
-                    //     height: fm.drawing_info.column_height,
-                    // };
+                    let third_column_rect = Rect {
+                        left_x: fm.drawing_info.third_left_x,
+                        top_y: 1,
+                        width: fm.drawing_info.third_right_x - fm.drawing_info.third_left_x,
+                        height: fm.drawing_info.column_height,
+                    };
 
-                    // draw_column(
-                    //     screen_lock,
-                    //     third_column_rect,
-                    //     fm.third.starting_index + fm.third.display_offset,
-                    //     file_curr_ind,
-                    //     &fm.dir_states.current_entries,
-                    // );
+                    draw_column(
+                        screen_lock,
+                        third_column_rect,
+                        0,
+                        0,
+                        &fm.dir_states.current_entries,
+                    );
 
                     screen_lock.show()?;
                 }
@@ -643,10 +643,12 @@ fn draw_column(
     file_curr_ind: u16,
     items: &[DirEntryInfo],
 ) {
+    let inner_left_x = rect.left_x + 1;
+
     if items.is_empty() {
         draw_str(
             screen,
-            rect.left_x,
+            inner_left_x,
             rect.top_y,
             "empty",
             Style::new_attr(rolf_grid::Attribute::Reverse),
@@ -654,7 +656,7 @@ fn draw_column(
     }
 
     // NOTE(Chris): 1 is the starting row for columns
-    for y in rect.top_y..=rect.bot_y() {
+    for y in rect.top_y..rect.bot_y() {
         let ind = file_top_ind + y - 1;
 
         if (ind as usize) >= items.len() {
@@ -676,9 +678,11 @@ fn draw_column(
             }
             RecordedFileType::FileSymlink | RecordedFileType::DirectorySymlink => {
                 draw_style.fg = rolf_grid::Color::Cyan;
+                draw_style.attribute |= rolf_grid::Attribute::Bold;
             }
             RecordedFileType::InvalidSymlink => {
                 draw_style.fg = rolf_grid::Color::Red;
+                draw_style.attribute |= rolf_grid::Attribute::Bold;
             }
             _ => (),
         }
@@ -687,14 +691,16 @@ fn draw_column(
 
         let file_name = file_name_os.to_str().unwrap();
 
-        draw_str(screen, rect.left_x, y, file_name, draw_style);
+        screen.set_cell_style(inner_left_x, y, ' ', draw_style);
+        let name_pos_x = inner_left_x + 1;
+        draw_str(screen, name_pos_x, y, file_name, draw_style);
 
         let file_name_len: u16 = file_name
             .len()
             .try_into()
             .expect("A file name length did not fit within a u16");
 
-        for x in rect.left_x + file_name_len..=rect.right_x() {
+        for x in name_pos_x + file_name_len..rect.right_x() {
             screen.set_cell_style(x, y, ' ', draw_style);
         }
     }
