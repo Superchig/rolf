@@ -554,7 +554,7 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                             PreviewData::Loading => {
                                 draw_str(
                                     screen_lock,
-                                    third_column_rect.left_x + 1,
+                                    third_column_rect.left_x + 2,
                                     third_column_rect.top_y,
                                     "Loading...",
                                     Style::new_attr(rolf_grid::Attribute::Reverse),
@@ -592,11 +592,12 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
 
                                 let draw_style = rolf_grid::Style::default();
 
+                                let inner_left_x = fm.drawing_info.third_left_x + 2;
+
                                 // NOTE(Chris): 1 is the top_y for all columns
                                 let mut curr_y = 1;
 
-                                let third_width =
-                                    fm.drawing_info.third_right_x - fm.drawing_info.third_left_x;
+                                let third_width = fm.drawing_info.third_right_x - inner_left_x;
 
                                 for line in reader.lines() {
                                     // TODO(Chris): Handle UTF-8 errors here, possibly by just
@@ -613,7 +614,7 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                     if line.len() < (third_width as usize) {
                                         draw_str(
                                             screen_lock,
-                                            fm.drawing_info.third_left_x,
+                                            inner_left_x,
                                             curr_y,
                                             &line,
                                             draw_style,
@@ -621,7 +622,7 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                     } else {
                                         draw_str(
                                             screen_lock,
-                                            fm.drawing_info.third_left_x,
+                                            inner_left_x,
                                             curr_y,
                                             &line[0..third_width as usize],
                                             draw_style,
@@ -678,6 +679,14 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                 let mut w = stdout.lock();
 
                                 let inner_left_x = fm.drawing_info.third_left_x + 2;
+
+                                queue!(
+                                    w,
+                                    cursor::MoveTo(fm.drawing_info.third_left_x, 1),
+                                    // Hide the "Should display!" / "Loading..." message
+                                    style::Print("               "),
+                                    cursor::MoveTo(fm.drawing_info.third_left_x, 1),
+                                )?;
 
                                 let mut curr_y = 1; // Columns start at y = 1
                                 queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
@@ -1017,11 +1026,11 @@ fn set_preview_data_with_thread(
                                         .output()
                                         .unwrap();
 
-                                    preview_tx.send(InputEvent::PreviewLoaded(
-                                        PreviewData::RawBytes {
+                                    preview_tx
+                                        .send(InputEvent::PreviewLoaded(PreviewData::RawBytes {
                                             bytes: output.stdout,
-                                        },
-                                    )).expect("Unable to send on channel");
+                                        }))
+                                        .expect("Unable to send on channel");
                                 });
                             }
                         },
@@ -1066,7 +1075,7 @@ fn draw_column(
     if items.is_empty() {
         draw_str(
             screen,
-            inner_left_x,
+            inner_left_x + 1,
             rect.top_y,
             "empty",
             Style::new_attr(rolf_grid::Attribute::Reverse),
