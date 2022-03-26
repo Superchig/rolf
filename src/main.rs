@@ -585,9 +585,6 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                     entries_info,
                                 );
                             }
-                            // FIXME(Chris): Implement colored-file highlighting with, well,
-                            // highlight. This may necessitate implementing a is_only_manual flag
-                            // for cells.
                             PreviewData::UncoloredFile { path } => {
                                 // TODO(Chris): Handle permission errors here
                                 let file = fs::File::open(path)?;
@@ -1121,7 +1118,7 @@ fn draw_column(
             .try_into()
             .expect("A file name length did not fit within a u16");
 
-        for x in name_pos_x + file_name_len..rect.right_x() {
+        for x in name_pos_x + file_name_len..=rect.right_x() {
             screen.set_cell_style(x, y, ' ', draw_style);
         }
     }
@@ -1913,7 +1910,7 @@ fn draw_bottom_info_line(screen: &mut Screen, fm: &mut FileManager) {
         info_line_builder
             .use_fg_color(rolf_grid::Color::Green)
             .use_attribute(rolf_grid::Attribute::Bold)
-            .push_str(&format!(" {:4}", human_size(size)));
+            .push_str(&format!(" {:>4}", human_size(size)));
     }
 
     if let Some(modify_date_time) = extra_perms.modify_date_time {
