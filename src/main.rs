@@ -34,7 +34,7 @@ use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
 use std::env;
 use std::fs::{self, DirEntry, Metadata};
-use std::io::{self, BufRead, BufWriter, StdoutLock, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, StdoutLock, Write};
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
@@ -532,26 +532,34 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
 
                             fm.preview_data = PreviewData::Loading;
 
-                            if second_entry.file_type == RecordedFileType::Directory
-                                || second_entry.file_type == RecordedFileType::DirectorySymlink
-                            {
-                                // The second entry is the path of the directory for the third column
-                                let third_dir_path = second_entry.dir_entry.path();
+                            let third_file_path = second_entry.dir_entry.path();
 
-                                let dir_preview_tx = tx.clone();
+                            match second_entry.file_type {
+                                RecordedFileType::Directory
+                                | RecordedFileType::DirectorySymlink => {
+                                    let dir_preview_tx = tx.clone();
 
-                                std::thread::spawn(move || {
-                                    let preview_entry_info =
-                                        get_sorted_entries(&third_dir_path).unwrap();
+                                    std::thread::spawn(move || {
+                                        let preview_entry_info =
+                                            get_sorted_entries(&third_file_path).unwrap();
 
-                                    let len = preview_entry_info.len();
+                                        let len = preview_entry_info.len();
 
-                                    dir_preview_tx
-                                        .send(InputEvent::PreviewLoaded(PreviewData::Directory {
-                                            entries_info: preview_entry_info,
-                                        }))
-                                        .expect("Unable to send on channel");
-                                });
+                                        dir_preview_tx
+                                            .send(InputEvent::PreviewLoaded(
+                                                PreviewData::Directory {
+                                                    entries_info: preview_entry_info,
+                                                },
+                                            ))
+                                            .expect("Unable to send on channel");
+                                    });
+                                }
+                                RecordedFileType::File | RecordedFileType::FileSymlink => {
+                                    fm.preview_data = PreviewData::UncoloredFile {
+                                        path: third_file_path,
+                                    };
+                                }
+                                _ => (),
                             }
                         }
 
@@ -589,6 +597,55 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                     entry_index,
                                     entries_info,
                                 );
+                            }
+                            // FIXME(Chris): Implement colored-file highlighting with, well,
+                            // highlight. This may necessitate implementing a is_only_manual flag
+                            // for cells.
+                            PreviewData::UncoloredFile { path } => {
+                                // TODO(Chris): Handle permission errors here
+                                let file = fs::File::open(path)?;
+                                let reader = BufReader::new(file);
+
+                                let draw_style = rolf_grid::Style::default();
+
+                                // NOTE(Chris): 1 is the top_y for all columns
+                                let mut curr_y = 1;
+
+                                let third_width =
+                                    fm.drawing_info.third_right_x - fm.drawing_info.third_left_x;
+
+                                for line in reader.lines() {
+                                    // TODO(Chris): Handle UTF-8 errors here, possibly by just
+                                    // showing an error line
+                                    let line = match line {
+                                        Ok(line) => line,
+                                        Err(_) => break,
+                                    };
+
+                                    if curr_y > fm.drawing_info.column_bot_y {
+                                        break;
+                                    }
+
+                                    if line.len() < (third_width as usize) {
+                                        draw_str(
+                                            screen_lock,
+                                            fm.drawing_info.third_left_x,
+                                            curr_y,
+                                            &line,
+                                            draw_style,
+                                        );
+                                    } else {
+                                        draw_str(
+                                            screen_lock,
+                                            fm.drawing_info.third_left_x,
+                                            curr_y,
+                                            &line[0..third_width as usize],
+                                            draw_style,
+                                        );
+                                    }
+
+                                    curr_y += 1;
+                                }
                             }
                         }
                     }
@@ -2036,6 +2093,7 @@ fn save_location(fm: &mut FileManager, second_entry_index: u16) {
 enum PreviewData {
     Loading,
     Directory { entries_info: Vec<DirEntryInfo> },
+    UncoloredFile { path: PathBuf },
 }
 
 #[derive(Clone, Copy)]
