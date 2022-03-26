@@ -1,6 +1,5 @@
 // FIXME(Chris): Remove the dead_code warning suppressions
-#![allow(dead_code, unused_macros)]
-
+#![allow(dead_code, unused_macros, unused_variables, unused_imports)]
 #![allow(
     clippy::absurd_extreme_comparisons,
     clippy::too_many_arguments,
@@ -34,12 +33,13 @@ use which::which;
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
 use std::env;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, DirEntry, Metadata};
 use std::io::{self, BufRead, BufWriter, StdoutLock, Write};
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
 use image::{ColorType, GenericImageView, ImageEncoder};
@@ -55,7 +55,10 @@ use crossterm::{
     terminal::{self, ClearType},
 };
 
+use rolf_grid::Style;
 use rolf_parser::parser::{parse, parse_statement_from, Program, Statement};
+
+type Screen = rolf_grid::Screen<io::Stdout>;
 
 // TODO(Chris): Make this configurable rather than hard-coding the constant
 const SCROLL_OFFSET: u16 = 10;
@@ -112,26 +115,11 @@ fn main() -> crossterm::Result<()> {
         },
     };
 
-    terminal::enable_raw_mode()?;
+    Screen::activate_direct(&mut w)?;
 
-    queue!(
-        w,
-        terminal::EnterAlternateScreen,
-        style::ResetColor,
-        terminal::Clear(ClearType::All),
-        cursor::Hide,
-    )?;
+    let result = run(&mut config, &ast);
 
-    let result = run(&mut w, &mut config, &ast);
-
-    execute!(
-        w,
-        style::ResetColor,
-        cursor::Show,
-        terminal::LeaveAlternateScreen,
-    )?;
-
-    terminal::disable_raw_mode()?;
+    Screen::deactivate_direct(&mut w)?;
 
     match result {
         Ok(current_dir) => {
@@ -146,11 +134,7 @@ fn main() -> crossterm::Result<()> {
 }
 
 // Returns the path to the last dir
-fn run(
-    w: &mut io::Stdout,
-    _config: &mut Config,
-    config_ast: &Program,
-) -> crossterm::Result<PathBuf> {
+fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf> {
     let user_name = whoami::username();
 
     let host_name = whoami::hostname();
@@ -221,14 +205,8 @@ fn run(
 
     update_drawing_info_from_resize(&mut fm.drawing_info)?;
 
-    // Queue everything for the first time
-    {
-        let mut stdout_lock = w.lock();
-        queue_all_columns(&mut stdout_lock, &mut fm)?;
-        if cfg!(windows) {
-            abort_image_handles(&mut fm.image_handles); // Avoid double-draw on Windows
-        }
-    }
+    let screen = Screen::new(io::stdout())?;
+    let screen = Mutex::new(screen);
 
     let mut command_queue = config_ast.clone();
 
@@ -238,53 +216,20 @@ fn run(
 
         let second_bottom_index = fm.second.starting_index + fm.drawing_info.column_height;
 
-        let current_dir_display = format_current_dir(&fm.dir_states, home_path);
-
-        let curr_entry;
-        let file_stem = if fm.dir_states.current_entries.len() <= 0 {
-            ""
-        } else {
-            curr_entry = fm.dir_states.current_entries[second_entry_index as usize]
-                .dir_entry
-                .file_name();
-            curr_entry.to_str().unwrap()
-        };
-
         // TODO(Chris): Use the unicode-segmentation package to count graphemes
         // Add 1 because of the ':' that is displayed after user_host_display
         // Add 1 again because of the '/' that is displayed at the end of current_dir_display
-        let remaining_width = fm.drawing_info.width as usize
-            - (fm.user_host_display.len() + 1 + current_dir_display.len() + 1);
+        // let remaining_width = fm.drawing_info.width as usize
+        //     - (fm.user_host_display.len() + 1 + current_dir_display.len() + 1);
 
-        let file_stem = if file_stem.len() > remaining_width {
-            String::from(&file_stem[..remaining_width])
-        } else {
-            String::from(file_stem)
-        };
+        // let file_stem = if file_stem.len() > remaining_width {
+        //     String::from(&file_stem[..remaining_width])
+        // } else {
+        //     String::from(file_stem)
+        // };
 
         match fm.input_mode {
             InputMode::Normal => {
-                {
-                    let mut stdout_lock = w.lock();
-
-                    queue!(
-                        stdout_lock,
-                        cursor::MoveTo(0, 0),
-                        terminal::Clear(ClearType::CurrentLine),
-                        style::SetForegroundColor(Color::DarkGreen),
-                        style::SetAttribute(Attribute::Bold),
-                        style::Print(&fm.user_host_display),
-                        style::SetForegroundColor(Color::White),
-                        style::Print(":"),
-                        style::SetForegroundColor(Color::DarkBlue),
-                        style::Print(format!("{}{}", current_dir_display, path::MAIN_SEPARATOR)),
-                        style::SetForegroundColor(Color::White),
-                        style::Print(file_stem),
-                    )?;
-
-                    stdout_lock.flush()?;
-                }
-
                 for stm in &command_queue {
                     match stm {
                         Statement::Map(map) => {
@@ -294,8 +239,6 @@ fn run(
                                 .insert(key_event, map.cmd_name.clone());
                         }
                         Statement::CommandUse(command_use) => {
-                            let mut stdout_lock = w.lock();
-
                             let command: &str = &command_use.name;
 
                             match command {
@@ -309,9 +252,6 @@ fn run(
                                     {
                                         abort_image_handles(&mut fm.image_handles);
 
-                                        let old_starting_index = fm.second.starting_index;
-                                        let old_display_offset = fm.second.display_offset;
-
                                         if fm.second.display_offset
                                             >= (fm.drawing_info.column_height - SCROLL_OFFSET - 1)
                                             && (second_bottom_index as usize)
@@ -321,21 +261,11 @@ fn run(
                                         } else if second_entry_index < second_bottom_index {
                                             fm.second.display_offset += 1;
                                         }
-
-                                        queue_entry_changed(
-                                            &mut stdout_lock,
-                                            &mut fm,
-                                            old_starting_index,
-                                            old_display_offset,
-                                        )?;
                                     }
                                 }
                                 "up" => {
                                     if !fm.dir_states.current_entries.is_empty() {
                                         abort_image_handles(&mut fm.image_handles);
-
-                                        let old_starting_index = fm.second.starting_index;
-                                        let old_display_offset = fm.second.display_offset;
 
                                         if fm.second.display_offset <= (SCROLL_OFFSET)
                                             && fm.second.starting_index > 0
@@ -344,13 +274,6 @@ fn run(
                                         } else if second_entry_index > 0 {
                                             fm.second.display_offset -= 1;
                                         }
-
-                                        queue_entry_changed(
-                                            &mut stdout_lock,
-                                            &mut fm,
-                                            old_starting_index,
-                                            old_display_offset,
-                                        )?;
                                     }
                                 }
                                 "updir" => {
@@ -376,15 +299,10 @@ fn run(
                                         &fm.dir_states.current_entries,
                                         &old_current_dir,
                                     );
-
-                                    if cfg!(windows) {
-                                        queue!(&mut stdout_lock, terminal::Clear(ClearType::All))?;
-                                    }
-
-                                    queue_all_columns(&mut stdout_lock, &mut fm)?;
                                 }
                                 "open" => {
-                                    enter_entry(&mut stdout_lock, &mut fm, second_entry_index)?;
+                                    // FIXME(Chris): Reimplement this
+                                    // enter_entry(&mut screen_lock, &mut fm, second_entry_index)?;
                                 }
                                 // NOTE(Chris): lf doesn't actually provide a specific command for this, instead using
                                 // a default keybinding that takes advantage of EDITOR
@@ -420,21 +338,11 @@ fn run(
                                                 .expect("Failed to convert path to string")
                                         );
 
-                                        queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
-
                                         Command::new("sh")
                                             .arg("-c")
                                             .arg(shell_command)
                                             .status()
                                             .expect("failed to execute editor command");
-
-                                        queue!(
-                                            stdout_lock,
-                                            terminal::EnterAlternateScreen,
-                                            cursor::Hide
-                                        )?;
-
-                                        queue_all_columns(&mut stdout_lock, &mut fm)?;
                                     }
                                 }
                                 "top" => {
@@ -446,17 +354,6 @@ fn run(
 
                                         fm.second.starting_index = 0;
                                         fm.second.display_offset = 0;
-
-                                        update_entries_column(
-                                            &mut stdout_lock,
-                                            &mut fm,
-                                            old_display_offset,
-                                            old_starting_index,
-                                        )?;
-
-                                        queue_third_column(&mut stdout_lock, &mut fm)?;
-
-                                        queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
                                     }
                                 }
                                 "bottom" => {
@@ -480,17 +377,6 @@ fn run(
                                                     - fm.second.display_offset
                                                     - 1;
                                         }
-
-                                        update_entries_column(
-                                            &mut stdout_lock,
-                                            &mut fm,
-                                            old_display_offset,
-                                            old_starting_index,
-                                        )?;
-
-                                        queue_third_column(&mut stdout_lock, &mut fm)?;
-
-                                        queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
                                     }
                                 }
                                 "search" => {
@@ -507,16 +393,8 @@ fn run(
 
                                     fm.input_mode = InputMode::Command;
                                 }
-                                "search-next" => {
-                                    queue_search_jump(&mut stdout_lock, &mut fm)?;
-                                }
-                                "search-prev" => {
-                                    fm.should_search_forwards = !fm.should_search_forwards;
-
-                                    queue_search_jump(&mut stdout_lock, &mut fm)?;
-
-                                    fm.should_search_forwards = !fm.should_search_forwards;
-                                }
+                                "search-next" => {}
+                                "search-prev" => {}
                                 "toggle" => {
                                     let selected_entry =
                                         &fm.dir_states.current_entries[second_entry_index as usize];
@@ -528,19 +406,6 @@ fn run(
                                         fm.selections
                                             .insert(entry_path, second_entry_index as usize);
                                     }
-
-                                    let mut stdout_lock = w.lock();
-
-                                    queue_full_entry(
-                                        &mut stdout_lock,
-                                        &fm.dir_states.current_entries,
-                                        fm.drawing_info.second_left_x,
-                                        fm.drawing_info.second_right_x,
-                                        fm.second.display_offset,
-                                        fm.second.starting_index,
-                                        &fm.selections,
-                                        true,
-                                    )?;
                                 }
                                 "read" => {
                                     fm.input_mode = InputMode::Command;
@@ -553,6 +418,54 @@ fn run(
 
                 command_queue.clear();
 
+                {
+                    // NOTE(Chris): Recompute second_entry_index since the relevant values may have
+                    // been modified
+                    let second_entry_index = fm.second.starting_index + fm.second.display_offset;
+
+                    let mut screen_lock = screen.lock().expect("Failed to lock screen mutex!");
+                    let screen_lock = &mut *screen_lock;
+
+                    screen_lock.clear_logical();
+
+                    draw_str(screen_lock, 0, 0, "Hello!", rolf_grid::Style::default());
+
+                    draw_str(screen_lock, 0, 1, "There!", rolf_grid::Style::default());
+
+                    // FIXME(Chris): Refactor this into FileManager or DrawingInfo
+                    let second_column_rect = Rect {
+                        left_x: fm.drawing_info.second_left_x,
+                        top_y: 1,
+                        width: fm.drawing_info.second_right_x - fm.drawing_info.second_left_x,
+                        height: fm.drawing_info.column_height,
+                    };
+
+                    draw_column(
+                        screen_lock,
+                        second_column_rect,
+                        fm.second.starting_index,
+                        second_entry_index,
+                        &fm.dir_states.current_entries,
+                    );
+
+                    // let third_column_rect = Rect {
+                    //     left_x: fm.drawing_info.third_left_x,
+                    //     top_y: 1,
+                    //     width: fm.drawing_info.third_right_x - fm.drawing_info.third_right_x,
+                    //     height: fm.drawing_info.column_height,
+                    // };
+
+                    // draw_column(
+                    //     screen_lock,
+                    //     third_column_rect,
+                    //     fm.third.starting_index + fm.third.display_offset,
+                    //     file_curr_ind,
+                    //     &fm.dir_states.current_entries,
+                    // );
+
+                    screen_lock.show()?;
+                }
+
                 let event = event::read()?;
 
                 match event {
@@ -563,115 +476,97 @@ fn run(
                         }
                     }
                     Event::Mouse(_) => (),
-                    Event::Resize(_, _) => {
-                        let mut stdout_lock = w.lock();
-
-                        redraw_upper(&mut stdout_lock, &mut fm)?;
-
-                        queue_bottom_info_line(&mut stdout_lock, &mut fm)?;
-                    }
+                    Event::Resize(_, _) => {}
                 }
             }
             InputMode::Command => {
-                let line_from_user = get_cmd_line_input(w, ":", &mut fm)?;
+                // let line_from_user = get_cmd_line_input(w, ":", &mut fm)?;
 
-                // If there was no input line returned, then the user aborted the use of the
-                // command line. Thus, we only need to do anything when an input line is actually
-                // returned.
-                if let Some(line_from_user) = line_from_user {
-                    let trimmed_input_line = line_from_user.trim();
-                    let spaced_words: Vec<&str> = trimmed_input_line.split_whitespace().collect();
+                // // If there was no input line returned, then the user aborted the use of the
+                // // command line. Thus, we only need to do anything when an input line is actually
+                // // returned.
+                // if let Some(line_from_user) = line_from_user {
+                //     let trimmed_input_line = line_from_user.trim();
+                //     let spaced_words: Vec<&str> = trimmed_input_line.split_whitespace().collect();
 
-                    if !spaced_words.is_empty() {
-                        match spaced_words[0] {
-                            "search" => {
-                                if spaced_words.len() == 2 {
-                                    let search_term = spaced_words[1];
+                //     if !spaced_words.is_empty() {
+                //         match spaced_words[0] {
+                //             "search" => {
+                //                 if spaced_words.len() == 2 {
+                //                     let search_term = spaced_words[1];
 
-                                    fm.match_positions = find_match_positions(
-                                        &fm.dir_states.current_entries,
-                                        search_term,
-                                    );
+                //                     fm.match_positions = find_match_positions(
+                //                         &fm.dir_states.current_entries,
+                //                         search_term,
+                //                     );
 
-                                    fm.should_search_forwards = true;
+                //                     fm.should_search_forwards = true;
+                //                 }
+                //             }
+                //             "search-back" => {
+                //                 if spaced_words.len() == 2 {
+                //                     let search_term = spaced_words[1];
 
-                                    let mut stdout_lock = w.lock();
+                //                     fm.match_positions = find_match_positions(
+                //                         &fm.dir_states.current_entries,
+                //                         search_term,
+                //                     );
 
-                                    queue_search_jump(&mut stdout_lock, &mut fm)?;
-                                }
-                            }
-                            "search-back" => {
-                                if spaced_words.len() == 2 {
-                                    let search_term = spaced_words[1];
+                //                     fm.should_search_forwards = false;
+                //                 }
+                //             }
+                //             "rename" => {
+                //                 // Get the full path of the current file
+                //                 let current_file = &fm.dir_states.current_entries
+                //                     [second_entry_index as usize]
+                //                     .dir_entry;
+                //                 let current_file_path = current_file.path();
 
-                                    fm.match_positions = find_match_positions(
-                                        &fm.dir_states.current_entries,
-                                        search_term,
-                                    );
+                //                 // TODO(Chris): Get rid of these unwrap calls (at least the OsStr
+                //                 // to str conversion one)
+                //                 fm.input_line.push_str(
+                //                     current_file_path.file_name().unwrap().to_str().unwrap(),
+                //                 );
 
-                                    fm.should_search_forwards = false;
+                //                 let new_name = get_cmd_line_input(w, "Rename: ", &mut fm)?;
 
-                                    let mut stdout_lock = w.lock();
+                //                 if let Some(new_name) = new_name {
+                //                     let new_file_path = current_file_path
+                //                         .parent()
+                //                         .unwrap()
+                //                         .join(PathBuf::from(&new_name));
+                //                     fs::rename(current_file_path, new_file_path)?;
 
-                                    queue_search_jump(&mut stdout_lock, &mut fm)?;
-                                }
-                            }
-                            "rename" => {
-                                // Get the full path of the current file
-                                let current_file = &fm.dir_states.current_entries
-                                    [second_entry_index as usize]
-                                    .dir_entry;
-                                let current_file_path = current_file.path();
+                //                     set_current_dir(
+                //                         fm.dir_states.current_dir.clone(),
+                //                         &mut fm.dir_states,
+                //                         &mut fm.match_positions,
+                //                     )?;
 
-                                // TODO(Chris): Get rid of these unwrap calls (at least the OsStr
-                                // to str conversion one)
-                                fm.input_line.push_str(
-                                    current_file_path.file_name().unwrap().to_str().unwrap(),
-                                );
+                //                     fm.match_positions = find_match_positions(
+                //                         &fm.dir_states.current_entries,
+                //                         &new_name,
+                //                     );
+                //                 }
+                //             }
+                //             _ => {
+                //                 let mut stdout_lock = w.lock();
 
-                                let new_name = get_cmd_line_input(w, "Rename: ", &mut fm)?;
-
-                                if let Some(new_name) = new_name {
-                                    let new_file_path = current_file_path
-                                        .parent()
-                                        .unwrap()
-                                        .join(PathBuf::from(&new_name));
-                                    fs::rename(current_file_path, new_file_path)?;
-
-                                    set_current_dir(
-                                        fm.dir_states.current_dir.clone(),
-                                        &mut fm.dir_states,
-                                        &mut fm.match_positions,
-                                    )?;
-
-                                    fm.match_positions = find_match_positions(
-                                        &fm.dir_states.current_entries,
-                                        &new_name,
-                                    );
-
-                                    let mut stdout_lock = w.lock();
-
-                                    queue_search_jump(&mut stdout_lock, &mut fm)?;
-                                }
-                            }
-                            _ => {
-                                let mut stdout_lock = w.lock();
-
-                                queue!(
-                                    stdout_lock,
-                                    terminal::Clear(ClearType::CurrentLine),
-                                    cursor::Hide,
-                                    cursor::MoveToColumn(0),
-                                    style::SetForegroundColor(Color::Grey),
-                                    style::SetBackgroundColor(Color::DarkRed),
-                                    style::Print(format!("invalid command: {}", spaced_words[0])),
-                                    style::SetForegroundColor(Color::Reset),
-                                    style::SetBackgroundColor(Color::Reset),
-                                )?;
-                            }
-                        }
-                    }
-                }
+                //                 queue!(
+                //                     stdout_lock,
+                //                     terminal::Clear(ClearType::CurrentLine),
+                //                     cursor::Hide,
+                //                     cursor::MoveToColumn(0),
+                //                     style::SetForegroundColor(Color::Grey),
+                //                     style::SetBackgroundColor(Color::DarkRed),
+                //                     style::Print(format!("invalid command: {}", spaced_words[0])),
+                //                     style::SetForegroundColor(Color::Reset),
+                //                     style::SetBackgroundColor(Color::Reset),
+                //                 )?;
+                //             }
+                //         }
+                //     }
+                // }
             }
         }
     }
@@ -739,6 +634,70 @@ struct DrawingInfo {
 struct ColumnInfo {
     starting_index: u16,
     display_offset: u16,
+}
+
+fn draw_column(
+    screen: &mut Screen,
+    rect: Rect,
+    file_top_ind: u16,
+    file_curr_ind: u16,
+    items: &[DirEntryInfo],
+) {
+    if items.is_empty() {
+        draw_str(
+            screen,
+            rect.left_x,
+            rect.top_y,
+            "empty",
+            Style::new_attr(rolf_grid::Attribute::Reverse),
+        );
+    }
+
+    // NOTE(Chris): 1 is the starting row for columns
+    for y in rect.top_y..=rect.bot_y() {
+        let ind = file_top_ind + y - 1;
+
+        if (ind as usize) >= items.len() {
+            break;
+        }
+
+        let entry_info = &items[ind as usize];
+
+        let mut draw_style = if ind == file_curr_ind {
+            Style::new_attr(rolf_grid::Attribute::Reverse)
+        } else {
+            Style::new_attr(rolf_grid::Attribute::None)
+        };
+
+        match entry_info.file_type {
+            RecordedFileType::Directory => {
+                draw_style.fg = rolf_grid::Color::Blue;
+                draw_style.attribute |= rolf_grid::Attribute::Bold;
+            }
+            RecordedFileType::FileSymlink | RecordedFileType::DirectorySymlink => {
+                draw_style.fg = rolf_grid::Color::Cyan;
+            }
+            RecordedFileType::InvalidSymlink => {
+                draw_style.fg = rolf_grid::Color::Red;
+            }
+            _ => (),
+        }
+
+        let file_name_os = entry_info.dir_entry.file_name();
+
+        let file_name = file_name_os.to_str().unwrap();
+
+        draw_str(screen, rect.left_x, y, file_name, draw_style);
+
+        let file_name_len: u16 = file_name
+            .len()
+            .try_into()
+            .expect("A file name length did not fit within a u16");
+
+        for x in rect.left_x + file_name_len..=rect.right_x() {
+            screen.set_cell_style(x, y, ' ', draw_style);
+        }
+    }
 }
 
 fn insert_executable<'a>(
@@ -826,8 +785,6 @@ fn get_cmd_line_input(
 
         let event = event::read()?;
 
-        let mut stdout_lock = w.lock();
-
         match event {
             Event::Key(event) => match event.code {
                 KeyCode::Char(ch) => {
@@ -845,13 +802,7 @@ fn get_cmd_line_input(
                             }
                             'a' => cursor_index = 0,
                             'e' => cursor_index = fm.input_line.len(),
-                            'c' => {
-                                // TODO(Chris): Consider refactoring the queue_... call and the
-                                // resulting Ok(Some(...)) in a function
-                                let result = queue_cleanup_cmd_line_exit(&mut stdout_lock, fm)?;
-
-                                return Ok(Some(result));
-                            }
+                            'c' => {}
                             'k' => {
                                 fm.input_line = fm.input_line.chars().take(cursor_index).collect();
                             }
@@ -880,11 +831,7 @@ fn get_cmd_line_input(
                         cursor_index += 1;
                     }
                 }
-                KeyCode::Enter => {
-                    let result = queue_cleanup_cmd_line_exit(&mut stdout_lock, fm)?;
-
-                    return Ok(Some(result));
-                }
+                KeyCode::Enter => {}
                 KeyCode::Left => {
                     if cursor_index > 0 {
                         cursor_index -= 1;
@@ -909,17 +856,11 @@ fn get_cmd_line_input(
                         }
                     }
                 }
-                KeyCode::Esc => {
-                    let result = queue_cleanup_cmd_line_exit(&mut stdout_lock, fm)?;
-
-                    return Ok(Some(result));
-                }
+                KeyCode::Esc => {}
                 _ => (),
             },
             Event::Mouse(_) => (),
-            Event::Resize(_, _) => {
-                redraw_upper(&mut stdout_lock, fm)?;
-            }
+            Event::Resize(_, _) => {}
         }
 
         assert!(cursor_index <= fm.input_line.len());
@@ -1014,8 +955,6 @@ fn enter_entry(
                 fm.second.display_offset = 0;
             }
         };
-
-        queue_all_columns(stdout_lock, fm)?;
     } else if selected_target_file_type.is_file() {
         if cfg!(windows) {
             open::that(selected_entry_path)?;
@@ -1097,96 +1036,6 @@ fn find_column_pos(
     Ok(result_column)
 }
 
-fn queue_search_jump(stdout_lock: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Result<()> {
-    if fm.match_positions.len() <= 0 {
-        return Ok(());
-    }
-
-    let second_entry_index = fm.second.starting_index + fm.second.display_offset;
-
-    let next_position = if fm.should_search_forwards {
-        let result = fm
-            .match_positions
-            .iter()
-            .find(|pos| **pos > second_entry_index as usize);
-
-        match result {
-            None => fm.match_positions[0],
-            Some(next_position) => *next_position,
-        }
-    } else {
-        let result = fm
-            .match_positions
-            .iter()
-            .rev()
-            .find(|pos| **pos < second_entry_index as usize);
-
-        match result {
-            None => *fm.match_positions.last().unwrap(),
-            Some(next_position) => *next_position,
-        }
-    };
-
-    let old_starting_index = fm.second.starting_index;
-    let old_display_offset = fm.second.display_offset;
-
-    fm.second = find_column_pos(
-        fm.dir_states.current_entries.len(),
-        fm.drawing_info.column_height,
-        fm.second,
-        next_position,
-    )?;
-
-    queue_entry_changed(stdout_lock, fm, old_starting_index, old_display_offset)?;
-
-    Ok(())
-}
-
-fn queue_entry_changed(
-    stdout_lock: &mut StdoutLock,
-    fm: &mut FileManager,
-    old_starting_index: u16,
-    old_display_offset: u16,
-) -> crossterm::Result<()> {
-    update_entries_column(stdout_lock, fm, old_display_offset, old_starting_index)?;
-
-    queue_third_column(stdout_lock, fm)?;
-
-    // NOTE(Chris): We flush here, so the current function is more than a "queue_" function
-    stdout_lock.flush()?;
-
-    queue_bottom_info_line(stdout_lock, fm)?;
-
-    Ok(())
-}
-
-fn queue_cleanup_cmd_line_exit(
-    stdout_lock: &mut StdoutLock,
-    fm: &mut FileManager,
-) -> crossterm::Result<String> {
-    let result = fm.input_line.clone();
-
-    queue!(
-        stdout_lock,
-        terminal::Clear(ClearType::CurrentLine),
-        cursor::Hide
-    )?;
-
-    queue_bottom_info_line(stdout_lock, fm)?;
-
-    cleanup_cmd_line_exit(stdout_lock, fm)?;
-
-    Ok(result)
-}
-
-fn cleanup_cmd_line_exit(stdout_lock: &mut StdoutLock, fm: &mut FileManager) -> io::Result<()> {
-    stdout_lock.flush()?;
-    fm.input_line.clear();
-    fm.input_mode = InputMode::Normal;
-
-    Ok(())
-}
-
 fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm::Result<()> {
     let (width, height) = terminal::size()?;
     // Represents the bottom-most y-cell of a column
@@ -1211,309 +1060,10 @@ fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm:
     Ok(())
 }
 
-// Redraw everything except the bottom info line.
-fn redraw_upper(stdout_lock: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Result<()> {
-    queue!(stdout_lock, terminal::Clear(ClearType::All))?;
-
-    update_drawing_info_from_resize(&mut fm.drawing_info)?;
-
-    queue_first_column(stdout_lock, fm)?;
-    queue_second_column(stdout_lock, fm)?;
-    queue_third_column(stdout_lock, fm)?;
-
-    Ok(())
-}
-
-fn queue_bottom_info_line(
-    stdout_lock: &mut StdoutLock,
-    fm: &mut FileManager,
-) -> crossterm::Result<()> {
-    if fm.dir_states.current_entries.len() <= 0 {
-        return Ok(());
-    }
-
-    let updated_second_entry_index = fm.second.starting_index + fm.second.display_offset;
-
-    let extra_perms = os_abstract::get_extra_perms(
-        &fm.dir_states.current_entries[updated_second_entry_index as usize].metadata,
-    );
-
-    let mode_str = &extra_perms.mode;
-
-    let colored_mode = {
-        let mut colored_mode = vec![];
-        // The Windows mode string is only 6 characters long, so this avoids the Windows mode
-        // string.
-        if mode_str.len() > 6 {
-            queue!(colored_mode, style::SetAttribute(Attribute::Bold))?;
-        }
-        for (index, byte) in mode_str.bytes().enumerate() {
-            if index > 3 {
-                queue!(colored_mode, style::SetAttribute(Attribute::Reset))?;
-            }
-
-            match &[byte] {
-                b"d" => {
-                    queue!(colored_mode, style::SetForegroundColor(Color::DarkBlue))?;
-                    colored_mode.push(byte);
-                }
-                b"r" => {
-                    queue!(colored_mode, style::SetForegroundColor(Color::DarkYellow))?;
-                    colored_mode.push(byte);
-                }
-                b"w" => {
-                    queue!(colored_mode, style::SetForegroundColor(Color::DarkRed))?;
-                    colored_mode.push(byte);
-                }
-                b"x" => {
-                    queue!(colored_mode, style::SetForegroundColor(Color::DarkGreen))?;
-                    colored_mode.push(byte);
-                }
-                b"-" => {
-                    queue!(colored_mode, style::SetForegroundColor(Color::DarkBlue))?;
-                    colored_mode.push(byte);
-                }
-                b"l" => {
-                    queue!(
-                        colored_mode,
-                        style::SetAttribute(Attribute::Reset),
-                        style::SetForegroundColor(Color::DarkCyan),
-                    )?;
-                    colored_mode.push(byte);
-                    queue!(colored_mode, style::SetAttribute(Attribute::Bold),)?;
-                }
-                b"c" | b"b" => {
-                    queue!(colored_mode, style::SetForegroundColor(Color::DarkYellow),)?;
-                    colored_mode.push(byte);
-                }
-                _ => {
-                    queue!(colored_mode, style::SetForegroundColor(Color::Reset),)?;
-                    colored_mode.push(byte);
-                }
-            }
-        }
-        queue!(colored_mode, style::SetForegroundColor(Color::Reset),)?;
-
-        colored_mode
-    };
-
-    // stdout_lock.flush()?;
-
-    // TODO(Chris): Display user/group names in white if they are not the current user/the current
-    // user is not in the group
-
-    queue!(
-        stdout_lock,
-        style::SetAttribute(Attribute::Reset),
-        cursor::MoveTo(0, fm.drawing_info.height - 1),
-        terminal::Clear(ClearType::CurrentLine),
-        style::Print(std::str::from_utf8(&colored_mode).unwrap()),
-    )?;
-
-    if let Some(hard_link_count) = extra_perms.hard_link_count {
-        queue!(
-            stdout_lock,
-            style::PrintStyledContent(
-                format!(" {:2}", hard_link_count)
-                    .with(Color::DarkRed)
-                    .attribute(Attribute::Bold)
-            ),
-        )?;
-    }
-
-    if let Some(user_name) = extra_perms.user_name {
-        queue!(
-            stdout_lock,
-            style::PrintStyledContent(
-                format!(" {}", user_name)
-                    .with(Color::DarkYellow)
-                    .attribute(Attribute::Bold)
-            ),
-        )?;
-    }
-
-    if let Some(group_name) = extra_perms.group_name {
-        queue!(
-            stdout_lock,
-            style::PrintStyledContent(
-                format!(" {}", group_name)
-                    .with(Color::DarkYellow)
-                    .attribute(Attribute::Bold)
-            ),
-        )?;
-    }
-
-    if let Some(size) = extra_perms.size {
-        queue!(
-            stdout_lock,
-            style::SetForegroundColor(Color::DarkGreen),
-            style::SetAttribute(Attribute::Bold),
-            style::Print(format!(" {:4}", human_size(size))),
-            style::SetAttribute(Attribute::Reset),
-        )?;
-    }
-
-    if let Some(modify_date_time) = extra_perms.modify_date_time {
-        queue!(
-            stdout_lock,
-            style::SetForegroundColor(Color::DarkBlue),
-            style::Print(" "),
-            style::Print(&modify_date_time),
-        )?;
-    }
-
-    let display_position = format!(
-        "{}/{}",
-        updated_second_entry_index + 1,
-        fm.dir_states.current_entries.len()
-    );
-
-    queue!(
-        stdout_lock,
-        cursor::MoveTo(
-            fm.drawing_info.width - (display_position.len() as u16),
-            fm.drawing_info.height - 1
-        ),
-        style::SetForegroundColor(Color::Reset),
-        style::Print(display_position),
-    )?;
-
-    Ok(())
-}
-
 // Handle for a task which displays an image
 struct DrawHandle {
     handle: JoinHandle<crossterm::Result<()>>,
     can_draw: Arc<AtomicBool>,
-}
-
-fn queue_all_columns(stdout_lock: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Result<()> {
-    queue_first_column(stdout_lock, fm)?;
-    queue_second_column(stdout_lock, fm)?;
-    queue_third_column(stdout_lock, fm)?;
-
-    queue_bottom_info_line(stdout_lock, fm)?;
-
-    Ok(())
-}
-
-fn queue_first_column(w: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Result<()> {
-    if let Some(prev_dir) = &fm.dir_states.prev_dir {
-        let result_column = find_correct_location(
-            &fm.left_paths,
-            fm.drawing_info.column_height,
-            prev_dir,
-            &fm.dir_states.prev_entries,
-            &fm.dir_states.current_dir,
-        );
-        queue_entries_column(
-            w,
-            fm.drawing_info.first_left_x,
-            fm.drawing_info.first_right_x,
-            fm.drawing_info.column_bot_y,
-            &fm.dir_states.prev_entries,
-            result_column,
-            &fm.selections,
-        )?;
-    } else {
-        queue_oneline_column(
-            w,
-            fm.drawing_info.first_left_x,
-            fm.drawing_info.first_right_x,
-            fm.drawing_info.column_bot_y,
-            "",
-        )?;
-    }
-    Ok(())
-}
-
-// All this function actually does is call queue_entries_column, but it's here to match the naming
-// scheme of queue_first_column and queue_third_column
-fn queue_second_column(w: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Result<()> {
-    queue_entries_column(
-        w,
-        fm.drawing_info.second_left_x,
-        fm.drawing_info.second_right_x,
-        fm.drawing_info.column_bot_y,
-        &fm.dir_states.current_entries,
-        fm.second,
-        &fm.selections,
-    )?;
-
-    Ok(())
-}
-
-fn queue_third_column(w: &mut StdoutLock, fm: &mut FileManager) -> crossterm::Result<()> {
-    match fm.config.image_protocol {
-        ImageProtocol::Kitty => {
-            // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
-            w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
-        }
-        ImageProtocol::ITerm2 => {
-            // NOTE(Chris): We don't actually need to do anything here, it seems
-        }
-        _ => (),
-    }
-
-    let left_x = fm.drawing_info.third_left_x;
-    let right_x = fm.drawing_info.third_right_x;
-    // let right_x = drawing_info.width / 2 + 20;
-
-    let change_index = (fm.second.starting_index + fm.second.display_offset) as usize;
-
-    queue_blank_column(w, left_x, right_x, fm.drawing_info.column_height)?;
-
-    if fm.dir_states.current_entries.len() <= 0 {
-        queue_blank_column(w, left_x, right_x, fm.drawing_info.column_height)?;
-    } else {
-        let display_entry = &fm.dir_states.current_entries[change_index];
-
-        let file_type = display_entry.dir_entry.file_type().unwrap();
-
-        let file_path = display_entry.dir_entry.path();
-
-        if file_type.is_dir() {
-            queue_third_column_dir(
-                w,
-                fm,
-                left_x,
-                right_x,
-                fm.drawing_info.column_bot_y,
-                file_path,
-            )?;
-        } else if file_type.is_file() {
-            queue_third_column_file(w, fm, file_path, left_x, right_x)?;
-        } else if file_type.is_symlink() {
-            // TODO(Chris): Show error if symlink is invalid
-            match std::fs::metadata(display_entry.dir_entry.path()) {
-                Ok(underlying_metadata) => {
-                    let underlying_file_type = underlying_metadata.file_type();
-
-                    if underlying_file_type.is_dir() {
-                        queue_third_column_dir(
-                            w,
-                            fm,
-                            left_x,
-                            right_x,
-                            fm.drawing_info.column_bot_y,
-                            file_path,
-                        )?;
-                    } else if underlying_file_type.is_file() {
-                        queue_third_column_file(w, fm, file_path, left_x, right_x)?;
-                    } else {
-                        queue_blank_column(w, left_x, right_x, fm.drawing_info.column_height)?;
-                    }
-                }
-                Err(_) => {
-                    queue_blank_column(w, left_x, right_x, fm.drawing_info.column_height)?;
-                }
-            }
-        } else {
-            queue_blank_column(w, left_x, right_x, fm.drawing_info.column_height)?;
-        }
-    }
-
-    Ok(())
 }
 
 // This macro should be used to run asynchronous functions that draw to the screen (specifically,
@@ -1536,184 +1086,6 @@ macro_rules! spawn_async_draw {
             can_draw,
         });
     }
-}
-
-fn queue_third_column_dir(
-    w: &mut StdoutLock,
-    fm: &mut FileManager,
-    left_x: u16,
-    right_x: u16,
-    column_bot_y: u16,
-    third_dir: PathBuf,
-) -> crossterm::Result<()> {
-    let (display_offset, starting_index) = match fm.left_paths.get(&third_dir) {
-        Some(dir_location) => (dir_location.display_offset, dir_location.starting_index),
-        None => (0, 0),
-    };
-
-    let col_width = right_x - left_x + 1;
-
-    for curr_y in 1..=column_bot_y {
-        queue!(w, cursor::MoveTo(left_x, curr_y))?;
-
-        for _ in 0..col_width {
-            queue!(w, style::Print(' '))?;
-        }
-    }
-
-    // TODO(Chris): Refactor out to its own function, since this exact code is used at least 3
-    // times
-    queue_loading_msg(w, left_x)?;
-
-    w.flush()?;
-
-    spawn_async_draw!(
-        fm.runtime,
-        fm.image_handles,
-        preview_dir,
-        third_dir,
-        display_offset,
-        starting_index,
-        column_bot_y,
-        left_x,
-        right_x,
-        fm.selections.clone(),
-    );
-
-    Ok(())
-}
-
-fn queue_loading_msg(w: &mut StdoutLock, left_x: u16) -> io::Result<()> {
-    queue!(
-        w,
-        style::SetAttribute(Attribute::Reset),
-        style::SetAttribute(Attribute::Reverse),
-        cursor::MoveTo(left_x + 2, 1), // Add 2 to match lf's output "Loading..." placement
-        style::Print("Loading..."),
-        style::SetAttribute(Attribute::Reset),
-    )?;
-
-    Ok(())
-}
-
-async fn preview_dir(
-    can_display_image: Arc<AtomicBool>,
-    third_dir: PathBuf,
-    display_offset: u16,
-    starting_index: u16,
-    column_bot_y: u16,
-    left_x: u16,
-    right_x: u16,
-    selections: SelectionsMap,
-) -> io::Result<()> {
-    // NOTE(Chris): Due to the two locks, beware of deadlock!
-
-    let sorted_entries = get_sorted_entries(&third_dir);
-
-    let stdout = io::stdout();
-    let mut w = stdout.lock();
-
-    let can_display_image = can_display_image.load(std::sync::atomic::Ordering::Acquire);
-
-    if !can_display_image {
-        return Ok(());
-    }
-
-    match sorted_entries {
-        Ok(third_entries) => {
-            queue_entries_column(
-                &mut w,
-                left_x,
-                right_x,
-                column_bot_y,
-                &third_entries,
-                ColumnInfo {
-                    starting_index,
-                    display_offset,
-                },
-                &selections,
-            )?;
-        }
-        Err(err) => {
-            let message = match err.kind() {
-                io::ErrorKind::PermissionDenied => String::from("permission denied"),
-                _ => {
-                    format!("error reading: {}", err)
-                }
-            };
-
-            queue_oneline_column(&mut w, left_x, right_x, column_bot_y, &message)?;
-        }
-    }
-
-    Ok(())
-}
-
-fn queue_third_column_file(
-    w: &mut StdoutLock,
-    fm: &mut FileManager,
-    third_file: PathBuf,
-    left_x: u16,
-    right_x: u16,
-) -> crossterm::Result<()> {
-    queue_blank_column(w, left_x, right_x, fm.drawing_info.column_height)?;
-
-    if let Some(os_str_ext) = third_file.extension() {
-        if let Some(ext) = os_str_ext.to_str() {
-            let ext = ext.to_lowercase();
-            let ext = ext.as_str();
-
-            if !cfg!(windows) && fm.config.image_protocol != ImageProtocol::None {
-                queue_loading_msg(w, left_x)?;
-
-                w.flush()?;
-            }
-
-            match ext {
-                "png" | "jpg" | "jpeg" | "mp4" | "webm" | "mkv" => {
-                    spawn_async_draw!(
-                        fm.runtime,
-                        fm.image_handles,
-                        preview_image_or_video,
-                        fm.drawing_info.win_pixels,
-                        third_file.clone(),
-                        ext.to_string(),
-                        fm.drawing_info.width,
-                        fm.drawing_info.height,
-                        left_x,
-                        fm.config.image_protocol,
-                    );
-                }
-                _ => match fm.available_execs.get("highlight") {
-                    None => {
-                        spawn_async_draw!(
-                            fm.runtime,
-                            fm.image_handles,
-                            preview_uncolored_file,
-                            fm.drawing_info,
-                            third_file,
-                            left_x,
-                            right_x
-                        );
-                    }
-                    Some(highlight) => {
-                        spawn_async_draw!(
-                            fm.runtime,
-                            fm.image_handles,
-                            preview_source_file,
-                            fm.drawing_info,
-                            third_file,
-                            left_x,
-                            right_x,
-                            highlight.to_path_buf()
-                        );
-                    }
-                },
-            }
-        }
-    }
-
-    Ok(())
 }
 
 async fn preview_uncolored_file(
@@ -2582,6 +1954,70 @@ fn queue_full_entry(
 
     if highlighted {
         queue!(w, style::SetAttribute(Attribute::NoReverse))?;
+    }
+
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct Rect {
+    left_x: u16,
+    top_y: u16,
+    width: u16,
+    height: u16,
+}
+
+impl Rect {
+    // If a Rect conceptually has a top_y of 1 and a bot_y of 2, it will have a height of 1.
+    fn bot_y(&self) -> u16 {
+        self.top_y + self.height
+    }
+
+    fn right_x(&self) -> u16 {
+        self.left_x + self.width
+    }
+}
+
+fn draw_str(screen: &mut Screen, x: u16, y: u16, string: &str, style: Style) {
+    for (i, ch) in string.char_indices() {
+        let i: u16 = i.try_into().expect("Should be able to fit into a u16.");
+        screen.set_cell_style(x + i, y, ch, style);
+    }
+}
+
+fn buf_entries_column(
+    screen: &mut Screen,
+    rect: Rect,
+    entries: &[DirEntryInfo],
+    column: ColumnInfo,
+    selections: &SelectionsMap,
+) -> io::Result<()> {
+    if entries.len() <= 0 {
+        draw_str(
+            screen,
+            rect.left_x + 1,
+            rect.top_y,
+            "empty",
+            Style::new_attr(rolf_grid::Attribute::Reverse),
+        );
+    } else {
+        for y in rect.top_y..=rect.top_y + rect.height {
+            let ind: usize = (y - rect.top_y).into();
+
+            if ind > entries.len() {
+                break;
+            }
+
+            let file_info = &entries[ind];
+
+            draw_str(
+                screen,
+                rect.left_x,
+                y,
+                file_info.dir_entry.file_name().to_str().unwrap(),
+                Style::default(),
+            );
+        }
     }
 
     Ok(())

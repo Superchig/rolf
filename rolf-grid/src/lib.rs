@@ -6,7 +6,7 @@ use crossterm::{
 };
 use std::{
     io::{self, Write},
-    ops::{BitAnd, BitOr},
+    ops::{BitAnd, BitOr, BitOrAssign},
 };
 
 pub struct Screen<T>
@@ -59,18 +59,26 @@ where
         cell.style = style;
     }
 
-    pub fn activate(&mut self) -> io::Result<()> {
+    pub fn activate_direct(output: &mut T) -> io::Result<()> {
         terminal::enable_raw_mode()?;
-        execute!(&mut self.output, EnterAlternateScreen)?;
+        execute!(output, EnterAlternateScreen)?;
 
         Ok(())
     }
 
-    pub fn deactivate(&mut self) -> io::Result<()> {
+    pub fn deactivate_direct(output: &mut T) -> io::Result<()> {
         terminal::disable_raw_mode()?;
-        execute!(&mut self.output, LeaveAlternateScreen)?;
+        execute!(output, LeaveAlternateScreen)?;
 
         Ok(())
+    }
+
+    pub fn activate(&mut self) -> io::Result<()> {
+        Self::activate_direct(&mut self.output)
+    }
+
+    pub fn deactivate(&mut self) -> io::Result<()> {
+        Self::deactivate_direct(&mut self.output)
     }
 
     pub fn size(&self) -> (u16, u16) {
@@ -371,6 +379,12 @@ impl BitOr for Attribute {
 
     fn bitor(self, rhs: Self) -> Self::Output {
         Self(self.0 | rhs.0)
+    }
+}
+
+impl BitOrAssign for Attribute {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0
     }
 }
 
