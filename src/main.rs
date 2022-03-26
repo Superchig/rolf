@@ -676,6 +676,60 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                     ),
                                 }
                             }
+                            PreviewData::RawBytes { bytes } => {
+                                let stdout = io::stdout();
+                                let mut w = stdout.lock();
+
+                                let inner_left_x = fm.drawing_info.third_left_x + 2;
+
+                                let mut curr_y = 1; // Columns start at y = 1
+                                queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
+
+                                queue!(&mut w, terminal::DisableLineWrap)?;
+
+                                for ch in bytes {
+                                    if curr_y > fm.drawing_info.column_bot_y {
+                                        break;
+                                    }
+
+                                    if *ch == b'\n' {
+                                        curr_y += 1;
+
+                                        queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
+                                    } else {
+                                        // NOTE(Chris): We write directly to stdout so as to
+                                        // allow the ANSI escape codes to match the end of a
+                                        // line
+                                        w.write_all(&[*ch])?;
+                                    }
+                                }
+
+                                queue!(&mut w, terminal::EnableLineWrap)?;
+
+                                // TODO(Chris): Figure out why the right-most edge of the
+                                // terminal sometimes has a character that should be one beyond
+                                // that right-most edge. This bug occurs when right-most edge
+                                // isn't blanked out (as is currently done below).
+
+                                // Clear the right-most edge of the terminal, since it might
+                                // have been drawn over when printing file contents
+                                // for curr_y in 1..=drawing_info.column_bot_y {
+                                //     queue!(
+                                //         &mut w,
+                                //         cursor::MoveTo(drawing_info.width, curr_y),
+                                //         style::Print(' ')
+                                //     )?;
+                                // }
+
+                                // TODO(Chris): Refactor this into a function, since it's
+                                // used three times (if you include the modification of the
+                                // set_dead bool)
+                                for x in fm.drawing_info.third_left_x..=fm.drawing_info.width - 1 {
+                                    for y in 1..=fm.drawing_info.column_bot_y {
+                                        screen_lock.set_dead(x, y, true);
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -952,19 +1006,26 @@ fn set_preview_data_with_thread(
                                 };
                             }
                             Some(highlight) => {
-                                fm.preview_data = PreviewData::UncoloredFile {
-                                    path: third_file_path,
-                                };
-                                // spawn_async_draw!(
-                                //     fm.runtime,
-                                //     fm.image_handles,
-                                //     preview_source_file,
-                                //     fm.drawing_info,
-                                //     third_file,
-                                //     left_x,
-                                //     right_x,
-                                //     highlight.to_path_buf()
-                                // );
+                                let highlight = highlight.clone();
+
+                                let (can_draw_clone, preview_tx) = clone_thread_helpers(fm, tx);
+
+                                std::thread::spawn(move || {
+                                    // TODO(Chris): Actually show that something went wrong
+                                    let output = Command::new(highlight)
+                                        .arg("-O")
+                                        .arg("ansi")
+                                        .arg("--max-size=500K")
+                                        .arg(third_file_path)
+                                        .output()
+                                        .unwrap();
+
+                                    preview_tx.send(InputEvent::PreviewLoaded(
+                                        PreviewData::RawBytes {
+                                            bytes: output.stdout,
+                                        },
+                                    )).expect("Unable to send on channel");
+                                });
                             }
                         },
                     }
@@ -2101,6 +2162,7 @@ enum PreviewData {
     Directory { entries_info: Vec<DirEntryInfo> },
     UncoloredFile { path: PathBuf },
     ImageBuffer { buffer: ImageBufferRgba },
+    RawBytes { bytes: Vec<u8> },
 }
 
 #[derive(Clone, Copy)]
