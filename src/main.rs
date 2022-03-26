@@ -932,6 +932,8 @@ fn set_preview_data_with_thread(
     let third_file_path = second_entry.dir_entry.path();
 
     match second_entry.file_type {
+        // TODO(Chris): Optimize entry gathering to avoid spawning a thread if there's a low (<
+        // 200) number of entries, without reading in entries twice
         RecordedFileType::Directory | RecordedFileType::DirectorySymlink => {
             let (can_draw_clone, preview_tx) = clone_thread_helpers(fm, tx);
 
@@ -1510,94 +1512,6 @@ fn update_drawing_info_from_resize(drawing_info: &mut DrawingInfo) -> crossterm:
 // Handle for a task which displays an image
 struct DrawHandle {
     can_draw: Arc<AtomicBool>,
-}
-
-// This macro should be used to run asynchronous functions that draw to the screen (specifically,
-// in the third column).
-// The first parameter to the async function referred to be $async_fn_name should be of the type
-// Arc<Mutex<bool>>. All of the arguments to the async function _except for this first one_ should
-// be passed in at the end of the macro invocation.
-macro_rules! spawn_async_draw {
-    ($runtime:expr, $handles:expr, $async_fn_name:expr, $($async_other_args:tt)*) => {
-        let can_draw = Arc::new(AtomicBool::new(true));
-        let clone = Arc::clone(&can_draw);
-
-        let preview_image_handle = $runtime.spawn($async_fn_name(
-                clone,
-                $($async_other_args)*
-        ));
-
-        $handles.push(DrawHandle {
-            handle: preview_image_handle,
-            can_draw,
-        });
-    }
-}
-
-async fn preview_uncolored_file(
-    can_draw_preview: Arc<AtomicBool>,
-    drawing_info: DrawingInfo,
-    third_file: PathBuf,
-    left_x: u16,
-    right_x: u16,
-) -> io::Result<()> {
-    let can_display_image = can_draw_preview.load(std::sync::atomic::Ordering::Acquire);
-
-    let inner_left_x = left_x + 2;
-
-    if can_display_image {
-        let file = fs::File::open(third_file)?;
-        let stdout = io::stdout();
-        let mut w = stdout.lock();
-
-        let mut curr_y = 1; // Columns start at y = 1
-
-        queue!(
-            &mut w,
-            style::SetAttribute(Attribute::Reset),
-            terminal::DisableLineWrap
-        )?;
-
-        // Clear the first line, in case there's a Loading... message already there
-        queue!(&mut w, cursor::MoveTo(inner_left_x, 1))?;
-        for _curr_x in inner_left_x..=right_x {
-            queue!(&mut w, style::Print(' '))?;
-        }
-
-        let max_line_length = (right_x - inner_left_x) as usize;
-
-        for line in io::BufReader::new(file)
-            .lines()
-            .take(drawing_info.column_height as usize)
-            .flatten()
-        {
-            queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
-
-            if line.len() > max_line_length {
-                writeln!(&mut w, "{}", &line[0..=max_line_length])?;
-            } else {
-                writeln!(&mut w, "{}", line)?;
-            }
-
-            curr_y += 1;
-        }
-
-        // Clear the right-most edge of the terminal, since it might
-        // have been drawn over when printing file contents
-        for curr_y in 1..=drawing_info.column_bot_y {
-            queue!(
-                &mut w,
-                cursor::MoveTo(drawing_info.width, curr_y),
-                style::Print(' ')
-            )?;
-        }
-
-        queue!(&mut w, terminal::EnableLineWrap)?;
-
-        w.flush()?;
-    }
-
-    Ok(())
 }
 
 fn preview_image_or_video(
