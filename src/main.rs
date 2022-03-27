@@ -211,24 +211,24 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
 
     // Crossterm input loop
     std::thread::spawn(move || loop {
-        eprintln!("Input thread: Waiting for main thread send...");
+        // eprintln!("Input thread: Waiting for main thread send...");
 
         // NOTE(Chris): We avoid receiving crossterm input with event::read() until something is
         // sent via this channel. This allows us to open other terminal programs without
         // interfering with the stdin input stream.
         let input_request_count = from_main_rx.recv().unwrap();
 
-        eprintln!(
-            "Input thread: input request received: #{}",
-            input_request_count
-        );
+        // eprintln!(
+        //     "Input thread: input request received: #{}",
+        //     input_request_count
+        // );
 
         let crossterm_event = event::read().expect("Unable to read crossterm event");
 
-        eprintln!(
-            "Input thread: Obtained crossterm event #{:?}: {:?}",
-            input_request_count, crossterm_event,
-        );
+        // eprintln!(
+        //     "Input thread: Obtained crossterm event #{:?}: {:?}",
+        //     input_request_count, crossterm_event,
+        // );
 
         crossterm_input_tx
             .send(InputEvent::CrosstermEvent {
@@ -360,8 +360,6 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                 let mut stdout_lock = stdout.lock();
 
                                 queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
-
-                                eprintln!("Main thread: shell command: {:?}", shell_command);
 
                                 Command::new("sh")
                                     .arg("-c")
@@ -784,16 +782,16 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
             screen_lock.show()?;
         }
 
-        eprintln!("Main thread: Obtaining event...");
+        // eprintln!("Main thread: Obtaining event...");
         let event = match rx.try_recv() {
             Ok(event) => event,
             Err(TryRecvError::Empty) => {
                 if input_request_count == last_recv_req_count {
                     input_request_count += 1;
-                    eprintln!(
-                        "Main thread: Main thread send, request input #{}",
-                        input_request_count
-                    );
+                    // eprintln!(
+                    //     "Main thread: Main thread send, request input #{}",
+                    //     input_request_count
+                    // );
                     to_input_tx
                         .send(input_request_count)
                         .expect("Unable to send to input thread");
@@ -803,7 +801,7 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
             }
             Err(err) => panic!("Unable to obtain input event: {}", err),
         };
-        eprintln!("Main thread: Obtained input event");
+        // eprintln!("Main thread: Obtained input event");
 
         match event {
             InputEvent::CrosstermEvent { event, input_request_count } => {
