@@ -34,25 +34,22 @@ use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
 use std::env;
 use std::fs::{self, DirEntry, Metadata};
-use std::io::{self, BufRead, BufReader, BufWriter, StdoutLock, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 use std::vec::Vec;
 
 use image::{ColorType, GenericImageView, ImageBuffer, ImageEncoder, Rgba};
 
-use tokio::runtime::{Builder, Runtime};
-
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyModifiers},
-    execute, queue,
-    style::{self, Attribute, Color},
-    terminal::{self, ClearType},
+    queue,
+    style,
+    terminal,
 };
 
 use rolf_grid::{LineBuilder, Style};
@@ -146,12 +143,6 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
     // NOTE(Chris): The default column ratio is 1:2:3
 
     let mut fm = FileManager {
-        runtime: Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()
-            .unwrap(),
-
         available_execs: {
             let mut available_execs: HashMap<&str, std::path::PathBuf> = HashMap::new();
 
@@ -356,7 +347,7 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                 );
 
                                 let stdout = io::stdout();
-                                let mut stdout_lock = io::stdout();
+                                let mut stdout_lock = stdout.lock();
 
                                 queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
 
@@ -936,8 +927,6 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
 }
 
 struct FileManager<'a> {
-    runtime: Runtime,
-
     available_execs: HashMap<&'a str, std::path::PathBuf>,
 
     image_handles: HandlesVec,
@@ -1079,10 +1068,8 @@ fn set_preview_data_with_thread(
         RecordedFileType::Directory | RecordedFileType::DirectorySymlink => {
             let (can_draw_clone, preview_tx) = clone_thread_helpers(fm, tx);
 
-            let preview_image_handle = std::thread::spawn(move || {
+            std::thread::spawn(move || {
                 let preview_entry_info = get_sorted_entries(&third_file_path).unwrap();
-
-                let len = preview_entry_info.len();
 
                 let can_display = can_draw_clone.load(std::sync::atomic::Ordering::Acquire);
 
@@ -1107,9 +1094,8 @@ fn set_preview_data_with_thread(
 
                             let ext_string = ext.to_string();
                             let drawing_info = fm.drawing_info;
-                            let image_protocol = fm.config.image_protocol;
 
-                            let preview_image_handle = std::thread::spawn(move || {
+                            std::thread::spawn(move || {
                                 let image_buffer = match preview_image_or_video(
                                     drawing_info.win_pixels,
                                     third_file_path,
@@ -1117,7 +1103,6 @@ fn set_preview_data_with_thread(
                                     drawing_info.width,
                                     drawing_info.height,
                                     drawing_info.third_left_x,
-                                    image_protocol,
                                 ) {
                                     Ok(image_buffer) => image_buffer,
                                     Err(_) => return,
@@ -1144,7 +1129,8 @@ fn set_preview_data_with_thread(
                             Some(highlight) => {
                                 let highlight = highlight.clone();
 
-                                let (can_draw_clone, preview_tx) = clone_thread_helpers(fm, tx);
+                                // TODO(Chris): Actually use can_draw_clone here
+                                let (_can_draw_clone, preview_tx) = clone_thread_helpers(fm, tx);
 
                                 std::thread::spawn(move || {
                                     // TODO(Chris): Actually show that something went wrong
@@ -1546,7 +1532,6 @@ fn preview_image_or_video(
     width: u16,
     height: u16,
     left_x: u16,
-    image_protocol: ImageProtocol,
 ) -> io::Result<ImageBufferRgba> {
     let win_px_width = win_pixels.width;
     let win_px_height = win_pixels.height;
@@ -1761,8 +1746,7 @@ fn draw_bottom_info_line(screen: &mut Screen, fm: &mut FileManager) {
 
     let mut info_line_builder = LineBuilder::new();
 
-    let colored_mode = {
-        let mut colored_mode = vec![];
+    {
         // The Windows mode string is only 6 characters long, so this avoids the Windows mode
         // string.
         if mode_str.len() > 6 {
@@ -1805,17 +1789,15 @@ fn draw_bottom_info_line(screen: &mut Screen, fm: &mut FileManager) {
                     draw_style.fg = rolf_grid::Color::Foreground;
                 }
                 b"c" | b"b" => {
-                    queue!(colored_mode, style::SetForegroundColor(Color::DarkYellow),).unwrap();
-                    colored_mode.push(byte);
+                    draw_style.fg = rolf_grid::Color::Yellow;
+                    info_line_builder.push(byte as char, draw_style);
                 }
                 _ => {
-                    queue!(colored_mode, style::SetForegroundColor(Color::Reset),).unwrap();
-                    colored_mode.push(byte);
+                    draw_style.attribute = rolf_grid::Attribute::None;
+                    info_line_builder.push(byte as char, draw_style);
                 }
             }
         }
-
-        colored_mode
     };
 
     // TODO(Chris): Display user/group names in white if they are not the current user/the current
@@ -2123,44 +2105,6 @@ fn draw_str(screen: &mut Screen, x: u16, y: u16, string: &str, style: Style) {
         let i: u16 = i.try_into().expect("Should be able to fit into a u16.");
         screen.set_cell_style(x + i, y, ch, style);
     }
-}
-
-fn buf_entries_column(
-    screen: &mut Screen,
-    rect: Rect,
-    entries: &[DirEntryInfo],
-    column: ColumnInfo,
-    selections: &SelectionsMap,
-) -> io::Result<()> {
-    if entries.len() <= 0 {
-        draw_str(
-            screen,
-            rect.left_x + 1,
-            rect.top_y,
-            "empty",
-            Style::new_attr(rolf_grid::Attribute::Reverse),
-        );
-    } else {
-        for y in rect.top_y..=rect.top_y + rect.height {
-            let ind: usize = (y - rect.top_y).into();
-
-            if ind > entries.len() {
-                break;
-            }
-
-            let file_info = &entries[ind];
-
-            draw_str(
-                screen,
-                rect.left_x,
-                y,
-                file_info.dir_entry.file_name().to_str().unwrap(),
-                Style::default(),
-            );
-        }
-    }
-
-    Ok(())
 }
 
 fn get_sorted_entries<P: AsRef<Path>>(path: P) -> io::Result<Vec<DirEntryInfo>> {
