@@ -779,25 +779,29 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                             cursor::MoveTo(fm.drawing_info.third_left_x, 1),
                         )?;
 
-                        let mut curr_y = 1; // Columns start at y = 1
-                        queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
-
                         queue!(&mut w, terminal::DisableLineWrap)?;
 
-                        for ch in bytes {
-                            if curr_y > fm.drawing_info.column_bot_y {
-                                break;
-                            }
+                        // TODO(Chris): Handle case when file is not valid utf8
+                        if let Ok(text) = std::str::from_utf8(bytes) {
+                            let mut curr_y = 1; // Columns start at y = 1
+                            queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
 
-                            if *ch == b'\n' {
-                                curr_y += 1;
 
-                                queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
-                            } else {
-                                // NOTE(Chris): We write directly to stdout so as to
-                                // allow the ANSI escape codes to match the end of a
-                                // line
-                                w.write_all(&[*ch])?;
+                            for ch in text.as_bytes() {
+                                if curr_y > fm.drawing_info.column_bot_y {
+                                    break;
+                                }
+
+                                if *ch == b'\n' {
+                                    curr_y += 1;
+
+                                    queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
+                                } else {
+                                    // NOTE(Chris): We write directly to stdout so as to
+                                    // allow the ANSI escape codes to match the end of a
+                                    // line
+                                    w.write_all(&[*ch])?;
+                                }
                             }
                         }
 
