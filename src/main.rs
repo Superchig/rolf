@@ -38,7 +38,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::{channel, sync_channel, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
@@ -47,9 +47,7 @@ use image::{ColorType, GenericImageView, ImageBuffer, ImageEncoder, Rgba};
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyModifiers},
-    queue,
-    style,
-    terminal,
+    queue, style, terminal,
 };
 
 use rolf_grid::{LineBuilder, Style};
@@ -209,28 +207,40 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
 
     let crossterm_input_tx = tx.clone();
 
-    let (to_input_tx, from_main_rx) = channel();
+    let (to_input_tx, from_main_rx) = sync_channel(0);
 
     // Crossterm input loop
     std::thread::spawn(move || loop {
-        eprintln!("Waiting for crossterm channel send...");
+        eprintln!("Input thread: Waiting for main thread send...");
 
         // NOTE(Chris): We avoid receiving crossterm input with event::read() until something is
         // sent via this channel. This allows us to open other terminal programs without
         // interfering with the stdin input stream.
-        from_main_rx.recv().unwrap();
+        let input_request_count = from_main_rx.recv().unwrap();
+
+        eprintln!(
+            "Input thread: input request received: #{}",
+            input_request_count
+        );
 
         let crossterm_event = event::read().expect("Unable to read crossterm event");
 
+        eprintln!(
+            "Input thread: Obtained crossterm event #{:?}: {:?}",
+            input_request_count, crossterm_event,
+        );
+
         crossterm_input_tx
-            .send(InputEvent::CrosstermEvent(crossterm_event))
+            .send(InputEvent::CrosstermEvent {
+                event: crossterm_event,
+                input_request_count,
+            })
             .expect("Unable to send on channel");
     });
 
-    // Send initial signal to begin receiving input
-    to_input_tx
-        .send(())
-        .expect("Unable to send to input thread");
+    // NOTE(Chris): These will be used to coordinate input requests to the input thread
+    let mut input_request_count = 0;
+    let mut last_recv_req_count = 0;
 
     let mut prev_dir_display = String::new();
     let mut prev_second_entry_index = 0;
@@ -350,6 +360,8 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                 let mut stdout_lock = stdout.lock();
 
                                 queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
+
+                                eprintln!("Main thread: shell command: {:?}", shell_command);
 
                                 Command::new("sh")
                                     .arg("-c")
@@ -772,13 +784,30 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
             screen_lock.show()?;
         }
 
-        let event = rx.recv().unwrap();
+        eprintln!("Main thread: Obtaining event...");
+        let event = match rx.try_recv() {
+            Ok(event) => event,
+            Err(TryRecvError::Empty) => {
+                if input_request_count == last_recv_req_count {
+                    input_request_count += 1;
+                    eprintln!(
+                        "Main thread: Main thread send, request input #{}",
+                        input_request_count
+                    );
+                    to_input_tx
+                        .send(input_request_count)
+                        .expect("Unable to send to input thread");
+                }
+
+                rx.recv().unwrap()
+            }
+            Err(err) => panic!("Unable to obtain input event: {}", err),
+        };
+        eprintln!("Main thread: Obtained input event");
 
         match event {
-            InputEvent::CrosstermEvent(event) => {
-                to_input_tx
-                    .send(())
-                    .expect("Unable to send to input thread");
+            InputEvent::CrosstermEvent { event, input_request_count } => {
+                last_recv_req_count = input_request_count;
 
                 match event {
                     Event::Key(event) => {
@@ -1006,8 +1035,12 @@ struct ColumnInfo {
     display_offset: u16,
 }
 
+#[derive(Debug)]
 enum InputEvent {
-    CrosstermEvent(crossterm::event::Event),
+    CrosstermEvent {
+        event: crossterm::event::Event,
+        input_request_count: usize,
+    },
     PreviewLoaded(PreviewData),
 }
 
@@ -2072,6 +2105,7 @@ fn save_location(fm: &mut FileManager, second_entry_index: u16) {
 
 type ImageBufferRgba = ImageBuffer<Rgba<u8>, Vec<u8>>;
 
+#[derive(Debug)]
 enum PreviewData {
     Loading,
     Blank,
