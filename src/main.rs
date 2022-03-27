@@ -1308,6 +1308,9 @@ fn draw_column(
         );
     }
 
+    // NOTE(Chris): We declare this outside of the loop to avoid re-allocating.
+    let mut file_name = String::new();
+
     // NOTE(Chris): 1 is the starting row for columns
     for y in rect.top_y..rect.bot_y() {
         let ind = file_top_ind + y - 1;
@@ -1342,11 +1345,22 @@ fn draw_column(
 
         let file_name_os = entry_info.dir_entry.file_name();
 
-        let file_name = file_name_os.to_str().unwrap();
+        // let file_name = file_name_os.to_str().unwrap();
+
+        let full_name = file_name_os.to_str().unwrap();
+        let display_width: usize = (rect.right_x() - inner_left_x).into();
+
+        file_name.clear();
+        if full_name.len() > display_width {
+            file_name.push_str(&full_name[0..display_width - 1]);
+            file_name.push('~');
+        } else {
+            file_name.push_str(full_name);
+        }
 
         screen.set_cell_style(inner_left_x, y, ' ', draw_style);
         let name_pos_x = inner_left_x + 1;
-        draw_str(screen, name_pos_x, y, file_name, draw_style);
+        draw_str(screen, name_pos_x, y, &file_name, draw_style);
 
         let file_name_len: u16 = file_name
             .len()
