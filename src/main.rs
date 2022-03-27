@@ -34,7 +34,7 @@ use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
 use std::env;
 use std::fs::{self, DirEntry, Metadata};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
@@ -700,6 +700,57 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                     }
                                 }
                             }
+                            ImageProtocol::ITerm2 => {
+                                let rgba = buffer;
+                                let left_x = fm.drawing_info.third_left_x;
+
+                                let mut png_data = vec![];
+                                {
+                                    let mut writer = BufWriter::new(&mut png_data);
+                                    PngEncoder::new(&mut writer)
+                                        .write_image(
+                                            rgba,
+                                            rgba.width(),
+                                            rgba.height(),
+                                            ColorType::Rgba8,
+                                        )
+                                        .unwrap();
+                                }
+
+                                let stdout = io::stdout();
+                                let mut w = stdout.lock();
+
+                                if cfg!(windows) {
+                                    queue!(w, cursor::MoveTo(left_x, 1), style::Print("  "),)?;
+                                } else {
+                                    // By adding 2, we match the location of lf's Loading...
+                                    let inner_left_x = left_x + 2;
+
+                                    queue!(
+                                        w,
+                                        cursor::MoveTo(inner_left_x, 1),
+                                        style::Print("          "),
+                                        cursor::MoveTo(left_x, 1),
+                                    )?;
+                                }
+
+                                write!(
+                                    w,
+                                    "\x1b]1337;File=size={};inline=1:{}\x1b\\",
+                                    png_data.len(),
+                                    base64::encode(png_data),
+                                )?;
+
+                                w.flush()?;
+
+                                // TODO(Chris): Refactor this into a function, since it's the
+                                // 4th time we're using it
+                                for x in fm.drawing_info.third_left_x..=fm.drawing_info.width - 1 {
+                                    for y in 1..=fm.drawing_info.column_bot_y {
+                                        screen_lock.set_dead(x, y, true);
+                                    }
+                                }
+                            }
                             _ => {
                                 panic!("Unsupported image protocol: {:?}", fm.config.image_protocol)
                             }
@@ -804,7 +855,10 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
         // eprintln!("Main thread: Obtained input event");
 
         match event {
-            InputEvent::CrosstermEvent { event, input_request_count } => {
+            InputEvent::CrosstermEvent {
+                event,
+                input_request_count,
+            } => {
                 last_recv_req_count = input_request_count;
 
                 match event {
