@@ -603,6 +603,15 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                         );
                     }
                     PreviewData::Blank => (),
+                    PreviewData::Message { message } => {
+                        draw_str(
+                            screen_lock,
+                            third_column_rect.left_x + 2,
+                            third_column_rect.top_y,
+                            message,
+                            Style::new_attr(rolf_grid::Attribute::Reverse),
+                        );
+                    }
                     PreviewData::Directory { entries_info } => {
                         let third_dir = &fm.dir_states.current_entries[second_entry_index as usize]
                             .dir_entry
@@ -1153,18 +1162,32 @@ fn set_preview_data_with_thread(
         RecordedFileType::Directory | RecordedFileType::DirectorySymlink => {
             let (can_draw_clone, preview_tx) = clone_thread_helpers(fm, tx);
 
-            std::thread::spawn(move || {
-                let preview_entry_info = get_sorted_entries(&third_file_path).unwrap();
+            std::thread::spawn(move || match get_sorted_entries(&third_file_path) {
+                Ok(preview_entry_info) => {
+                    let can_display = can_draw_clone.load(std::sync::atomic::Ordering::Acquire);
 
-                let can_display = can_draw_clone.load(std::sync::atomic::Ordering::Acquire);
-
-                if can_display {
-                    preview_tx
-                        .send(InputEvent::PreviewLoaded(PreviewData::Directory {
-                            entries_info: preview_entry_info,
-                        }))
-                        .expect("Unable to send on channel");
+                    if can_display {
+                        preview_tx
+                            .send(InputEvent::PreviewLoaded(PreviewData::Directory {
+                                entries_info: preview_entry_info,
+                            }))
+                            .expect("Unable to send on channel");
+                    }
                 }
+                Err(err) => match err.kind() {
+                    io::ErrorKind::PermissionDenied => {
+                        let can_display = can_draw_clone.load(std::sync::atomic::Ordering::Acquire);
+
+                        if can_display {
+                            preview_tx
+                                .send(InputEvent::PreviewLoaded(PreviewData::Message {
+                                    message: "permission denied",
+                                }))
+                                .expect("Unable to send on channel");
+                        }
+                    }
+                    _ => panic!("Error opening {:?}: {:?}", &third_file_path, &err),
+                },
             });
         }
         RecordedFileType::File | RecordedFileType::FileSymlink => {
@@ -2161,6 +2184,7 @@ type ImageBufferRgba = ImageBuffer<Rgba<u8>, Vec<u8>>;
 enum PreviewData {
     Loading,
     Blank,
+    Message { message: &'static str },
     Directory { entries_info: Vec<DirEntryInfo> },
     UncoloredFile { path: PathBuf },
     ImageBuffer { buffer: ImageBufferRgba },
