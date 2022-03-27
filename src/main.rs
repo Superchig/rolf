@@ -218,14 +218,28 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
 
     let crossterm_input_tx = tx.clone();
 
+    let (to_input_tx, from_main_rx) = channel();
+
     // Crossterm input loop
     std::thread::spawn(move || loop {
+        eprintln!("Waiting for crossterm channel send...");
+
+        // NOTE(Chris): We avoid receiving crossterm input with event::read() until something is
+        // sent via this channel. This allows us to open other terminal programs without
+        // interfering with the stdin input stream.
+        from_main_rx.recv().unwrap();
+
         let crossterm_event = event::read().expect("Unable to read crossterm event");
 
         crossterm_input_tx
             .send(InputEvent::CrosstermEvent(crossterm_event))
             .expect("Unable to send on channel");
     });
+
+    // Send initial signal to begin receiving input
+    to_input_tx
+        .send(())
+        .expect("Unable to send to input thread");
 
     let mut prev_dir_display = String::new();
     let mut prev_second_entry_index = 0;
@@ -341,11 +355,29 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
                                         .expect("Failed to convert path to string")
                                 );
 
+                                let stdout = io::stdout();
+                                let mut stdout_lock = io::stdout();
+
+                                queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
+
                                 Command::new("sh")
                                     .arg("-c")
                                     .arg(shell_command)
                                     .status()
                                     .expect("failed to execute editor command");
+
+                                queue!(stdout_lock, terminal::EnterAlternateScreen, cursor::Hide)?;
+
+                                let mut screen_lock =
+                                    screen.lock().expect("Failed to lock screen mutex!");
+                                let screen_lock = &mut *screen_lock;
+
+                                // TODO(Chris): Write a function that achieves this without
+                                // resizing anything
+                                screen_lock.resize_clear_draw(
+                                    fm.drawing_info.width,
+                                    fm.drawing_info.height,
+                                )?;
                             }
                         }
                         "top" => {
@@ -752,139 +784,148 @@ fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf>
         let event = rx.recv().unwrap();
 
         match event {
-            InputEvent::CrosstermEvent(event) => match event {
-                Event::Key(event) => {
-                    match fm.input_mode {
-                        InputMode::Normal => {
-                            if let Some(bound_command) = fm.config.keybindings.get(&event) {
-                                // FIXME(Chris): Handle the possible error here
-                                command_queue.push(parse_statement_from(bound_command).unwrap());
-                            }
-                        }
-                        InputMode::Command => match event.code {
-                            KeyCode::Esc => {
-                                fm.input_mode = InputMode::Normal;
+            InputEvent::CrosstermEvent(event) => {
+                to_input_tx
+                    .send(())
+                    .expect("Unable to send to input thread");
 
-                                fm.input_line.clear();
-                                fm.input_cursor = 0;
+                match event {
+                    Event::Key(event) => {
+                        match fm.input_mode {
+                            InputMode::Normal => {
+                                if let Some(bound_command) = fm.config.keybindings.get(&event) {
+                                    // FIXME(Chris): Handle the possible error here
+                                    command_queue
+                                        .push(parse_statement_from(bound_command).unwrap());
+                                }
                             }
-                            KeyCode::Char(ch) => {
-                                if event.modifiers.contains(KeyModifiers::CONTROL) {
-                                    match ch {
-                                        'b' => {
-                                            if fm.input_cursor > 0 {
-                                                fm.input_cursor -= 1;
+                            InputMode::Command => match event.code {
+                                KeyCode::Esc => {
+                                    fm.input_mode = InputMode::Normal;
+
+                                    fm.input_line.clear();
+                                    fm.input_cursor = 0;
+                                }
+                                KeyCode::Char(ch) => {
+                                    if event.modifiers.contains(KeyModifiers::CONTROL) {
+                                        match ch {
+                                            'b' => {
+                                                if fm.input_cursor > 0 {
+                                                    fm.input_cursor -= 1;
+                                                }
                                             }
-                                        }
-                                        'f' => {
-                                            if fm.input_cursor < fm.input_line.len() {
-                                                fm.input_cursor += 1;
+                                            'f' => {
+                                                if fm.input_cursor < fm.input_line.len() {
+                                                    fm.input_cursor += 1;
+                                                }
                                             }
+                                            'a' => fm.input_cursor = 0,
+                                            'e' => fm.input_cursor = fm.input_line.len(),
+                                            'c' => leave_command_mode(&mut fm),
+                                            'k' => {
+                                                fm.input_line = fm
+                                                    .input_line
+                                                    .chars()
+                                                    .take(fm.input_cursor)
+                                                    .collect();
+                                            }
+                                            _ => (),
                                         }
-                                        'a' => fm.input_cursor = 0,
-                                        'e' => fm.input_cursor = fm.input_line.len(),
-                                        'c' => leave_command_mode(&mut fm),
-                                        'k' => {
-                                            fm.input_line = fm
-                                                .input_line
-                                                .chars()
-                                                .take(fm.input_cursor)
-                                                .collect();
+                                    } else if event.modifiers.contains(KeyModifiers::ALT) {
+                                        match ch {
+                                            'b' => {
+                                                fm.input_cursor = line_edit::find_prev_word_pos(
+                                                    &fm.input_line,
+                                                    fm.input_cursor,
+                                                );
+                                            }
+                                            'f' => {
+                                                fm.input_cursor = line_edit::find_next_word_pos(
+                                                    &fm.input_line,
+                                                    fm.input_cursor,
+                                                );
+                                            }
+                                            'd' => {
+                                                let ending_index = line_edit::find_next_word_pos(
+                                                    &fm.input_line,
+                                                    fm.input_cursor,
+                                                );
+                                                fm.input_line.replace_range(
+                                                    fm.input_cursor..ending_index,
+                                                    "",
+                                                );
+                                            }
+                                            _ => (),
                                         }
-                                        _ => (),
+                                    } else {
+                                        fm.input_line.insert(fm.input_cursor, ch);
+
+                                        fm.input_cursor += 1;
                                     }
-                                } else if event.modifiers.contains(KeyModifiers::ALT) {
-                                    match ch {
-                                        'b' => {
+                                }
+                                KeyCode::Enter => {
+                                    // TODO(Chris): Refactor out this manual checking of "search" or
+                                    // "search-back" somehow
+                                    if let Ok(stm) = parse_statement_from(&fm.input_line) {
+                                        match &stm {
+                                            Statement::CommandUse(parser::CommandUse {
+                                                name,
+                                                arguments,
+                                            }) => {
+                                                if !((name == "search" || name == "search-back")
+                                                    && arguments.is_empty())
+                                                {
+                                                    command_queue.push(stm);
+                                                }
+                                            }
+                                            _ => command_queue.push(stm),
+                                        }
+                                    }
+
+                                    leave_command_mode(&mut fm);
+                                }
+                                KeyCode::Left => {
+                                    if fm.input_cursor > 0 {
+                                        fm.input_cursor -= 1;
+                                    }
+                                }
+                                KeyCode::Right => {
+                                    if fm.input_cursor < fm.input_line.len() {
+                                        fm.input_cursor += 1;
+                                    }
+                                }
+                                KeyCode::Backspace => {
+                                    if fm.input_cursor > 0 {
+                                        if event.modifiers.contains(KeyModifiers::ALT) {
+                                            let ending_index = fm.input_cursor;
                                             fm.input_cursor = line_edit::find_prev_word_pos(
-                                                &fm.input_line,
-                                                fm.input_cursor,
-                                            );
-                                        }
-                                        'f' => {
-                                            fm.input_cursor = line_edit::find_next_word_pos(
-                                                &fm.input_line,
-                                                fm.input_cursor,
-                                            );
-                                        }
-                                        'd' => {
-                                            let ending_index = line_edit::find_next_word_pos(
                                                 &fm.input_line,
                                                 fm.input_cursor,
                                             );
                                             fm.input_line
                                                 .replace_range(fm.input_cursor..ending_index, "");
+                                        } else {
+                                            fm.input_line.remove(fm.input_cursor - 1);
+
+                                            fm.input_cursor -= 1;
                                         }
-                                        _ => (),
-                                    }
-                                } else {
-                                    fm.input_line.insert(fm.input_cursor, ch);
-
-                                    fm.input_cursor += 1;
-                                }
-                            }
-                            KeyCode::Enter => {
-                                // TODO(Chris): Refactor out this manual checking of "search" or
-                                // "search-back" somehow
-                                if let Ok(stm) = parse_statement_from(&fm.input_line) {
-                                    match &stm {
-                                        Statement::CommandUse(parser::CommandUse {
-                                            name,
-                                            arguments,
-                                        }) => {
-                                            if !((name == "search" || name == "search-back")
-                                                && arguments.is_empty())
-                                            {
-                                                command_queue.push(stm);
-                                            }
-                                        }
-                                        _ => command_queue.push(stm),
                                     }
                                 }
+                                _ => (),
+                            },
+                        }
+                    }
+                    Event::Mouse(_) => (),
+                    Event::Resize(width, height) => {
+                        let mut screen_lock = screen.lock().expect("Failed to lock screen mutex!");
+                        let screen_lock = &mut *screen_lock;
 
-                                leave_command_mode(&mut fm);
-                            }
-                            KeyCode::Left => {
-                                if fm.input_cursor > 0 {
-                                    fm.input_cursor -= 1;
-                                }
-                            }
-                            KeyCode::Right => {
-                                if fm.input_cursor < fm.input_line.len() {
-                                    fm.input_cursor += 1;
-                                }
-                            }
-                            KeyCode::Backspace => {
-                                if fm.input_cursor > 0 {
-                                    if event.modifiers.contains(KeyModifiers::ALT) {
-                                        let ending_index = fm.input_cursor;
-                                        fm.input_cursor = line_edit::find_prev_word_pos(
-                                            &fm.input_line,
-                                            fm.input_cursor,
-                                        );
-                                        fm.input_line
-                                            .replace_range(fm.input_cursor..ending_index, "");
-                                    } else {
-                                        fm.input_line.remove(fm.input_cursor - 1);
+                        screen_lock.resize_clear_draw(width, height)?;
 
-                                        fm.input_cursor -= 1;
-                                    }
-                                }
-                            }
-                            _ => (),
-                        },
+                        update_drawing_info_from_resize(&mut fm.drawing_info)?;
                     }
                 }
-                Event::Mouse(_) => (),
-                Event::Resize(width, height) => {
-                    let mut screen_lock = screen.lock().expect("Failed to lock screen mutex!");
-                    let screen_lock = &mut *screen_lock;
-
-                    screen_lock.resize_clear_draw(width, height)?;
-
-                    update_drawing_info_from_resize(&mut fm.drawing_info)?;
-                }
-            },
+            }
             InputEvent::PreviewLoaded(preview_data) => {
                 fm.preview_data = preview_data;
             }
