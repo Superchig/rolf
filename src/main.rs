@@ -79,7 +79,14 @@ fn main() -> crossterm::Result<()> {
         }
     }
 
-    let mut config = match fs::read_to_string("config.json") {
+    let project_name = "rolf";
+    let config_dir = os_abstract::config_dir(project_name);
+
+    if !config_dir.is_dir() {
+        fs::create_dir_all(&config_dir)?;
+    }
+
+    let mut config = match fs::read_to_string(config_dir.join("config.json")) {
         Ok(json) => config::parse_config(&json),
         Err(err) => match err.kind() {
             io::ErrorKind::NotFound => Config::default(),
@@ -99,7 +106,7 @@ fn main() -> crossterm::Result<()> {
         }
     }
 
-    let ast = match fs::read_to_string("rolfrc") {
+    let ast = match fs::read_to_string(config_dir.join("rolfrc")) {
         Ok(config_text) => {
             // FIXME(Chris): Handle error here
             parse(&config_text).unwrap()
@@ -111,7 +118,7 @@ fn main() -> crossterm::Result<()> {
     };
 
     // NOTE(Chris): We initialize the sqlite database here.
-    let data_dir = os_abstract::data_dir("rolf");
+    let data_dir = os_abstract::data_dir(project_name);
 
     if !data_dir.is_dir() {
         fs::create_dir_all(&data_dir)?;

@@ -1,14 +1,11 @@
-use std::{path::PathBuf, env::{self, VarError}};
+use std::path::PathBuf;
+
+use super::env_or_dir;
+
+pub fn config_dir(project_name: &str) -> PathBuf {
+    env_or_dir("XDG_CONFIG_HOME", "HOME", ".config").join(project_name)
+}
 
 pub fn data_dir(project_name: &str) -> PathBuf {
-    match env::var("XDG_DATA_HOME") {
-        Ok(data_dir) => PathBuf::from(data_dir),
-        Err(VarError::NotPresent) => {
-            let mut result = PathBuf::from(env::var("HOME").unwrap());
-            result.push(".local/share");
-            result.push(project_name);
-            result
-        },
-        Err(_) => panic!("Unable to read data directory"),
-    }
+    env_or_dir("XDG_DATA_HOME", "HOME", ".local/share").join(project_name)
 }
