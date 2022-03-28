@@ -640,10 +640,7 @@ fn run(
 
                         if let Some(id) = row.id {
                             conn.execute(
-                                "UPDATE History
-                          SET last_access_time = unixepoch(),
-                              access_count = ?1
-                          WHERE id == ?2",
+                                "UPDATE History SET last_access_time = unixepoch(), access_count = ?1 WHERE id == ?2",
                                 [row.access_count + 1, id],
                             )
                             .unwrap();
