@@ -1,5 +1,3 @@
-// FIXME(Chris): Remove the dead_code warning suppressions
-#![allow(dead_code, unused_macros, unused_variables, unused_imports)]
 #![allow(
     clippy::absurd_extreme_comparisons,
     clippy::too_many_arguments,
@@ -38,9 +36,8 @@ use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{channel, sync_channel, RecvError, Sender, TryRecvError};
+use std::sync::mpsc::{channel, sync_channel, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::vec::Vec;
 
 use image::{ColorType, GenericImageView, ImageBuffer, ImageEncoder, Rgba};
@@ -51,7 +48,7 @@ use crossterm::{
     queue, style, terminal,
 };
 
-use rusqlite::{params, Connection, MappedRows};
+use rusqlite::Connection;
 
 use rolf_grid::{LineBuilder, Style};
 use rolf_parser::parser::{self, parse, parse_statement_from, Program, Statement};
@@ -633,7 +630,7 @@ fn run(
                         .query_map([curr_dir_str], |row| {
                             Ok(NavigatedDirectory {
                                 id: Some(row.get(0)?),
-                                last_access_time: row.get(1)?,
+                                _last_access_time: row.get(1)?,
                                 access_count: row.get(2)?,
                             })
                         })
@@ -718,7 +715,6 @@ fn run(
                         match fs::File::open(path) {
                             Ok(file) => {
                                 // TODO(Chris): Handle permission errors here
-                                let file = fs::File::open(path)?;
                                 let reader = BufReader::new(file);
 
                                 let draw_style = rolf_grid::Style::default();
@@ -1183,7 +1179,7 @@ fn enter_command_mode_with(fm: &mut FileManager, beginning: &str) {
 #[derive(Debug)]
 struct NavigatedDirectory {
     id: Option<usize>,
-    last_access_time: usize,
+    _last_access_time: usize,
     access_count: usize,
 }
 
