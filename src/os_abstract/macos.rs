@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 use std::env;
 
-use super::env_or_dir;
-
 pub fn config_dir(project_name: &str) -> PathBuf {
     PathBuf::from(env::var("HOME").unwrap()).join("Library/Application Support").join(project_name)
 }
