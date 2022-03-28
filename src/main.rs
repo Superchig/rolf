@@ -784,6 +784,16 @@ fn run(
                     }
                     PreviewData::ImageBuffer { buffer } => {
                         match fm.config.image_protocol {
+                            ImageProtocol::None => {
+                                // TODO(Chris): Refactor this into a function
+                                draw_str(
+                                    screen_lock,
+                                    third_column_rect.left_x + 2,
+                                    third_column_rect.top_y,
+                                    "no image protocol enabled",
+                                    Style::new_attr(rolf_grid::Attribute::Reverse),
+                                );
+                            }
                             ImageProtocol::Kitty => {
                                 let raw_img = buffer.as_raw();
 
