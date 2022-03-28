@@ -2,10 +2,10 @@ use windows::Win32::Foundation::GetLastError;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Foundation::RECT;
 use windows::Win32::Foundation::{BOOL, FILETIME, SYSTEMTIME};
-use windows::Win32::UI::Input::KeyboardAndMouse::GetActiveWindow;
-use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
-use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
 use windows::Win32::System::Time::FileTimeToSystemTime;
+use windows::Win32::UI::Input::KeyboardAndMouse::GetActiveWindow;
+use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 use crate::WindowPixels;
 use std::io;
@@ -13,6 +13,7 @@ use std::io;
 use std::fs::Metadata;
 use std::mem::MaybeUninit;
 use std::os::windows::fs::MetadataExt;
+use std::path::PathBuf;
 
 use super::ExtraPermissions;
 
@@ -131,13 +132,16 @@ pub fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {
             // NOTE(Chris): We subtract from the width and height to account for possible extra
             // spacing in Wezterm, including the tabs and various whitespace added around the main
             // terminal window.
-            Ok(WindowPixels{
+            Ok(WindowPixels {
                 width: (rect1.right - 400) as u16,
                 height: (rect1.bottom - 400) as u16,
             })
         } else {
             let last_err = GetLastError();
-            panic!("Oops! Failed to get the coordinates of the client area. Last error code: {:?}", last_err);
+            panic!(
+                "Oops! Failed to get the coordinates of the client area. Last error code: {:?}",
+                last_err
+            );
         }
     }
 }
@@ -175,4 +179,16 @@ fn month(month_val: u16) -> &'static str {
         12 => "Dec",
         _ => unreachable!(),
     }
+}
+
+pub fn config_dir(project_name: &str) -> PathBuf {
+    PathBuf::from(std::env::var("USERPROFILE").unwrap())
+        .join("AppData\\Roaming")
+        .join(project_name)
+}
+
+pub fn data_dir(project_name: &str) -> PathBuf {
+    // NOTE(Chris): On Windows, we should use the same directory for storing data and configuration
+    // files
+    config_dir(project_name)
 }
