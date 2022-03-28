@@ -278,6 +278,8 @@ fn run(
     let mut input_request_count = 0;
     let mut last_recv_req_count = 0;
 
+    let mut to_command_tx = None;
+
     let mut prev_dir_display = String::new();
     let mut prev_second_entry_index = 0;
 
@@ -446,7 +448,12 @@ fn run(
                         }
                         "search" => {
                             if command_use.arguments.is_empty() {
-                                enter_command_mode_with(&mut fm, "search ");
+                                enter_command_mode_with(
+                                    &mut fm,
+                                    "search ",
+                                    ":".to_string(),
+                                    AskingType::Command,
+                                );
                             } else {
                                 let search_term = &command_use.arguments[0];
 
@@ -455,7 +462,12 @@ fn run(
                         }
                         "search-back" => {
                             if command_use.arguments.is_empty() {
-                                enter_command_mode_with(&mut fm, "search-back ");
+                                enter_command_mode_with(
+                                    &mut fm,
+                                    "search-back ",
+                                    ":".to_string(),
+                                    AskingType::Command,
+                                );
                             } else {
                                 let search_term = &command_use.arguments[0];
 
@@ -485,7 +497,87 @@ fn run(
                             }
                         }
                         "read" => {
-                            fm.input_mode = InputMode::Command;
+                            enter_command_mode_with(
+                                &mut fm,
+                                "",
+                                ":".to_string(),
+                                AskingType::Command,
+                            );
+                        }
+                        "rename" => {
+                            // Get the full path of the current file
+                            let current_file = &fm.dir_states.current_entries
+                                [second_entry_index as usize]
+                                .dir_entry;
+                            let current_file_path = current_file.path();
+
+                            // TODO(Chris): Get rid of these unwrap calls (at least the OsStr
+                            // to str conversion one)
+                            fm.input_line
+                                .push_str(current_file_path.file_name().unwrap().to_str().unwrap());
+
+                            enter_command_mode_with(
+                                &mut fm,
+                                "",
+                                format!(
+                                    "Rename {} to: ",
+                                    current_file_path.file_name().unwrap().to_str().unwrap()
+                                ),
+                                AskingType::AdditionalInput,
+                            );
+
+                            let (new_tx, to_command_rx) = channel();
+
+                            to_command_tx = Some(new_tx);
+
+                            let to_our_tx = tx.clone();
+
+                            std::thread::spawn(move || {
+                                let new_name: String = to_command_rx.recv().unwrap();
+                                if new_name.is_empty() {
+                                    quit_command_thread(&to_our_tx);
+                                    return;
+                                }
+
+                                to_our_tx
+                                    .send(InputEvent::CommandRequest(
+                                        CommandRequest::ChangePrompt {
+                                            new_prompt: "Are you sure (y/n)? ".to_string(),
+                                            ask_for_single_key: true,
+                                        },
+                                    ))
+                                    .expect("Failed to send to main thread");
+                                let next_input: String = to_command_rx.recv().unwrap();
+                                if next_input.is_empty() {
+                                    quit_command_thread(&to_our_tx);
+                                    return;
+                                }
+
+                                if next_input != "y" {
+                                    quit_command_thread(&to_our_tx);
+                                    return;
+                                }
+
+                                // TODO(Chris): Implement some sort of channel-using,
+                                // function-requiring handling of errors here. This would display
+                                // errors in the main thread and gracefully clean up this thread
+
+                                let new_file_path = current_file_path
+                                    .parent()
+                                    .unwrap()
+                                    .join(PathBuf::from(&new_name));
+                                fs::rename(current_file_path, new_file_path)
+                                    .expect("Failed to rename file");
+
+                                to_our_tx
+                                    .send(InputEvent::ReloadCurrentDirThenFileJump { new_name })
+                                    .expect("Failed to send to main thread");
+
+                                // NOTE(Chris): We should always end with this function
+                                // TODO(Chris): Use some sort of defer macro to ensure that this
+                                // function is always called
+                                quit_command_thread(&to_our_tx);
+                            });
                         }
                         _ => (),
                     }
@@ -935,25 +1027,33 @@ fn run(
                 }
             }
 
-            match fm.input_mode {
+            match &fm.input_mode {
                 InputMode::Normal => {
                     draw_bottom_info_line(screen_lock, &mut fm);
 
                     screen_lock.hide_cursor();
                 }
-                InputMode::Command => {
-                    screen_lock.set_cell(0, fm.drawing_info.height - 1, ':');
+                InputMode::Command { prompt, .. } => {
+                    draw_str(
+                        screen_lock,
+                        0,
+                        fm.drawing_info.height - 1,
+                        prompt,
+                        rolf_grid::Style::default(),
+                    );
+
+                    let prompt_len: u16 = prompt.len().try_into().unwrap();
 
                     draw_str(
                         screen_lock,
-                        1, // To make room for ':'
+                        prompt_len, // We need to make room for the prompt
                         fm.drawing_info.height - 1,
                         &fm.input_line,
                         rolf_grid::Style::default(),
                     );
 
                     screen_lock.show_cursor(
-                        (fm.input_cursor + 1).try_into().unwrap(),
+                        (fm.input_cursor + prompt.len()).try_into().unwrap(),
                         fm.drawing_info.height - 1,
                     );
                 }
@@ -992,7 +1092,7 @@ fn run(
 
                 match event {
                     Event::Key(event) => {
-                        match fm.input_mode {
+                        match &fm.input_mode {
                             InputMode::Normal => {
                                 if let Some(bound_command) = fm.config.keybindings.get(&event) {
                                     // FIXME(Chris): Handle the possible error here
@@ -1000,54 +1100,131 @@ fn run(
                                         .push(parse_statement_from(bound_command).unwrap());
                                 }
                             }
-                            InputMode::Command => match event.code {
-                                KeyCode::Esc => {
-                                    fm.input_mode = InputMode::Normal;
+                            InputMode::Command {
+                                prompt: _,
+                                asking_type,
+                            } => {
+                                let asking_type_clone = *asking_type;
 
-                                    fm.input_line.clear();
-                                    fm.input_cursor = 0;
-                                }
-                                KeyCode::Char(ch) => {
-                                    if event.modifiers.contains(KeyModifiers::CONTROL) {
-                                        match ch {
-                                            'b' => {
-                                                if fm.input_cursor > 0 {
-                                                    fm.input_cursor -= 1;
+                                match event.code {
+                                    KeyCode::Esc => {
+                                        fm.input_mode = InputMode::Normal;
+
+                                        fm.input_line.clear();
+                                        fm.input_cursor = 0;
+                                    }
+                                    KeyCode::Char(ch) => {
+                                        if event.modifiers.contains(KeyModifiers::CONTROL) {
+                                            match ch {
+                                                'b' => {
+                                                    if fm.input_cursor > 0 {
+                                                        fm.input_cursor -= 1;
+                                                    }
                                                 }
-                                            }
-                                            'f' => {
-                                                if fm.input_cursor < fm.input_line.len() {
-                                                    fm.input_cursor += 1;
+                                                'f' => {
+                                                    if fm.input_cursor < fm.input_line.len() {
+                                                        fm.input_cursor += 1;
+                                                    }
                                                 }
+                                                'a' => fm.input_cursor = 0,
+                                                'e' => fm.input_cursor = fm.input_line.len(),
+                                                'c' => leave_command_mode(&mut fm),
+                                                'k' => {
+                                                    fm.input_line = fm
+                                                        .input_line
+                                                        .chars()
+                                                        .take(fm.input_cursor)
+                                                        .collect();
+                                                }
+                                                _ => (),
                                             }
-                                            'a' => fm.input_cursor = 0,
-                                            'e' => fm.input_cursor = fm.input_line.len(),
-                                            'c' => leave_command_mode(&mut fm),
-                                            'k' => {
-                                                fm.input_line = fm
-                                                    .input_line
-                                                    .chars()
-                                                    .take(fm.input_cursor)
-                                                    .collect();
+                                        } else if event.modifiers.contains(KeyModifiers::ALT) {
+                                            match ch {
+                                                'b' => {
+                                                    fm.input_cursor = line_edit::find_prev_word_pos(
+                                                        &fm.input_line,
+                                                        fm.input_cursor,
+                                                    );
+                                                }
+                                                'f' => {
+                                                    fm.input_cursor = line_edit::find_next_word_pos(
+                                                        &fm.input_line,
+                                                        fm.input_cursor,
+                                                    );
+                                                }
+                                                'd' => {
+                                                    let ending_index =
+                                                        line_edit::find_next_word_pos(
+                                                            &fm.input_line,
+                                                            fm.input_cursor,
+                                                        );
+                                                    fm.input_line.replace_range(
+                                                        fm.input_cursor..ending_index,
+                                                        "",
+                                                    );
+                                                }
+                                                _ => (),
                                             }
-                                            _ => (),
+                                        } else {
+                                            fm.input_line.insert(fm.input_cursor, ch);
+
+                                            fm.input_cursor += 1;
                                         }
-                                    } else if event.modifiers.contains(KeyModifiers::ALT) {
-                                        match ch {
-                                            'b' => {
+                                    }
+                                    KeyCode::Enter => {
+                                        match asking_type {
+                                            AskingType::Command => {
+                                                // TODO(Chris): Refactor out this manual checking of "search" or
+                                                // "search-back" somehow
+                                                if let Ok(stm) =
+                                                    parse_statement_from(&fm.input_line)
+                                                {
+                                                    match &stm {
+                                                        Statement::CommandUse(
+                                                            parser::CommandUse { name, arguments },
+                                                        ) => {
+                                                            if !((name == "search"
+                                                                || name == "search-back")
+                                                                && arguments.is_empty())
+                                                            {
+                                                                command_queue.push(stm);
+                                                            }
+                                                        }
+                                                        _ => command_queue.push(stm),
+                                                    }
+                                                }
+
+                                                leave_command_mode(&mut fm);
+                                            }
+                                            AskingType::AdditionalInput
+                                            | AskingType::AdditionalInputKey => {
+                                                if let Some(to_command_tx) = &to_command_tx {
+                                                    to_command_tx
+                                                        .send(fm.input_line.clone())
+                                                        .expect("Failed to send to command thread");
+
+                                                    clear_input_line(&mut fm);
+                                                } else {
+                                                    panic!("Main thread: Asked for additional input despite no command thread being available");
+                                                }
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Left => {
+                                        if fm.input_cursor > 0 {
+                                            fm.input_cursor -= 1;
+                                        }
+                                    }
+                                    KeyCode::Right => {
+                                        if fm.input_cursor < fm.input_line.len() {
+                                            fm.input_cursor += 1;
+                                        }
+                                    }
+                                    KeyCode::Backspace => {
+                                        if fm.input_cursor > 0 {
+                                            if event.modifiers.contains(KeyModifiers::ALT) {
+                                                let ending_index = fm.input_cursor;
                                                 fm.input_cursor = line_edit::find_prev_word_pos(
-                                                    &fm.input_line,
-                                                    fm.input_cursor,
-                                                );
-                                            }
-                                            'f' => {
-                                                fm.input_cursor = line_edit::find_next_word_pos(
-                                                    &fm.input_line,
-                                                    fm.input_cursor,
-                                                );
-                                            }
-                                            'd' => {
-                                                let ending_index = line_edit::find_next_word_pos(
                                                     &fm.input_line,
                                                     fm.input_cursor,
                                                 );
@@ -1055,65 +1232,30 @@ fn run(
                                                     fm.input_cursor..ending_index,
                                                     "",
                                                 );
+                                            } else {
+                                                fm.input_line.remove(fm.input_cursor - 1);
+
+                                                fm.input_cursor -= 1;
                                             }
-                                            _ => (),
                                         }
+                                    }
+                                    _ => (),
+                                }
+
+                                if asking_type_clone == AskingType::AdditionalInputKey {
+                                    // FIXME(Chris): Refactor this into a function, since it's too
+                                    // easy to get wrong
+                                    if let Some(to_command_tx) = &to_command_tx {
+                                        to_command_tx
+                                            .send(fm.input_line.clone())
+                                            .expect("Failed to send to command thread");
+
+                                        clear_input_line(&mut fm);
                                     } else {
-                                        fm.input_line.insert(fm.input_cursor, ch);
-
-                                        fm.input_cursor += 1;
+                                        panic!("Main thread: Asked for additional input despite no command thread being available");
                                     }
                                 }
-                                KeyCode::Enter => {
-                                    // TODO(Chris): Refactor out this manual checking of "search" or
-                                    // "search-back" somehow
-                                    if let Ok(stm) = parse_statement_from(&fm.input_line) {
-                                        match &stm {
-                                            Statement::CommandUse(parser::CommandUse {
-                                                name,
-                                                arguments,
-                                            }) => {
-                                                if !((name == "search" || name == "search-back")
-                                                    && arguments.is_empty())
-                                                {
-                                                    command_queue.push(stm);
-                                                }
-                                            }
-                                            _ => command_queue.push(stm),
-                                        }
-                                    }
-
-                                    leave_command_mode(&mut fm);
-                                }
-                                KeyCode::Left => {
-                                    if fm.input_cursor > 0 {
-                                        fm.input_cursor -= 1;
-                                    }
-                                }
-                                KeyCode::Right => {
-                                    if fm.input_cursor < fm.input_line.len() {
-                                        fm.input_cursor += 1;
-                                    }
-                                }
-                                KeyCode::Backspace => {
-                                    if fm.input_cursor > 0 {
-                                        if event.modifiers.contains(KeyModifiers::ALT) {
-                                            let ending_index = fm.input_cursor;
-                                            fm.input_cursor = line_edit::find_prev_word_pos(
-                                                &fm.input_line,
-                                                fm.input_cursor,
-                                            );
-                                            fm.input_line
-                                                .replace_range(fm.input_cursor..ending_index, "");
-                                        } else {
-                                            fm.input_line.remove(fm.input_cursor - 1);
-
-                                            fm.input_cursor -= 1;
-                                        }
-                                    }
-                                }
-                                _ => (),
-                            },
+                            }
                         }
                     }
                     Event::Mouse(_) => (),
@@ -1129,6 +1271,47 @@ fn run(
             }
             InputEvent::PreviewLoaded(preview_data) => {
                 fm.preview_data = preview_data;
+            }
+            InputEvent::CommandRequest(command_request) => match command_request {
+                CommandRequest::ChangePrompt {
+                    new_prompt,
+                    ask_for_single_key,
+                } => {
+                    if let InputMode::Command {
+                        prompt,
+                        asking_type,
+                    } = &mut fm.input_mode
+                    {
+                        *prompt = new_prompt;
+
+                        *asking_type = if ask_for_single_key {
+                            AskingType::AdditionalInputKey
+                        } else {
+                            AskingType::AdditionalInput
+                        }
+                    } else {
+                        panic!(
+                            "Requested a prompt change when input mode is: {:?}",
+                            &fm.input_mode
+                        );
+                    }
+                }
+                CommandRequest::Quit => {
+                    leave_command_mode(&mut fm);
+                }
+            },
+            InputEvent::ReloadCurrentDirThenFileJump { new_name } => {
+                set_current_dir(
+                    fm.dir_states.current_dir.clone(),
+                    &mut fm.dir_states,
+                    &mut fm.match_positions,
+                )
+                .expect("Failed to update current directory");
+
+                fm.match_positions =
+                    find_match_positions(&fm.dir_states.current_entries, &new_name);
+
+                search_jump(&mut fm)?;
             }
         }
     }
@@ -1172,25 +1355,57 @@ struct FileManager<'a> {
     preview_data: PreviewData,
 }
 
+#[derive(Debug)]
 enum InputMode {
     Normal,
+    Command {
+        prompt: String,
+        asking_type: AskingType,
+    },
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum AskingType {
+    // The user is inputting a command
     Command,
+    // The user is inputting more input, to be used with some earlier input
+    AdditionalInput,
+    // TODO(Chris): Implement the ability to receive only one character of input
+    AdditionalInputKey,
 }
 
 fn leave_command_mode(fm: &mut FileManager) {
     fm.input_mode = InputMode::Normal;
 
+    clear_input_line(fm);
+}
+
+fn clear_input_line(fm: &mut FileManager) {
     fm.input_line.clear();
     fm.input_cursor = 0;
 }
 
-fn enter_command_mode_with(fm: &mut FileManager, beginning: &str) {
-    fm.input_mode = InputMode::Command;
+fn enter_command_mode_with(
+    fm: &mut FileManager,
+    beginning: &str,
+    prompt: String,
+    asking_type: AskingType,
+) {
+    fm.input_mode = InputMode::Command {
+        prompt,
+        asking_type,
+    };
 
     fm.input_line.clear();
     fm.input_line.push_str(beginning);
 
     fm.input_cursor = fm.input_line.len();
+}
+
+fn quit_command_thread(to_main_tx: &Sender<InputEvent>) {
+    to_main_tx
+        .send(InputEvent::CommandRequest(CommandRequest::Quit))
+        .expect("Failed to send to main thread");
 }
 
 #[derive(Debug)]
@@ -1234,10 +1449,23 @@ enum InputEvent {
         input_request_count: usize,
     },
     PreviewLoaded(PreviewData),
+    CommandRequest(CommandRequest),
+    ReloadCurrentDirThenFileJump {
+        new_name: String,
+    },
 }
 
 enum InputRequest {
     RequestNumber(usize),
+    Quit,
+}
+
+#[derive(Debug)]
+enum CommandRequest {
+    ChangePrompt {
+        new_prompt: String,
+        ask_for_single_key: bool,
+    },
     Quit,
 }
 
