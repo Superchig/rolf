@@ -38,7 +38,7 @@ use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{channel, sync_channel, Sender, TryRecvError};
+use std::sync::mpsc::{channel, sync_channel, RecvError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::vec::Vec;
@@ -238,7 +238,13 @@ fn run(
 
     // Crossterm input loop
     std::thread::spawn(move || {
-        while let InputRequest::RequestNumber(input_request_count) = from_main_rx.recv().unwrap() {
+        loop {
+            let input_request_count = match from_main_rx.recv() {
+                Ok(InputRequest::RequestNumber(input_request_count)) => input_request_count,
+                Ok(InputRequest::Quit) => break,
+                Err(err) => panic!("Input thread: Lost connnection to main thread: {:?}", err),
+            };
+
             // NOTE(Chris): We avoid receiving crossterm input with event::read() until something is
             // sent via this channel. This allows us to open other terminal programs without
             // interfering with the stdin input stream.
@@ -709,44 +715,68 @@ fn run(
                         );
                     }
                     PreviewData::UncoloredFile { path } => {
-                        // TODO(Chris): Handle permission errors here
-                        let file = fs::File::open(path)?;
-                        let reader = BufReader::new(file);
+                        match fs::File::open(path) {
+                            Ok(file) => {
+                                // TODO(Chris): Handle permission errors here
+                                let file = fs::File::open(path)?;
+                                let reader = BufReader::new(file);
 
-                        let draw_style = rolf_grid::Style::default();
+                                let draw_style = rolf_grid::Style::default();
 
-                        let inner_left_x = fm.drawing_info.third_left_x + 2;
+                                let inner_left_x = fm.drawing_info.third_left_x + 2;
 
-                        // NOTE(Chris): 1 is the top_y for all columns
-                        let mut curr_y = 1;
+                                // NOTE(Chris): 1 is the top_y for all columns
+                                let mut curr_y = 1;
 
-                        let third_width = fm.drawing_info.third_right_x - inner_left_x;
+                                let third_width = fm.drawing_info.third_right_x - inner_left_x;
 
-                        for line in reader.lines() {
-                            // TODO(Chris): Handle UTF-8 errors here, possibly by just
-                            // showing an error line
-                            let line = match line {
-                                Ok(line) => line,
-                                Err(_) => break,
-                            };
+                                for line in reader.lines() {
+                                    // TODO(Chris): Handle UTF-8 errors here, possibly by just
+                                    // showing an error line
+                                    let line = match line {
+                                        Ok(line) => line,
+                                        Err(_) => break,
+                                    };
 
-                            if curr_y > fm.drawing_info.column_bot_y {
-                                break;
+                                    if curr_y > fm.drawing_info.column_bot_y {
+                                        break;
+                                    }
+
+                                    if line.len() < (third_width as usize) {
+                                        draw_str(
+                                            screen_lock,
+                                            inner_left_x,
+                                            curr_y,
+                                            &line,
+                                            draw_style,
+                                        );
+                                    } else {
+                                        draw_str(
+                                            screen_lock,
+                                            inner_left_x,
+                                            curr_y,
+                                            &line[0..third_width as usize],
+                                            draw_style,
+                                        );
+                                    }
+
+                                    curr_y += 1;
+                                }
                             }
-
-                            if line.len() < (third_width as usize) {
-                                draw_str(screen_lock, inner_left_x, curr_y, &line, draw_style);
-                            } else {
-                                draw_str(
-                                    screen_lock,
-                                    inner_left_x,
-                                    curr_y,
-                                    &line[0..third_width as usize],
-                                    draw_style,
-                                );
-                            }
-
-                            curr_y += 1;
+                            Err(err) => match err.kind() {
+                                io::ErrorKind::PermissionDenied => {
+                                    // TODO(Chris): Refactor this into a function because it's used
+                                    // at least three times, if you make the message a variable
+                                    draw_str(
+                                        screen_lock,
+                                        third_column_rect.left_x + 2,
+                                        third_column_rect.top_y,
+                                        "permission denied",
+                                        Style::new_attr(rolf_grid::Attribute::Reverse),
+                                    );
+                                }
+                                _ => panic!("Error opening {:?}: {:?}", path, err),
+                            },
                         }
                     }
                     PreviewData::ImageBuffer { buffer } => {
@@ -1365,6 +1395,11 @@ fn set_preview_data_with_thread(
         }
         RecordedFileType::InvalidSymlink | RecordedFileType::Other => {
             fm.preview_data = PreviewData::Blank;
+        }
+        RecordedFileType::Unknown => {
+            fm.preview_data = PreviewData::Message {
+                message: "unknown file type",
+            };
         }
     }
 }
@@ -2226,6 +2261,7 @@ enum RecordedFileType {
     FileSymlink,
     DirectorySymlink,
     InvalidSymlink,
+    Unknown,
     Other,
 }
 
@@ -2246,7 +2282,8 @@ fn broaden_file_type(file_type: &RecordedFileType) -> BroadFileType {
         RecordedFileType::File
         | RecordedFileType::FileSymlink
         | RecordedFileType::InvalidSymlink
-        | RecordedFileType::Other => BroadFileType::File,
+        | RecordedFileType::Other
+        | RecordedFileType::Unknown => BroadFileType::File,
         RecordedFileType::Directory | RecordedFileType::DirectorySymlink => {
             BroadFileType::Directory
         }
@@ -2358,7 +2395,11 @@ fn get_sorted_entries<P: AsRef<Path>>(path: P) -> io::Result<Vec<DirEntryInfo>> 
                         }
                         Err(err) => match err.kind() {
                             io::ErrorKind::NotFound => RecordedFileType::InvalidSymlink,
-                            _ => Err(err).unwrap(),
+                            io::ErrorKind::PermissionDenied => RecordedFileType::Unknown,
+                            _ => panic!(
+                                "Error finding out file type of {:?}: {:?}",
+                                &entry_path, err
+                            ),
                         },
                     }
                 } else {
