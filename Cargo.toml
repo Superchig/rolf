@@ -21,6 +21,7 @@ tempfile = "3.2" # To store image data in temporary files for kitty
 chrono = "0.4" # To convert the Unix timestamp into a timezone-aware date
 whoami = "1.2.1"
 nanoserde = "0.1.29" # For parsing json
+rusqlite = "0.27.0" # For embedded sqlite database
 
 [dependencies.rolf-parser]
 path = "rolf-parser"
