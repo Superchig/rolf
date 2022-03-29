@@ -870,6 +870,15 @@ fn run(
                                         Style::new_attr(rolf_grid::Attribute::Reverse),
                                     );
                                 }
+                                io::ErrorKind::NotFound => {
+                                    draw_str(
+                                        screen_lock,
+                                        third_column_rect.left_x + 2,
+                                        third_column_rect.top_y,
+                                        "file not found",
+                                        Style::new_attr(rolf_grid::Attribute::Reverse),
+                                    );
+                                }
                                 _ => panic!("Error opening {:?}: {:?}", path, err),
                             },
                         }
