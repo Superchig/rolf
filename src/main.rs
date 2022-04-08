@@ -1090,7 +1090,6 @@ fn run(
             }
             Err(err) => panic!("Unable to obtain input event: {}", err),
         };
-        // eprintln!("Main thread: Obtained input event: {}", event.display_event_type());
 
         match event {
             InputEvent::CrosstermEvent {
@@ -1271,6 +1270,10 @@ fn run(
                     Event::Resize(width, height) => {
                         let mut screen_lock = screen.lock().expect("Failed to lock screen mutex!");
                         let screen_lock = &mut *screen_lock;
+
+                        // NOTE(Chris): This line should come after we modify the drawing_info data
+                        // in fm
+                        set_area_dead(&mut fm, screen_lock, false);
 
                         screen_lock.resize_clear_draw(width, height)?;
 
@@ -1468,9 +1471,7 @@ impl InputEvent {
     #[allow(dead_code)]
     fn display_event_type(&self) -> &'static str {
         match self {
-            InputEvent::CrosstermEvent { .. } => {
-                "CrosstermEvent"
-            }
+            InputEvent::CrosstermEvent { .. } => "CrosstermEvent",
             InputEvent::PreviewLoaded(_) => "PreviewLoaded",
             InputEvent::CommandRequest(_) => "CommandRequest",
             InputEvent::ReloadCurrentDirThenFileJump { .. } => "ReloadCurrentDirThenFileJump",
@@ -1491,6 +1492,14 @@ enum CommandRequest {
         ask_for_single_key: bool,
     },
     Quit,
+}
+
+fn set_area_dead(fm: &mut FileManager, screen_lock: &mut Screen, is_dead: bool) {
+    for x in fm.drawing_info.third_left_x..=fm.drawing_info.width - 1 {
+        for y in 1..=fm.drawing_info.column_bot_y {
+            screen_lock.set_dead(x, y, is_dead);
+        }
+    }
 }
 
 fn search_jump(fm: &mut FileManager) -> io::Result<()> {
