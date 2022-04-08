@@ -1271,8 +1271,7 @@ fn run(
                         let mut screen_lock = screen.lock().expect("Failed to lock screen mutex!");
                         let screen_lock = &mut *screen_lock;
 
-                        // NOTE(Chris): This line should come after we modify the drawing_info data
-                        // in fm
+                        // NOTE(Chris): This line should come before we resize anything
                         set_area_dead(&mut fm, screen_lock, false);
 
                         screen_lock.resize_clear_draw(width, height)?;
