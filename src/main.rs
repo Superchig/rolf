@@ -2442,33 +2442,24 @@ fn find_correct_location(
             starting_index: dir_location.starting_index,
         },
         None => {
-            let first_bottom_index = column_height;
-
             let parent_entry_index = parent_entries
                 .iter()
                 .position(|entry| entry.dir_entry.path() == *dir)
                 .unwrap();
 
-            if parent_entry_index < first_bottom_index as usize {
+            let entries_len = parent_dir.read_dir().unwrap().count();
+
+            find_column_pos(
+                entries_len,
+                column_height,
+                // NOTE(Chris): It's not clear that we'd want to use a less-hacky ColumnInfo
                 ColumnInfo {
                     starting_index: 0,
-                    display_offset: parent_entry_index as u16,
-                }
-            } else {
-                let entries_len = parent_dir.read_dir().unwrap().count();
-
-                find_column_pos(
-                    entries_len,
-                    column_height,
-                    // NOTE(Chris): It's not clear that we'd want to use a less-hacky ColumnInfo
-                    ColumnInfo {
-                        starting_index: 0,
-                        display_offset: 0,
-                    },
-                    parent_entry_index,
-                )
-                .unwrap()
-            }
+                    display_offset: 0,
+                },
+                parent_entry_index,
+            )
+            .unwrap()
         }
     };
 }
