@@ -2,7 +2,7 @@ use io::Stdout;
 
 use crossterm::{
     cursor, execute, queue, style,
-    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen, ClearType},
+    terminal::{self, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use std::{
     io::{self, Write},
@@ -106,7 +106,13 @@ where
         Self::clear_grid(&mut self.prev_grid);
         Self::clear_grid(&mut self.grid);
 
-        execute!(&mut self.output, terminal::Clear(ClearType::All))?;
+        self.last_style = Style::default();
+
+        execute!(
+            &mut self.output,
+            style::SetAttribute(style::Attribute::Reset),
+            terminal::Clear(ClearType::All)
+        )?;
 
         Ok(())
     }
@@ -174,7 +180,11 @@ impl Screen<Stdout> {
                         self.last_style = cell.style;
                     }
 
-                    queue!(&mut self.output_buf, cursor::MoveTo(x, y), style::Print(cell.ch))?;
+                    queue!(
+                        &mut self.output_buf,
+                        cursor::MoveTo(x, y),
+                        style::Print(cell.ch)
+                    )?;
                 }
 
                 // Update the previous buffer
@@ -189,11 +199,7 @@ impl Screen<Stdout> {
         if self.should_show_cursor {
             let move_to_cmd = cursor::MoveTo(self.cursor_display.0, self.cursor_display.1);
 
-            queue!(
-                &mut self.output_buf,
-                move_to_cmd,
-                cursor::Show,
-            )?;
+            queue!(&mut self.output_buf, move_to_cmd, cursor::Show,)?;
         } else {
             queue!(&mut self.output_buf, cursor::Hide,)?;
         }
@@ -277,13 +283,21 @@ impl LineBuilder {
 
     pub fn push(&mut self, ch: char, style: Style) -> &mut Self {
         self.last_style = style;
-        self.cells.push(Cell { ch, style, is_dead: false });
+        self.cells.push(Cell {
+            ch,
+            style,
+            is_dead: false,
+        });
         self
     }
-    
+
     pub fn push_str(&mut self, string: &str) -> &mut Self {
         for ch in string.chars() {
-            self.cells.push(Cell { ch, style: self.last_style, is_dead: false });
+            self.cells.push(Cell {
+                ch,
+                style: self.last_style,
+                is_dead: false,
+            });
         }
         self
     }

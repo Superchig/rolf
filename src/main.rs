@@ -1090,7 +1090,7 @@ fn run(
             }
             Err(err) => panic!("Unable to obtain input event: {}", err),
         };
-        // eprintln!("Main thread: Obtained input event");
+        // eprintln!("Main thread: Obtained input event: {}", event.display_event_type());
 
         match event {
             InputEvent::CrosstermEvent {
@@ -1462,6 +1462,21 @@ enum InputEvent {
     ReloadCurrentDirThenFileJump {
         new_name: String,
     },
+}
+
+impl InputEvent {
+    #[allow(dead_code)]
+    fn display_event_type(&self) -> &'static str {
+        match self {
+            InputEvent::CrosstermEvent { .. } => {
+                "CrosstermEvent"
+            }
+            InputEvent::PreviewLoaded(_) => "PreviewLoaded",
+            InputEvent::CommandRequest(_) => "CommandRequest",
+            InputEvent::ReloadCurrentDirThenFileJump { .. } => "ReloadCurrentDirThenFileJump",
+            // _ => "UNSUPPORTED EVENT DISPLAY",
+        }
+    }
 }
 
 enum InputRequest {
