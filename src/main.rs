@@ -765,7 +765,7 @@ fn run(
                     };
 
                     if has_changed_entry {
-                        set_area_dead(&mut fm, screen_lock, false);
+                        set_area_dead(&fm, screen_lock, false);
 
                         match fm.config.image_protocol {
                             ImageProtocol::Kitty => {
@@ -947,7 +947,7 @@ fn run(
 
                                         w.flush()?;
 
-                                        set_area_dead(&mut fm, screen_lock, true);
+                                        set_area_dead(&fm, screen_lock, true);
                                     }
                                     ImageProtocol::ITerm2 => {
                                         let rgba = buffer;
@@ -996,7 +996,7 @@ fn run(
 
                                         w.flush()?;
 
-                                        set_area_dead(&mut fm, screen_lock, true);
+                                        set_area_dead(&fm, screen_lock, true);
                                     }
                                     _ => {
                                         panic!(
@@ -1047,20 +1047,13 @@ fn run(
 
                                 queue!(&mut w, terminal::EnableLineWrap)?;
 
-                                set_area_dead(&mut fm, screen_lock, true);
+                                set_area_dead(&fm, screen_lock, true);
                             }
                         }
                     }
                 }
                 InputMode::View { top_row } => {
-                    let mut keybindings_vec: Vec<(String, &String)> = fm
-                        .config
-                        .keybindings
-                        .iter()
-                        .map(|(key_event, command)| (to_string(*key_event), command))
-                        .collect();
-
-                    keybindings_vec.sort_unstable_by_key(|(_key_display, command)| *command);
+                    set_area_dead(&fm, screen_lock, false);
 
                     draw_str(
                         screen_lock,
@@ -1070,12 +1063,14 @@ fn run(
                         rolf_grid::Style::default(),
                     );
 
-                    let rect = Rect {
-                        left_x: 0,
-                        top_y: 1, // We already show the help title in the top line
-                        width: fm.drawing_info.width,
-                        height: fm.drawing_info.height,
-                    };
+                    let mut keybindings_vec: Vec<(String, &String)> = fm
+                        .config
+                        .keybindings
+                        .iter()
+                        .map(|(key_event, command)| (to_string(*key_event), command))
+                        .collect();
+
+                    keybindings_vec.sort_unstable_by_key(|(_key_display, command)| *command);
 
                     let key_column_width = keybindings_vec
                         .iter()
@@ -1083,6 +1078,13 @@ fn run(
                         .unwrap()
                         .0
                         .len();
+
+                    let rect = Rect {
+                        left_x: 0,
+                        top_y: 1, // We already show the help title in the top line
+                        width: fm.drawing_info.width,
+                        height: fm.drawing_info.height,
+                    };
 
                     for y in rect.top_y..rect.bot_y() {
                         let ind = top_row + y - 1;
@@ -1342,7 +1344,7 @@ fn run(
                         let screen_lock = &mut *screen_lock;
 
                         // NOTE(Chris): This line should come before we resize anything
-                        set_area_dead(&mut fm, screen_lock, false);
+                        set_area_dead(&fm, screen_lock, false);
 
                         screen_lock.resize_clear_draw(width, height)?;
 
@@ -1578,7 +1580,7 @@ enum CommandRequest {
     Quit,
 }
 
-fn set_area_dead(fm: &mut FileManager, screen_lock: &mut Screen, is_dead: bool) {
+fn set_area_dead(fm: &FileManager, screen_lock: &mut Screen, is_dead: bool) {
     for x in fm.drawing_info.third_left_x..=fm.drawing_info.width - 1 {
         for y in 1..=fm.drawing_info.column_bot_y {
             screen_lock.set_dead(x, y, is_dead);
