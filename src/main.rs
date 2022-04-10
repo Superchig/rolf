@@ -587,7 +587,15 @@ fn run(
                                     });
                                 }
                                 "help" => {
-                                    fm.input_mode = InputMode::View { top_row: 0 };
+                                    fm.input_mode = InputMode::View {
+                                        top_row: 0,
+                                        view_rect: Rect {
+                                            left_x: 0,
+                                            top_y: 0, // We already show the help title in the top line
+                                            width: fm.drawing_info.width,
+                                            height: fm.drawing_info.height,
+                                        },
+                                    };
                                 }
                                 _ => (),
                             }
@@ -1052,7 +1060,7 @@ fn run(
                         }
                     }
                 }
-                InputMode::View { top_row } => {
+                InputMode::View { top_row, view_rect } => {
                     set_area_dead(&fm, screen_lock, false);
 
                     draw_str(
@@ -1079,14 +1087,10 @@ fn run(
                         .0
                         .len();
 
-                    let rect = Rect {
-                        left_x: 0,
-                        top_y: 1, // We already show the help title in the top line
-                        width: fm.drawing_info.width,
-                        height: fm.drawing_info.height,
-                    };
+                    // We already show the help title on the top line
+                    let top_y = view_rect.top_y + 1;
 
-                    for y in rect.top_y..rect.bot_y() {
+                    for y in top_y..view_rect.bot_y() {
                         let ind = top_row + y - 1;
 
                         if (ind as usize) >= keybindings_vec.len() {
@@ -1106,7 +1110,7 @@ fn run(
                         line_builder.push_str("    ");
                         line_builder.push_str(command);
 
-                        screen_lock.build_line(rect.left_x, y, &line_builder);
+                        screen_lock.build_line(view_rect.left_x, y, &line_builder);
                     }
                 }
             }
@@ -1447,6 +1451,7 @@ enum InputMode {
     },
     View {
         top_row: u16,
+        view_rect: Rect,
     },
 }
 
@@ -2686,7 +2691,7 @@ enum PreviewData {
     RawBytes { bytes: Vec<u8> },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Rect {
     left_x: u16,
     top_y: u16,
