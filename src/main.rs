@@ -511,18 +511,12 @@ fn run(
                                 .dir_entry;
                             let current_file_path = current_file.path();
 
-                            // TODO(Chris): Get rid of these unwrap calls (at least the OsStr
-                            // to str conversion one)
-                            fm.input_line
-                                .push_str(current_file_path.file_name().unwrap().to_str().unwrap());
-
                             enter_command_mode_with(
                                 &mut fm,
-                                "",
-                                format!(
-                                    "Rename {} to: ",
-                                    current_file_path.file_name().unwrap().to_str().unwrap()
-                                ),
+                                // TODO(Chris): Get rid of these unwrap calls (at least the OsStr
+                                // to str conversion one)
+                                current_file_path.file_name().unwrap().to_str().unwrap(),
+                                "Rename: ".to_string(),
                                 AskingType::AdditionalInput,
                             );
 
