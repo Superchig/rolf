@@ -607,20 +607,67 @@ fn run(
 
         command_queue.clear();
 
+        // TODO(Chris): Move this second_entry_index computation into function
+        // NOTE(Chris): Recompute second_entry_index since the relevant values may have
+        // been modified
+        let second_entry_index = fm.second.starting_index + fm.second.display_offset;
+
+        let has_changed_entry = fm.dir_states.current_dir != prev_current_dir
+            || second_entry_index != prev_second_entry_index;
+        let has_changed_dir = fm.dir_states.current_dir != prev_current_dir;
+
+        prev_current_dir.clone_from(&fm.dir_states.current_dir);
+        prev_second_entry_index = second_entry_index;
+
+        // Store directory history with sqlite
+        {
+            if has_changed_dir {
+                if let Some(curr_dir_str) = fm.dir_states.current_dir.to_str() {
+                    let mut stmt = conn
+                    .prepare(
+                        "SELECT id, last_access_time, access_count FROM History WHERE path == $1",
+                    )
+                    .unwrap();
+                    let rows = stmt
+                        .query_map([curr_dir_str], |row| {
+                            Ok(NavigatedDirectory {
+                                id: Some(row.get(0)?),
+                                _last_access_time: row.get(1)?,
+                                access_count: row.get(2)?,
+                            })
+                        })
+                        .unwrap();
+
+                    let mut has_updated_row = false;
+
+                    for row in rows {
+                        let row = row.unwrap();
+
+                        if let Some(id) = row.id {
+                            conn.execute(
+                                "UPDATE History SET last_access_time = unixepoch(), access_count = ?1 WHERE id == ?2",
+                                [row.access_count + 1, id],
+                            )
+                            .unwrap();
+                        }
+
+                        has_updated_row = true;
+                        break;
+                    }
+
+                    if !has_updated_row {
+                        conn.execute(
+                            "INSERT INTO History (path, last_access_time, access_count) VALUES (?1, unixepoch(), 1)",
+                            [curr_dir_str],
+                        ).unwrap();
+                    }
+                }
+            }
+        }
+
         // Main drawing code
         {
-            // NOTE(Chris): Recompute second_entry_index since the relevant values may have
-            // been modified
-            let second_entry_index = fm.second.starting_index + fm.second.display_offset;
-
             let current_dir_display = format_current_dir(&fm.dir_states, home_path);
-
-            let has_changed_entry = fm.dir_states.current_dir != prev_current_dir
-                || second_entry_index != prev_second_entry_index;
-            let has_changed_dir = fm.dir_states.current_dir != prev_current_dir;
-
-            prev_current_dir.clone_from(&fm.dir_states.current_dir);
-            prev_second_entry_index = second_entry_index;
 
             let curr_entry;
             let file_stem = if fm.dir_states.current_entries.len() <= 0 {
@@ -728,50 +775,6 @@ fn run(
                         // NOTE(Chris): We don't actually need to do anything here, it seems
                     }
                     _ => (),
-                }
-            }
-
-            // TODO(Chris): Move this out of the rendering
-            if has_changed_dir {
-                if let Some(curr_dir_str) = fm.dir_states.current_dir.to_str() {
-                    let mut stmt = conn
-                    .prepare(
-                        "SELECT id, last_access_time, access_count FROM History WHERE path == $1",
-                    )
-                    .unwrap();
-                    let rows = stmt
-                        .query_map([curr_dir_str], |row| {
-                            Ok(NavigatedDirectory {
-                                id: Some(row.get(0)?),
-                                _last_access_time: row.get(1)?,
-                                access_count: row.get(2)?,
-                            })
-                        })
-                        .unwrap();
-
-                    let mut has_updated_row = false;
-
-                    for row in rows {
-                        let row = row.unwrap();
-
-                        if let Some(id) = row.id {
-                            conn.execute(
-                                "UPDATE History SET last_access_time = unixepoch(), access_count = ?1 WHERE id == ?2",
-                                [row.access_count + 1, id],
-                            )
-                            .unwrap();
-                        }
-
-                        has_updated_row = true;
-                        break;
-                    }
-
-                    if !has_updated_row {
-                        conn.execute(
-                            "INSERT INTO History (path, last_access_time, access_count) VALUES (?1, unixepoch(), 1)",
-                            [curr_dir_str],
-                        ).unwrap();
-                    }
                 }
             }
 
