@@ -102,7 +102,6 @@ pub fn get_extra_perms(metadata: &Metadata) -> ExtraPermissions {
     }
 }
 
-// FIXME(Chris): Actually implement correctly
 // A possibly-safe wrapper around an ioctl call with TIOCGWINSZ.
 // Gets the width and height of the terminal in pixels.
 pub fn get_win_pixels() -> std::result::Result<WindowPixels, io::Error> {

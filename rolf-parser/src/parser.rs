@@ -390,7 +390,7 @@ impl Parser {
     }
 }
 
-// FIXME(Chris): Remove dead code ignores
+// TODO(Chris): Remove dead code ignores
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct ParseError {

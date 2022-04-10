@@ -108,7 +108,7 @@ fn main() -> crossterm::Result<()> {
 
     let ast = match fs::read_to_string(config_dir.join("rolfrc")) {
         Ok(config_text) => {
-            // FIXME(Chris): Handle error here
+            // TODO(Chris): Handle error here
             parse(&config_text).unwrap()
         }
         Err(err) => match err.kind() {
@@ -674,7 +674,7 @@ fn run(
 
             draw_first_column(screen_lock, &mut fm);
 
-            // FIXME(Chris): Refactor this into FileManager or DrawingInfo
+            // TODO(Chris): Refactor this into FileManager or DrawingInfo
             let second_column_rect = Rect {
                 left_x: fm.drawing_info.second_left_x,
                 top_y: 1,
