@@ -280,7 +280,9 @@ fn run(
 
     let mut to_command_tx = None;
 
-    let mut prev_dir_display = String::new();
+    // NOTE(Chris): This contains the value of the current_dir PathBuff from the last iteration of
+    // the input loop
+    let mut prev_current_dir = PathBuf::new();
     let mut prev_second_entry_index = 0;
 
     // Main input loop
@@ -613,13 +615,11 @@ fn run(
 
             let current_dir_display = format_current_dir(&fm.dir_states, home_path);
 
-            // TODO(Chris): Clean up this change-tracking to rely on the current_dir PathBuf rather
-            // than a formatted String
-            let has_changed_entry = current_dir_display != prev_dir_display
+            let has_changed_entry = fm.dir_states.current_dir != prev_current_dir
                 || second_entry_index != prev_second_entry_index;
-            let has_changed_dir = current_dir_display != prev_dir_display;
+            let has_changed_dir = fm.dir_states.current_dir != prev_current_dir;
 
-            prev_dir_display.clone_from(&current_dir_display);
+            prev_current_dir.clone_from(&fm.dir_states.current_dir);
             prev_second_entry_index = second_entry_index;
 
             let curr_entry;
