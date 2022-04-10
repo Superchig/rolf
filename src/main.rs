@@ -692,11 +692,7 @@ fn run(
             };
 
             if has_changed_entry {
-                for x in fm.drawing_info.third_left_x..=fm.drawing_info.width - 1 {
-                    for y in 1..=fm.drawing_info.column_bot_y {
-                        screen_lock.set_dead(x, y, false);
-                    }
-                }
+                set_area_dead(&mut fm, screen_lock, false);
 
                 match fm.config.image_protocol {
                     ImageProtocol::Kitty => {
@@ -915,11 +911,7 @@ fn run(
 
                                 w.flush()?;
 
-                                for x in fm.drawing_info.third_left_x..=fm.drawing_info.width - 1 {
-                                    for y in 1..=fm.drawing_info.column_bot_y {
-                                        screen_lock.set_dead(x, y, true);
-                                    }
-                                }
+                                set_area_dead(&mut fm, screen_lock, true);
                             }
                             ImageProtocol::ITerm2 => {
                                 let rgba = buffer;
@@ -964,13 +956,7 @@ fn run(
 
                                 w.flush()?;
 
-                                // TODO(Chris): Refactor this into a function, since it's the
-                                // 4th time we're using it
-                                for x in fm.drawing_info.third_left_x..=fm.drawing_info.width - 1 {
-                                    for y in 1..=fm.drawing_info.column_bot_y {
-                                        screen_lock.set_dead(x, y, true);
-                                    }
-                                }
+                                set_area_dead(&mut fm, screen_lock, true);
                             }
                             _ => {
                                 panic!("Unsupported image protocol: {:?}", fm.config.image_protocol)
@@ -1018,14 +1004,7 @@ fn run(
 
                         queue!(&mut w, terminal::EnableLineWrap)?;
 
-                        // TODO(Chris): Refactor this into a function, since it's
-                        // used three times (if you include the modification of the
-                        // set_dead bool)
-                        for x in fm.drawing_info.third_left_x..=fm.drawing_info.width - 1 {
-                            for y in 1..=fm.drawing_info.column_bot_y {
-                                screen_lock.set_dead(x, y, true);
-                            }
-                        }
+                        set_area_dead(&mut fm, screen_lock, true);
                     }
                 }
             }
