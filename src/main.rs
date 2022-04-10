@@ -18,6 +18,7 @@ mod tiff;
 mod unix_users;
 
 use config::{Config, ImageProtocol};
+use crossterm::event::KeyEvent;
 use human_size::human_size;
 use image::png::PngEncoder;
 use natural_sort::cmp_natural;
@@ -667,258 +668,350 @@ fn run(
 
         // Main drawing code
         {
-            let current_dir_display = format_current_dir(&fm.dir_states, home_path);
-
-            let curr_entry;
-            let file_stem = if fm.dir_states.current_entries.len() <= 0 {
-                ""
-            } else {
-                curr_entry = fm.dir_states.current_entries[second_entry_index as usize]
-                    .dir_entry
-                    .file_name();
-                curr_entry.to_str().unwrap()
-            };
-
-            // TODO(Chris): Use the unicode-segmentation package to count graphemes
-            // Add 1 because of the ':' that is displayed after user_host_display
-            // Add 1 again because of the '/' that is displayed at the end of current_dir_display
-            let remaining_width = fm.drawing_info.width as usize
-                - (fm.user_host_display.len() + 1 + current_dir_display.len() + 1);
-
-            let file_stem = if file_stem.len() > remaining_width {
-                String::from(&file_stem[..remaining_width])
-            } else {
-                String::from(file_stem)
-            };
-
             let mut screen_lock = screen.lock().expect("Failed to lock screen mutex!");
             let screen_lock = &mut *screen_lock;
             screen_lock.clear_logical();
 
-            let user_host_len = fm.user_host_display.len().try_into().unwrap();
-            draw_str(
-                screen_lock,
-                0,
-                0,
-                &fm.user_host_display,
-                rolf_grid::Style::new(
-                    rolf_grid::Attribute::Bold,
-                    rolf_grid::Color::Green,
-                    rolf_grid::Color::Background,
-                ),
-            );
-            draw_str(
-                screen_lock,
-                user_host_len,
-                0,
-                ":",
-                rolf_grid::Style::default(),
-            );
-            draw_str(
-                screen_lock,
-                user_host_len + 1, // From the ":"
-                0,
-                &format!("{}{}", current_dir_display, path::MAIN_SEPARATOR),
-                rolf_grid::Style::new(
-                    rolf_grid::Attribute::Bold,
-                    rolf_grid::Color::Blue,
-                    rolf_grid::Color::Background,
-                ),
-            );
-            draw_str(
-                screen_lock,
-                user_host_len + 1 + current_dir_display.len() as u16 + 1,
-                0,
-                &file_stem,
-                rolf_grid::Style::new(
-                    rolf_grid::Attribute::Bold,
-                    rolf_grid::Color::Foreground,
-                    rolf_grid::Color::Background,
-                ),
-            );
+            match &fm.input_mode {
+                InputMode::Normal | InputMode::Command { .. } => {
+                    let current_dir_display = format_current_dir(&fm.dir_states, home_path);
 
-            draw_first_column(screen_lock, &mut fm);
-
-            // TODO(Chris): Refactor this into FileManager or DrawingInfo
-            let second_column_rect = Rect {
-                left_x: fm.drawing_info.second_left_x,
-                top_y: 1,
-                width: fm.drawing_info.second_right_x - fm.drawing_info.second_left_x,
-                height: fm.drawing_info.column_height,
-            };
-
-            draw_column(
-                screen_lock,
-                second_column_rect,
-                fm.second.starting_index,
-                second_entry_index,
-                &fm.dir_states.current_entries,
-            );
-
-            let third_column_rect = Rect {
-                left_x: fm.drawing_info.third_left_x,
-                top_y: 1,
-                width: fm.drawing_info.third_right_x - fm.drawing_info.third_left_x,
-                height: fm.drawing_info.column_height,
-            };
-
-            if has_changed_entry {
-                set_area_dead(&mut fm, screen_lock, false);
-
-                match fm.config.image_protocol {
-                    ImageProtocol::Kitty => {
-                        // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
-                        let mut w = io::stdout();
-                        w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
-                    }
-                    ImageProtocol::ITerm2 => {
-                        // NOTE(Chris): We don't actually need to do anything here, it seems
-                    }
-                    _ => (),
-                }
-            }
-
-            if !fm.dir_states.current_entries.is_empty() {
-                // NOTE(Chris): We keep this code block before the preview drawing
-                // functionality in order to properly set up the Loading... message.
-                if has_changed_entry {
-                    set_preview_data_with_thread(&mut fm, &tx, second_entry_index);
-                }
-
-                match &fm.preview_data {
-                    PreviewData::Loading => {
-                        draw_str(
-                            screen_lock,
-                            third_column_rect.left_x + 2,
-                            third_column_rect.top_y,
-                            "Loading...",
-                            Style::new_attr(rolf_grid::Attribute::Reverse),
-                        );
-                    }
-                    PreviewData::Blank => (),
-                    PreviewData::Message { message } => {
-                        draw_str(
-                            screen_lock,
-                            third_column_rect.left_x + 2,
-                            third_column_rect.top_y,
-                            message,
-                            Style::new_attr(rolf_grid::Attribute::Reverse),
-                        );
-                    }
-                    PreviewData::Directory { entries_info } => {
-                        let third_dir = &fm.dir_states.current_entries[second_entry_index as usize]
+                    let curr_entry;
+                    let file_stem = if fm.dir_states.current_entries.len() <= 0 {
+                        ""
+                    } else {
+                        curr_entry = fm.dir_states.current_entries[second_entry_index as usize]
                             .dir_entry
-                            .path();
+                            .file_name();
+                        curr_entry.to_str().unwrap()
+                    };
 
-                        let (display_offset, starting_index) = match fm.left_paths.get(third_dir) {
-                            Some(dir_location) => {
-                                (dir_location.display_offset, dir_location.starting_index)
+                    // TODO(Chris): Use the unicode-segmentation package to count graphemes
+                    // Add 1 because of the ':' that is displayed after user_host_display
+                    // Add 1 again because of the '/' that is displayed at the end of current_dir_display
+                    let remaining_width = fm.drawing_info.width as usize
+                        - (fm.user_host_display.len() + 1 + current_dir_display.len() + 1);
+
+                    let file_stem = if file_stem.len() > remaining_width {
+                        String::from(&file_stem[..remaining_width])
+                    } else {
+                        String::from(file_stem)
+                    };
+
+                    let user_host_len = fm.user_host_display.len().try_into().unwrap();
+                    draw_str(
+                        screen_lock,
+                        0,
+                        0,
+                        &fm.user_host_display,
+                        rolf_grid::Style::new(
+                            rolf_grid::Attribute::Bold,
+                            rolf_grid::Color::Green,
+                            rolf_grid::Color::Background,
+                        ),
+                    );
+                    draw_str(
+                        screen_lock,
+                        user_host_len,
+                        0,
+                        ":",
+                        rolf_grid::Style::default(),
+                    );
+                    draw_str(
+                        screen_lock,
+                        user_host_len + 1, // From the ":"
+                        0,
+                        &format!("{}{}", current_dir_display, path::MAIN_SEPARATOR),
+                        rolf_grid::Style::new(
+                            rolf_grid::Attribute::Bold,
+                            rolf_grid::Color::Blue,
+                            rolf_grid::Color::Background,
+                        ),
+                    );
+                    draw_str(
+                        screen_lock,
+                        user_host_len + 1 + current_dir_display.len() as u16 + 1,
+                        0,
+                        &file_stem,
+                        rolf_grid::Style::new(
+                            rolf_grid::Attribute::Bold,
+                            rolf_grid::Color::Foreground,
+                            rolf_grid::Color::Background,
+                        ),
+                    );
+
+                    draw_first_column(screen_lock, &mut fm);
+
+                    // TODO(Chris): Refactor this into FileManager or DrawingInfo
+                    let second_column_rect = Rect {
+                        left_x: fm.drawing_info.second_left_x,
+                        top_y: 1,
+                        width: fm.drawing_info.second_right_x - fm.drawing_info.second_left_x,
+                        height: fm.drawing_info.column_height,
+                    };
+
+                    draw_column(
+                        screen_lock,
+                        second_column_rect,
+                        fm.second.starting_index,
+                        second_entry_index,
+                        &fm.dir_states.current_entries,
+                    );
+
+                    let third_column_rect = Rect {
+                        left_x: fm.drawing_info.third_left_x,
+                        top_y: 1,
+                        width: fm.drawing_info.third_right_x - fm.drawing_info.third_left_x,
+                        height: fm.drawing_info.column_height,
+                    };
+
+                    if has_changed_entry {
+                        set_area_dead(&mut fm, screen_lock, false);
+
+                        match fm.config.image_protocol {
+                            ImageProtocol::Kitty => {
+                                // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
+                                let mut w = io::stdout();
+                                w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
                             }
-                            None => (0, 0),
-                        };
-
-                        let entry_index = starting_index + display_offset;
-
-                        draw_column(
-                            screen_lock,
-                            third_column_rect,
-                            starting_index,
-                            entry_index,
-                            entries_info,
-                        );
-                    }
-                    PreviewData::UncoloredFile { path } => {
-                        match fs::File::open(path) {
-                            Ok(file) => {
-                                // TODO(Chris): Handle permission errors here
-                                let reader = BufReader::new(file);
-
-                                let draw_style = rolf_grid::Style::default();
-
-                                let inner_left_x = fm.drawing_info.third_left_x + 2;
-
-                                // NOTE(Chris): 1 is the top_y for all columns
-                                let mut curr_y = 1;
-
-                                let third_width = fm.drawing_info.third_right_x - inner_left_x;
-
-                                for line in reader.lines() {
-                                    // TODO(Chris): Handle UTF-8 errors here, possibly by just
-                                    // showing an error line
-                                    let line = match line {
-                                        Ok(line) => line,
-                                        Err(_) => break,
-                                    };
-
-                                    if curr_y > fm.drawing_info.column_bot_y {
-                                        break;
-                                    }
-
-                                    if line.len() < (third_width as usize) {
-                                        draw_str(
-                                            screen_lock,
-                                            inner_left_x,
-                                            curr_y,
-                                            &line,
-                                            draw_style,
-                                        );
-                                    } else {
-                                        draw_str(
-                                            screen_lock,
-                                            inner_left_x,
-                                            curr_y,
-                                            &line[0..third_width as usize],
-                                            draw_style,
-                                        );
-                                    }
-
-                                    curr_y += 1;
-                                }
+                            ImageProtocol::ITerm2 => {
+                                // NOTE(Chris): We don't actually need to do anything here, it seems
                             }
-                            Err(err) => match err.kind() {
-                                io::ErrorKind::PermissionDenied => {
-                                    // TODO(Chris): Refactor this into a function because it's used
-                                    // at least three times, if you make the message a variable
-                                    draw_str(
-                                        screen_lock,
-                                        third_column_rect.left_x + 2,
-                                        third_column_rect.top_y,
-                                        "permission denied",
-                                        Style::new_attr(rolf_grid::Attribute::Reverse),
-                                    );
-                                }
-                                io::ErrorKind::NotFound => {
-                                    draw_str(
-                                        screen_lock,
-                                        third_column_rect.left_x + 2,
-                                        third_column_rect.top_y,
-                                        "file not found",
-                                        Style::new_attr(rolf_grid::Attribute::Reverse),
-                                    );
-                                }
-                                _ => panic!("Error opening {:?}: {:?}", path, err),
-                            },
+                            _ => (),
                         }
                     }
-                    PreviewData::ImageBuffer { buffer } => {
-                        match fm.config.image_protocol {
-                            ImageProtocol::None => {
-                                // TODO(Chris): Refactor this into a function
+
+                    if !fm.dir_states.current_entries.is_empty() {
+                        // NOTE(Chris): We keep this code block before the preview drawing
+                        // functionality in order to properly set up the Loading... message.
+                        if has_changed_entry {
+                            set_preview_data_with_thread(&mut fm, &tx, second_entry_index);
+                        }
+
+                        match &fm.preview_data {
+                            PreviewData::Loading => {
                                 draw_str(
                                     screen_lock,
                                     third_column_rect.left_x + 2,
                                     third_column_rect.top_y,
-                                    "no image protocol enabled",
+                                    "Loading...",
                                     Style::new_attr(rolf_grid::Attribute::Reverse),
                                 );
                             }
-                            ImageProtocol::Kitty => {
-                                let raw_img = buffer.as_raw();
+                            PreviewData::Blank => (),
+                            PreviewData::Message { message } => {
+                                draw_str(
+                                    screen_lock,
+                                    third_column_rect.left_x + 2,
+                                    third_column_rect.top_y,
+                                    message,
+                                    Style::new_attr(rolf_grid::Attribute::Reverse),
+                                );
+                            }
+                            PreviewData::Directory { entries_info } => {
+                                let third_dir = &fm.dir_states.current_entries
+                                    [second_entry_index as usize]
+                                    .dir_entry
+                                    .path();
 
+                                let (display_offset, starting_index) =
+                                    match fm.left_paths.get(third_dir) {
+                                        Some(dir_location) => (
+                                            dir_location.display_offset,
+                                            dir_location.starting_index,
+                                        ),
+                                        None => (0, 0),
+                                    };
+
+                                let entry_index = starting_index + display_offset;
+
+                                draw_column(
+                                    screen_lock,
+                                    third_column_rect,
+                                    starting_index,
+                                    entry_index,
+                                    entries_info,
+                                );
+                            }
+                            PreviewData::UncoloredFile { path } => {
+                                match fs::File::open(path) {
+                                    Ok(file) => {
+                                        // TODO(Chris): Handle permission errors here
+                                        let reader = BufReader::new(file);
+
+                                        let draw_style = rolf_grid::Style::default();
+
+                                        let inner_left_x = fm.drawing_info.third_left_x + 2;
+
+                                        // NOTE(Chris): 1 is the top_y for all columns
+                                        let mut curr_y = 1;
+
+                                        let third_width =
+                                            fm.drawing_info.third_right_x - inner_left_x;
+
+                                        for line in reader.lines() {
+                                            // TODO(Chris): Handle UTF-8 errors here, possibly by just
+                                            // showing an error line
+                                            let line = match line {
+                                                Ok(line) => line,
+                                                Err(_) => break,
+                                            };
+
+                                            if curr_y > fm.drawing_info.column_bot_y {
+                                                break;
+                                            }
+
+                                            if line.len() < (third_width as usize) {
+                                                draw_str(
+                                                    screen_lock,
+                                                    inner_left_x,
+                                                    curr_y,
+                                                    &line,
+                                                    draw_style,
+                                                );
+                                            } else {
+                                                draw_str(
+                                                    screen_lock,
+                                                    inner_left_x,
+                                                    curr_y,
+                                                    &line[0..third_width as usize],
+                                                    draw_style,
+                                                );
+                                            }
+
+                                            curr_y += 1;
+                                        }
+                                    }
+                                    Err(err) => match err.kind() {
+                                        io::ErrorKind::PermissionDenied => {
+                                            // TODO(Chris): Refactor this into a function because it's used
+                                            // at least three times, if you make the message a variable
+                                            draw_str(
+                                                screen_lock,
+                                                third_column_rect.left_x + 2,
+                                                third_column_rect.top_y,
+                                                "permission denied",
+                                                Style::new_attr(rolf_grid::Attribute::Reverse),
+                                            );
+                                        }
+                                        io::ErrorKind::NotFound => {
+                                            draw_str(
+                                                screen_lock,
+                                                third_column_rect.left_x + 2,
+                                                third_column_rect.top_y,
+                                                "file not found",
+                                                Style::new_attr(rolf_grid::Attribute::Reverse),
+                                            );
+                                        }
+                                        _ => panic!("Error opening {:?}: {:?}", path, err),
+                                    },
+                                }
+                            }
+                            PreviewData::ImageBuffer { buffer } => {
+                                match fm.config.image_protocol {
+                                    ImageProtocol::None => {
+                                        // TODO(Chris): Refactor this into a function
+                                        draw_str(
+                                            screen_lock,
+                                            third_column_rect.left_x + 2,
+                                            third_column_rect.top_y,
+                                            "no image protocol enabled",
+                                            Style::new_attr(rolf_grid::Attribute::Reverse),
+                                        );
+                                    }
+                                    ImageProtocol::Kitty => {
+                                        let raw_img = buffer.as_raw();
+
+                                        let stdout = io::stdout();
+                                        let mut w = stdout.lock();
+
+                                        let path = store_in_tmp_file(raw_img)?;
+
+                                        queue!(
+                                            w,
+                                            cursor::MoveTo(fm.drawing_info.third_left_x, 1),
+                                            // Hide the "Should display!" / "Loading..." message
+                                            style::Print("               "),
+                                            cursor::MoveTo(fm.drawing_info.third_left_x, 1),
+                                        )?;
+
+                                        // TODO(Chris): Optimize drawing so that we don't need to
+                                        // draw to the terminal screen every frame. Perhaps by
+                                        // using notcurses, once its Rust bindings are up-to-date?
+                                        write!(
+                                            w,
+                                            "\x1b_Gf=32,s={},v={},a=T,t=t;{}\x1b\\",
+                                            buffer.width(),
+                                            buffer.height(),
+                                            base64::encode(path.to_str().unwrap())
+                                        )?;
+
+                                        w.flush()?;
+
+                                        set_area_dead(&mut fm, screen_lock, true);
+                                    }
+                                    ImageProtocol::ITerm2 => {
+                                        let rgba = buffer;
+                                        let left_x = fm.drawing_info.third_left_x;
+
+                                        let mut png_data = vec![];
+                                        {
+                                            let mut writer = BufWriter::new(&mut png_data);
+                                            PngEncoder::new(&mut writer)
+                                                .write_image(
+                                                    rgba,
+                                                    rgba.width(),
+                                                    rgba.height(),
+                                                    ColorType::Rgba8,
+                                                )
+                                                .unwrap();
+                                        }
+
+                                        let stdout = io::stdout();
+                                        let mut w = stdout.lock();
+
+                                        if cfg!(windows) {
+                                            queue!(
+                                                w,
+                                                cursor::MoveTo(left_x, 1),
+                                                style::Print("  "),
+                                            )?;
+                                        } else {
+                                            // By adding 2, we match the location of lf's Loading...
+                                            let inner_left_x = left_x + 2;
+
+                                            queue!(
+                                                w,
+                                                cursor::MoveTo(inner_left_x, 1),
+                                                style::Print("          "),
+                                                cursor::MoveTo(left_x, 1),
+                                            )?;
+                                        }
+
+                                        write!(
+                                            w,
+                                            "\x1b]1337;File=size={};inline=1:{}\x1b\\",
+                                            png_data.len(),
+                                            base64::encode(png_data),
+                                        )?;
+
+                                        w.flush()?;
+
+                                        set_area_dead(&mut fm, screen_lock, true);
+                                    }
+                                    _ => {
+                                        panic!(
+                                            "Unsupported image protocol: {:?}",
+                                            fm.config.image_protocol
+                                        )
+                                    }
+                                }
+                            }
+                            PreviewData::RawBytes { bytes } => {
                                 let stdout = io::stdout();
                                 let mut w = stdout.lock();
 
-                                let path = store_in_tmp_file(raw_img)?;
+                                let inner_left_x = fm.drawing_info.third_left_x + 2;
 
                                 queue!(
                                     w,
@@ -928,110 +1021,73 @@ fn run(
                                     cursor::MoveTo(fm.drawing_info.third_left_x, 1),
                                 )?;
 
-                                write!(
-                                    w,
-                                    "\x1b_Gf=32,s={},v={},a=T,t=t;{}\x1b\\",
-                                    buffer.width(),
-                                    buffer.height(),
-                                    base64::encode(path.to_str().unwrap())
-                                )?;
+                                queue!(&mut w, terminal::DisableLineWrap)?;
 
-                                w.flush()?;
+                                // TODO(Chris): Handle case when file is not valid utf8
+                                if let Ok(text) = std::str::from_utf8(bytes) {
+                                    let mut curr_y = 1; // Columns start at y = 1
+                                    queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
 
-                                set_area_dead(&mut fm, screen_lock, true);
-                            }
-                            ImageProtocol::ITerm2 => {
-                                let rgba = buffer;
-                                let left_x = fm.drawing_info.third_left_x;
+                                    for ch in text.as_bytes() {
+                                        if curr_y > fm.drawing_info.column_bot_y {
+                                            break;
+                                        }
 
-                                let mut png_data = vec![];
-                                {
-                                    let mut writer = BufWriter::new(&mut png_data);
-                                    PngEncoder::new(&mut writer)
-                                        .write_image(
-                                            rgba,
-                                            rgba.width(),
-                                            rgba.height(),
-                                            ColorType::Rgba8,
-                                        )
-                                        .unwrap();
+                                        if *ch == b'\n' {
+                                            curr_y += 1;
+
+                                            queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
+                                        } else {
+                                            // NOTE(Chris): We write directly to stdout so as to
+                                            // allow the ANSI escape codes to match the end of a
+                                            // line
+                                            w.write_all(&[*ch])?;
+                                        }
+                                    }
                                 }
 
-                                let stdout = io::stdout();
-                                let mut w = stdout.lock();
-
-                                if cfg!(windows) {
-                                    queue!(w, cursor::MoveTo(left_x, 1), style::Print("  "),)?;
-                                } else {
-                                    // By adding 2, we match the location of lf's Loading...
-                                    let inner_left_x = left_x + 2;
-
-                                    queue!(
-                                        w,
-                                        cursor::MoveTo(inner_left_x, 1),
-                                        style::Print("          "),
-                                        cursor::MoveTo(left_x, 1),
-                                    )?;
-                                }
-
-                                write!(
-                                    w,
-                                    "\x1b]1337;File=size={};inline=1:{}\x1b\\",
-                                    png_data.len(),
-                                    base64::encode(png_data),
-                                )?;
-
-                                w.flush()?;
+                                queue!(&mut w, terminal::EnableLineWrap)?;
 
                                 set_area_dead(&mut fm, screen_lock, true);
-                            }
-                            _ => {
-                                panic!("Unsupported image protocol: {:?}", fm.config.image_protocol)
                             }
                         }
                     }
-                    PreviewData::RawBytes { bytes } => {
-                        let stdout = io::stdout();
-                        let mut w = stdout.lock();
+                }
+                InputMode::View { top_row } => {
+                    let keybindings_vec: Vec<(&KeyEvent, &String)> =
+                        fm.config.keybindings.iter().collect();
 
-                        let inner_left_x = fm.drawing_info.third_left_x + 2;
+                    draw_str(
+                        screen_lock,
+                        0,
+                        0,
+                        "rolf - help",
+                        rolf_grid::Style::default(),
+                    );
 
-                        queue!(
-                            w,
-                            cursor::MoveTo(fm.drawing_info.third_left_x, 1),
-                            // Hide the "Should display!" / "Loading..." message
-                            style::Print("               "),
-                            cursor::MoveTo(fm.drawing_info.third_left_x, 1),
-                        )?;
+                    let rect = Rect {
+                        left_x: 0,
+                        top_y: 1, // We already show the help title in the top line
+                        width: fm.drawing_info.width,
+                        height: fm.drawing_info.height,
+                    };
 
-                        queue!(&mut w, terminal::DisableLineWrap)?;
+                    // let top_row = top_row + 3;
 
-                        // TODO(Chris): Handle case when file is not valid utf8
-                        if let Ok(text) = std::str::from_utf8(bytes) {
-                            let mut curr_y = 1; // Columns start at y = 1
-                            queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
+                    for y in rect.top_y..rect.bot_y() {
+                        let ind = top_row + y - 1;
 
-                            for ch in text.as_bytes() {
-                                if curr_y > fm.drawing_info.column_bot_y {
-                                    break;
-                                }
-
-                                if *ch == b'\n' {
-                                    curr_y += 1;
-
-                                    queue!(&mut w, cursor::MoveTo(inner_left_x, curr_y))?;
-                                } else {
-                                    // NOTE(Chris): We write directly to stdout so as to
-                                    // allow the ANSI escape codes to match the end of a
-                                    // line
-                                    w.write_all(&[*ch])?;
-                                }
-                            }
+                        if (ind as usize) >= keybindings_vec.len() {
+                            break;
                         }
 
-                        queue!(&mut w, terminal::EnableLineWrap)?;
+                        let (_key_event, command) = keybindings_vec[ind as usize];
 
-                        set_area_dead(&mut fm, screen_lock, true);
+                        let mut line_builder = LineBuilder::new();
+                        line_builder.push_str("KEY: ");
+                        line_builder.push_str(command);
+
+                        screen_lock.build_line(rect.left_x, y, &line_builder);
                     }
                 }
             }
