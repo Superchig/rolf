@@ -291,6 +291,15 @@ impl LineBuilder {
         self
     }
 
+    pub fn push_def(&mut self, ch: char) -> &mut Self {
+        self.cells.push(Cell {
+            ch,
+            style: self.last_style,
+            is_dead: false,
+        });
+        self
+    }
+
     pub fn push_str(&mut self, string: &str) -> &mut Self {
         for ch in string.chars() {
             self.cells.push(Cell {

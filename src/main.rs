@@ -17,8 +17,7 @@ mod tiff;
 #[cfg(unix)]
 mod unix_users;
 
-use config::{Config, ImageProtocol};
-use crossterm::event::KeyEvent;
+use config::{to_string, Config, ImageProtocol};
 use human_size::human_size;
 use image::png::PngEncoder;
 use natural_sort::cmp_natural;
@@ -1054,14 +1053,20 @@ fn run(
                     }
                 }
                 InputMode::View { top_row } => {
-                    let keybindings_vec: Vec<(&KeyEvent, &String)> =
-                        fm.config.keybindings.iter().collect();
+                    let mut keybindings_vec: Vec<(String, &String)> = fm
+                        .config
+                        .keybindings
+                        .iter()
+                        .map(|(key_event, command)| (to_string(*key_event), command))
+                        .collect();
+
+                    keybindings_vec.sort_unstable_by_key(|(_key_display, command)| *command);
 
                     draw_str(
                         screen_lock,
                         0,
                         0,
-                        "rolf - help",
+                        "rolf - Help",
                         rolf_grid::Style::default(),
                     );
 
@@ -1072,7 +1077,12 @@ fn run(
                         height: fm.drawing_info.height,
                     };
 
-                    // let top_row = top_row + 3;
+                    let key_column_width = keybindings_vec
+                        .iter()
+                        .max_by_key(|(key_display, _command)| key_display.len())
+                        .unwrap()
+                        .0
+                        .len();
 
                     for y in rect.top_y..rect.bot_y() {
                         let ind = top_row + y - 1;
@@ -1081,10 +1091,17 @@ fn run(
                             break;
                         }
 
-                        let (_key_event, command) = keybindings_vec[ind as usize];
+                        let (key_display, command) = &keybindings_vec[ind as usize];
 
                         let mut line_builder = LineBuilder::new();
-                        line_builder.push_str("KEY: ");
+                        line_builder.push_str(key_display);
+
+                        let remaining_width = key_column_width - key_display.len();
+                        for _ in 0..remaining_width {
+                            line_builder.push_def(' ');
+                        }
+
+                        line_builder.push_str("    ");
                         line_builder.push_str(command);
 
                         screen_lock.build_line(rect.left_x, y, &line_builder);

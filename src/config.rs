@@ -167,6 +167,39 @@ pub fn to_key(key_s: &str) -> KeyEvent {
     KeyEvent { code, modifiers }
 }
 
+pub fn to_string(key_event: KeyEvent) -> String {
+    let mut result = String::new();
+
+    if key_event.modifiers.contains(KeyModifiers::CONTROL) {
+        result.push_str("ctrl+");
+    }
+
+    if key_event.modifiers.contains(KeyModifiers::SHIFT) {
+        result.push_str("shift+");
+    }
+
+    if key_event.modifiers.contains(KeyModifiers::ALT) {
+        result.push_str("alt+");
+    }
+
+    match key_event.code {
+        KeyCode::Enter => result.push_str("enter"),
+        KeyCode::Left => result.push_str("left"),
+        KeyCode::Right => result.push_str("right"),
+        KeyCode::Up => result.push_str("up"),
+        KeyCode::Down => result.push_str("down"),
+        KeyCode::Char(ch) => {
+            match ch {
+                ' ' => result.push_str("space"),
+                _ => result.push(ch),
+            }
+        }
+        _ => panic!("Key code not supported: {:?}", key_event.code),
+    }
+
+    result
+}
+
 // MIT License
 //
 // Copyright (c) 2022 Atanas Yankov
@@ -213,6 +246,14 @@ mod tests {
                 modifiers: KeyModifiers::NONE
             }
         );
+    }
+
+    #[test]
+    fn test_to_string() {
+        assert_eq!(to_string(to_key("s")), "s");
+        assert_eq!(to_string(to_key("ctrl+s")), "ctrl+s");
+        assert_eq!(to_string(to_key("ctrl+shift+S")), "ctrl+shift+S");
+        assert_eq!(to_string(to_key("space")), "space");
     }
 
     #[test]
