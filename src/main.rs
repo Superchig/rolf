@@ -284,6 +284,7 @@ fn run(
     // the input loop
     let mut prev_current_dir = PathBuf::new();
     let mut prev_second_entry_index = 0;
+    let mut prev_input_mode_top = fm.input_mode.to_top();
 
     // Main input loop
     'input: loop {
@@ -620,11 +621,15 @@ fn run(
         // been modified
         let second_entry_index = fm.second.starting_index + fm.second.display_offset;
 
+        let input_mode_top = fm.input_mode.to_top();
+
         let has_changed_entry = fm.dir_states.current_dir != prev_current_dir
             || second_entry_index != prev_second_entry_index;
         let has_changed_dir = fm.dir_states.current_dir != prev_current_dir;
+        let has_changed_input_mode = input_mode_top != prev_input_mode_top;
 
         prev_current_dir.clone_from(&fm.dir_states.current_dir);
+        prev_input_mode_top = input_mode_top;
         prev_second_entry_index = second_entry_index;
 
         // Store directory history with sqlite
@@ -678,6 +683,23 @@ fn run(
             let mut screen_lock = screen.lock().expect("Failed to lock screen mutex!");
             let screen_lock = &mut *screen_lock;
             screen_lock.clear_logical();
+
+            // Clear any parts of the screen that need to be manually cleared
+            if has_changed_entry || has_changed_input_mode {
+                set_area_dead(&fm, screen_lock, false);
+
+                match fm.config.image_protocol {
+                    ImageProtocol::Kitty => {
+                        // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
+                        let mut w = io::stdout();
+                        w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
+                    }
+                    ImageProtocol::ITerm2 => {
+                        // NOTE(Chris): We don't actually need to do anything here, it seems
+                    }
+                    _ => (),
+                }
+            }
 
             match &fm.input_mode {
                 InputMode::Normal | InputMode::Command { .. } => {
@@ -771,22 +793,6 @@ fn run(
                         width: fm.drawing_info.third_right_x - fm.drawing_info.third_left_x,
                         height: fm.drawing_info.column_height,
                     };
-
-                    if has_changed_entry {
-                        set_area_dead(&fm, screen_lock, false);
-
-                        match fm.config.image_protocol {
-                            ImageProtocol::Kitty => {
-                                // https://sw.kovidgoyal.net/kitty/graphics-protocol/#deleting-images
-                                let mut w = io::stdout();
-                                w.write_all(b"\x1b_Ga=d;\x1b\\")?; // Delete all visible images
-                            }
-                            ImageProtocol::ITerm2 => {
-                                // NOTE(Chris): We don't actually need to do anything here, it seems
-                            }
-                            _ => (),
-                        }
-                    }
 
                     if !fm.dir_states.current_entries.is_empty() {
                         // NOTE(Chris): We keep this code block before the preview drawing
@@ -1453,6 +1459,24 @@ enum InputMode {
         top_row: u16,
         view_rect: Rect,
     },
+}
+
+impl InputMode {
+    fn to_top(&self) -> InputModeTop {
+        match self {
+            InputMode::Normal => InputModeTop::Normal,
+            InputMode::Command { .. } => InputModeTop::Command,
+            InputMode::View { .. } => InputModeTop::View,
+        }
+    }
+}
+
+// This represents a specific InputMode without any of the corresponding fields
+#[derive(std::cmp::PartialEq)]
+enum InputModeTop {
+    Normal,
+    Command,
+    View,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
