@@ -300,280 +300,304 @@ fn run(
                 Statement::CommandUse(command_use) => {
                     let command: &str = &command_use.name;
 
-                    match command {
-                        "quit" => {
-                            break 'input;
-                        }
-                        "down" => {
-                            if !fm.dir_states.current_entries.is_empty()
-                                && (second_entry_index as usize)
-                                    < fm.dir_states.current_entries.len() - 1
-                            {
-                                abort_image_handles(&mut fm.image_handles);
-
-                                if fm.second.display_offset
-                                    >= (fm.drawing_info.column_height - SCROLL_OFFSET - 1)
-                                    && (second_bottom_index as usize)
-                                        < fm.dir_states.current_entries.len()
-                                {
-                                    fm.second.starting_index += 1;
-                                } else if second_entry_index < second_bottom_index {
-                                    fm.second.display_offset += 1;
+                    match &fm.input_mode {
+                        InputMode::Normal => {
+                            match command {
+                                "quit" => {
+                                    break 'input;
                                 }
-                            }
-                        }
-                        "up" => {
-                            if !fm.dir_states.current_entries.is_empty() {
-                                abort_image_handles(&mut fm.image_handles);
+                                "down" => {
+                                    if !fm.dir_states.current_entries.is_empty()
+                                        && (second_entry_index as usize)
+                                            < fm.dir_states.current_entries.len() - 1
+                                    {
+                                        abort_image_handles(&mut fm.image_handles);
 
-                                if fm.second.display_offset <= (SCROLL_OFFSET)
-                                    && fm.second.starting_index > 0
-                                {
-                                    fm.second.starting_index -= 1;
-                                } else if second_entry_index > 0 {
-                                    fm.second.display_offset -= 1;
-                                }
-                            }
-                        }
-                        "updir" => {
-                            abort_image_handles(&mut fm.image_handles);
-
-                            let old_current_dir = fm.dir_states.current_dir.clone();
-                            if !fm.dir_states.current_entries.is_empty() {
-                                save_location(&mut fm, second_entry_index);
-                            }
-
-                            if let Some(parent_dir) = fm.dir_states.prev_dir.clone() {
-                                set_current_dir(
-                                    parent_dir,
-                                    &mut fm.dir_states,
-                                    &mut fm.match_positions,
-                                )?;
-                            }
-
-                            fm.second = find_correct_location(
-                                &fm.left_paths,
-                                fm.drawing_info.column_height,
-                                &fm.dir_states.current_dir,
-                                &fm.dir_states.current_entries,
-                                &old_current_dir,
-                            );
-                        }
-                        "open" => {
-                            enter_entry(&mut fm, second_entry_index)?;
-                        }
-                        // NOTE(Chris): lf doesn't actually provide a specific command for this, instead using
-                        // a default keybinding that takes advantage of EDITOR
-                        "edit" => {
-                            let editor = match std::env::var("VISUAL") {
-                                Err(std::env::VarError::NotPresent) => {
-                                    match std::env::var("EDITOR") {
-                                        Err(std::env::VarError::NotPresent) => String::from(""),
-                                        Err(err) => panic!("{}", err),
-                                        Ok(editor) => editor,
+                                        if fm.second.display_offset
+                                            >= (fm.drawing_info.column_height - SCROLL_OFFSET - 1)
+                                            && (second_bottom_index as usize)
+                                                < fm.dir_states.current_entries.len()
+                                        {
+                                            fm.second.starting_index += 1;
+                                        } else if second_entry_index < second_bottom_index {
+                                            fm.second.display_offset += 1;
+                                        }
                                     }
                                 }
-                                Err(err) => panic!("{}", err),
-                                Ok(visual) => visual,
-                            };
+                                "up" => {
+                                    if !fm.dir_states.current_entries.is_empty() {
+                                        abort_image_handles(&mut fm.image_handles);
 
-                            // It'd be nice if we could do breaking on blocks to exit this whole
-                            // match statement early, but labeling blocks is still in unstable,
-                            // as seen in https://github.com/rust-lang/rust/issues/48594
-                            if !editor.is_empty() {
-                                let selected_entry =
-                                    &fm.dir_states.current_entries[second_entry_index as usize];
-
-                                let shell_command = format!(
-                                    "{} {}",
-                                    editor,
-                                    selected_entry
-                                        .dir_entry
-                                        .path()
-                                        .to_str()
-                                        .expect("Failed to convert path to string")
-                                );
-
-                                let stdout = io::stdout();
-                                let mut stdout_lock = stdout.lock();
-
-                                queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
-
-                                Command::new("sh")
-                                    .arg("-c")
-                                    .arg(shell_command)
-                                    .status()
-                                    .expect("failed to execute editor command");
-
-                                queue!(stdout_lock, terminal::EnterAlternateScreen, cursor::Hide)?;
-
-                                let mut screen_lock =
-                                    screen.lock().expect("Failed to lock screen mutex!");
-                                let screen_lock = &mut *screen_lock;
-
-                                // TODO(Chris): Write a function that achieves this without
-                                // resizing anything
-                                screen_lock.resize_clear_draw(
-                                    fm.drawing_info.width,
-                                    fm.drawing_info.height,
-                                )?;
-                            }
-                        }
-                        "top" => {
-                            if !fm.dir_states.current_entries.is_empty() {
-                                abort_image_handles(&mut fm.image_handles);
-
-                                fm.second.starting_index = 0;
-                                fm.second.display_offset = 0;
-                            }
-                        }
-                        "bottom" => {
-                            if !fm.dir_states.current_entries.is_empty() {
-                                abort_image_handles(&mut fm.image_handles);
-
-                                if fm.dir_states.current_entries.len()
-                                    <= (fm.drawing_info.column_height as usize)
-                                {
-                                    fm.second.starting_index = 0;
-                                    fm.second.display_offset =
-                                        fm.dir_states.current_entries.len() as u16 - 1;
-                                } else {
-                                    fm.second.display_offset = fm.drawing_info.column_height - 1;
-                                    fm.second.starting_index = fm.dir_states.current_entries.len()
-                                        as u16
-                                        - fm.second.display_offset
-                                        - 1;
+                                        if fm.second.display_offset <= (SCROLL_OFFSET)
+                                            && fm.second.starting_index > 0
+                                        {
+                                            fm.second.starting_index -= 1;
+                                        } else if second_entry_index > 0 {
+                                            fm.second.display_offset -= 1;
+                                        }
+                                    }
                                 }
-                            }
-                        }
-                        "search" => {
-                            if command_use.arguments.is_empty() {
-                                enter_command_mode_with(
-                                    &mut fm,
-                                    "search ",
-                                    ":".to_string(),
-                                    AskingType::Command,
-                                );
-                            } else {
-                                let search_term = &command_use.arguments[0];
+                                "updir" => {
+                                    abort_image_handles(&mut fm.image_handles);
 
-                                search_in_direction(&mut fm, search_term, true)?;
-                            }
-                        }
-                        "search-back" => {
-                            if command_use.arguments.is_empty() {
-                                enter_command_mode_with(
-                                    &mut fm,
-                                    "search-back ",
-                                    ":".to_string(),
-                                    AskingType::Command,
-                                );
-                            } else {
-                                let search_term = &command_use.arguments[0];
+                                    let old_current_dir = fm.dir_states.current_dir.clone();
+                                    if !fm.dir_states.current_entries.is_empty() {
+                                        save_location(&mut fm, second_entry_index);
+                                    }
 
-                                search_in_direction(&mut fm, search_term, false)?;
-                            }
-                        }
-                        "search-next" => {
-                            search_jump(&mut fm)?;
-                        }
-                        "search-prev" => {
-                            fm.should_search_forwards = !fm.should_search_forwards;
+                                    if let Some(parent_dir) = fm.dir_states.prev_dir.clone() {
+                                        set_current_dir(
+                                            parent_dir,
+                                            &mut fm.dir_states,
+                                            &mut fm.match_positions,
+                                        )?;
+                                    }
 
-                            search_jump(&mut fm)?;
-
-                            fm.should_search_forwards = !fm.should_search_forwards;
-                        }
-                        "toggle" => {
-                            let selected_entry =
-                                &fm.dir_states.current_entries[second_entry_index as usize];
-
-                            let entry_path = selected_entry.dir_entry.path();
-
-                            let remove = fm.selections.remove(&entry_path);
-                            if remove.is_none() {
-                                fm.selections
-                                    .insert(entry_path, second_entry_index as usize);
-                            }
-                        }
-                        "read" => {
-                            enter_command_mode_with(
-                                &mut fm,
-                                "",
-                                ":".to_string(),
-                                AskingType::Command,
-                            );
-                        }
-                        "rename" => {
-                            // Get the full path of the current file
-                            let current_file = &fm.dir_states.current_entries
-                                [second_entry_index as usize]
-                                .dir_entry;
-                            let current_file_path = current_file.path();
-
-                            enter_command_mode_with(
-                                &mut fm,
-                                // TODO(Chris): Get rid of these unwrap calls (at least the OsStr
-                                // to str conversion one)
-                                current_file_path.file_name().unwrap().to_str().unwrap(),
-                                "Rename: ".to_string(),
-                                AskingType::AdditionalInput,
-                            );
-
-                            let (new_tx, to_command_rx) = channel();
-
-                            to_command_tx = Some(new_tx);
-
-                            let to_our_tx = tx.clone();
-
-                            std::thread::spawn(move || {
-                                let new_name: String = to_command_rx.recv().unwrap();
-                                if new_name.is_empty() {
-                                    quit_command_thread(&to_our_tx);
-                                    return;
+                                    fm.second = find_correct_location(
+                                        &fm.left_paths,
+                                        fm.drawing_info.column_height,
+                                        &fm.dir_states.current_dir,
+                                        &fm.dir_states.current_entries,
+                                        &old_current_dir,
+                                    );
                                 }
-
-                                to_our_tx
-                                    .send(InputEvent::CommandRequest(
-                                        CommandRequest::ChangePrompt {
-                                            new_prompt: "Are you sure (y/n)? ".to_string(),
-                                            ask_for_single_key: true,
-                                        },
-                                    ))
-                                    .expect("Failed to send to main thread");
-                                let next_input: String = to_command_rx.recv().unwrap();
-                                if next_input.is_empty() {
-                                    quit_command_thread(&to_our_tx);
-                                    return;
+                                "open" => {
+                                    enter_entry(&mut fm, second_entry_index)?;
                                 }
+                                // NOTE(Chris): lf doesn't actually provide a specific command for this, instead using
+                                // a default keybinding that takes advantage of EDITOR
+                                "edit" => {
+                                    let editor = match std::env::var("VISUAL") {
+                                        Err(std::env::VarError::NotPresent) => {
+                                            match std::env::var("EDITOR") {
+                                                Err(std::env::VarError::NotPresent) => {
+                                                    String::from("")
+                                                }
+                                                Err(err) => panic!("{}", err),
+                                                Ok(editor) => editor,
+                                            }
+                                        }
+                                        Err(err) => panic!("{}", err),
+                                        Ok(visual) => visual,
+                                    };
 
-                                if next_input != "y" {
-                                    quit_command_thread(&to_our_tx);
-                                    return;
+                                    // It'd be nice if we could do breaking on blocks to exit this whole
+                                    // match statement early, but labeling blocks is still in unstable,
+                                    // as seen in https://github.com/rust-lang/rust/issues/48594
+                                    if !editor.is_empty() {
+                                        let selected_entry = &fm.dir_states.current_entries
+                                            [second_entry_index as usize];
+
+                                        let shell_command = format!(
+                                            "{} {}",
+                                            editor,
+                                            selected_entry
+                                                .dir_entry
+                                                .path()
+                                                .to_str()
+                                                .expect("Failed to convert path to string")
+                                        );
+
+                                        let stdout = io::stdout();
+                                        let mut stdout_lock = stdout.lock();
+
+                                        queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
+
+                                        Command::new("sh")
+                                            .arg("-c")
+                                            .arg(shell_command)
+                                            .status()
+                                            .expect("failed to execute editor command");
+
+                                        queue!(
+                                            stdout_lock,
+                                            terminal::EnterAlternateScreen,
+                                            cursor::Hide
+                                        )?;
+
+                                        let mut screen_lock =
+                                            screen.lock().expect("Failed to lock screen mutex!");
+                                        let screen_lock = &mut *screen_lock;
+
+                                        // TODO(Chris): Write a function that achieves this without
+                                        // resizing anything
+                                        screen_lock.resize_clear_draw(
+                                            fm.drawing_info.width,
+                                            fm.drawing_info.height,
+                                        )?;
+                                    }
                                 }
+                                "top" => {
+                                    if !fm.dir_states.current_entries.is_empty() {
+                                        abort_image_handles(&mut fm.image_handles);
 
-                                // TODO(Chris): Implement some sort of channel-using,
-                                // function-requiring handling of errors here. This would display
-                                // errors in the main thread and gracefully clean up this thread
+                                        fm.second.starting_index = 0;
+                                        fm.second.display_offset = 0;
+                                    }
+                                }
+                                "bottom" => {
+                                    if !fm.dir_states.current_entries.is_empty() {
+                                        abort_image_handles(&mut fm.image_handles);
 
-                                let new_file_path = current_file_path
-                                    .parent()
-                                    .unwrap()
-                                    .join(PathBuf::from(&new_name));
-                                fs::rename(current_file_path, new_file_path)
-                                    .expect("Failed to rename file");
+                                        if fm.dir_states.current_entries.len()
+                                            <= (fm.drawing_info.column_height as usize)
+                                        {
+                                            fm.second.starting_index = 0;
+                                            fm.second.display_offset =
+                                                fm.dir_states.current_entries.len() as u16 - 1;
+                                        } else {
+                                            fm.second.display_offset =
+                                                fm.drawing_info.column_height - 1;
+                                            fm.second.starting_index =
+                                                fm.dir_states.current_entries.len() as u16
+                                                    - fm.second.display_offset
+                                                    - 1;
+                                        }
+                                    }
+                                }
+                                "search" => {
+                                    if command_use.arguments.is_empty() {
+                                        enter_command_mode_with(
+                                            &mut fm,
+                                            "search ",
+                                            ":".to_string(),
+                                            AskingType::Command,
+                                        );
+                                    } else {
+                                        let search_term = &command_use.arguments[0];
 
-                                to_our_tx
-                                    .send(InputEvent::ReloadCurrentDirThenFileJump { new_name })
-                                    .expect("Failed to send to main thread");
+                                        search_in_direction(&mut fm, search_term, true)?;
+                                    }
+                                }
+                                "search-back" => {
+                                    if command_use.arguments.is_empty() {
+                                        enter_command_mode_with(
+                                            &mut fm,
+                                            "search-back ",
+                                            ":".to_string(),
+                                            AskingType::Command,
+                                        );
+                                    } else {
+                                        let search_term = &command_use.arguments[0];
 
-                                // NOTE(Chris): We should always end with this function
-                                // TODO(Chris): Use some sort of defer macro to ensure that this
-                                // function is always called
-                                quit_command_thread(&to_our_tx);
-                            });
+                                        search_in_direction(&mut fm, search_term, false)?;
+                                    }
+                                }
+                                "search-next" => {
+                                    search_jump(&mut fm)?;
+                                }
+                                "search-prev" => {
+                                    fm.should_search_forwards = !fm.should_search_forwards;
+
+                                    search_jump(&mut fm)?;
+
+                                    fm.should_search_forwards = !fm.should_search_forwards;
+                                }
+                                "toggle" => {
+                                    let selected_entry =
+                                        &fm.dir_states.current_entries[second_entry_index as usize];
+
+                                    let entry_path = selected_entry.dir_entry.path();
+
+                                    let remove = fm.selections.remove(&entry_path);
+                                    if remove.is_none() {
+                                        fm.selections
+                                            .insert(entry_path, second_entry_index as usize);
+                                    }
+                                }
+                                "read" => {
+                                    enter_command_mode_with(
+                                        &mut fm,
+                                        "",
+                                        ":".to_string(),
+                                        AskingType::Command,
+                                    );
+                                }
+                                "rename" => {
+                                    // Get the full path of the current file
+                                    let current_file = &fm.dir_states.current_entries
+                                        [second_entry_index as usize]
+                                        .dir_entry;
+                                    let current_file_path = current_file.path();
+
+                                    enter_command_mode_with(
+                                        &mut fm,
+                                        // TODO(Chris): Get rid of these unwrap calls (at least the OsStr
+                                        // to str conversion one)
+                                        current_file_path.file_name().unwrap().to_str().unwrap(),
+                                        "Rename: ".to_string(),
+                                        AskingType::AdditionalInput,
+                                    );
+
+                                    let (new_tx, to_command_rx) = channel();
+
+                                    to_command_tx = Some(new_tx);
+
+                                    let to_our_tx = tx.clone();
+
+                                    std::thread::spawn(move || {
+                                        let new_name: String = to_command_rx.recv().unwrap();
+                                        if new_name.is_empty() {
+                                            quit_command_thread(&to_our_tx);
+                                            return;
+                                        }
+
+                                        to_our_tx
+                                            .send(InputEvent::CommandRequest(
+                                                CommandRequest::ChangePrompt {
+                                                    new_prompt: "Are you sure (y/n)? ".to_string(),
+                                                    ask_for_single_key: true,
+                                                },
+                                            ))
+                                            .expect("Failed to send to main thread");
+                                        let next_input: String = to_command_rx.recv().unwrap();
+                                        if next_input.is_empty() {
+                                            quit_command_thread(&to_our_tx);
+                                            return;
+                                        }
+
+                                        if next_input != "y" {
+                                            quit_command_thread(&to_our_tx);
+                                            return;
+                                        }
+
+                                        // TODO(Chris): Implement some sort of channel-using,
+                                        // function-requiring handling of errors here. This would display
+                                        // errors in the main thread and gracefully clean up this thread
+
+                                        let new_file_path = current_file_path
+                                            .parent()
+                                            .unwrap()
+                                            .join(PathBuf::from(&new_name));
+                                        fs::rename(current_file_path, new_file_path)
+                                            .expect("Failed to rename file");
+
+                                        to_our_tx
+                                            .send(InputEvent::ReloadCurrentDirThenFileJump {
+                                                new_name,
+                                            })
+                                            .expect("Failed to send to main thread");
+
+                                        // NOTE(Chris): We should always end with this function
+                                        // TODO(Chris): Use some sort of defer macro to ensure that this
+                                        // function is always called
+                                        quit_command_thread(&to_our_tx);
+                                    });
+                                }
+                                "help" => {
+                                    fm.input_mode = InputMode::View { top_row: 0 };
+                                }
+                                _ => (),
+                            }
                         }
-                        _ => (),
+                        InputMode::Command { .. } => (),
+                        InputMode::View { .. } => match command {
+                            "quit" => {
+                                fm.input_mode = InputMode::Normal;
+                            }
+                            "down" => (),
+                            _ => (),
+                        },
                     }
                 }
             }
@@ -1009,6 +1033,7 @@ fn run(
                 }
             }
 
+            // Figure out how to draw bottom line
             match &fm.input_mode {
                 InputMode::Normal => {
                     draw_bottom_info_line(screen_lock, &mut fm);
@@ -1038,6 +1063,17 @@ fn run(
                         (fm.input_cursor + prompt.len()).try_into().unwrap(),
                         fm.drawing_info.height - 1,
                     );
+                }
+                InputMode::View { .. } => {
+                    draw_str(
+                        screen_lock,
+                        0,
+                        fm.drawing_info.height - 1,
+                        "VIEWING",
+                        rolf_grid::Style::default(),
+                    );
+
+                    screen_lock.hide_cursor();
                 }
             }
 
@@ -1074,7 +1110,7 @@ fn run(
                 match event {
                     Event::Key(event) => {
                         match &fm.input_mode {
-                            InputMode::Normal => {
+                            InputMode::Normal | InputMode::View { .. } => {
                                 if let Some(bound_command) = fm.config.keybindings.get(&event) {
                                     // FIXME(Chris): Handle the possible error here
                                     command_queue
@@ -1330,6 +1366,9 @@ enum InputMode {
     Command {
         prompt: String,
         asking_type: AskingType,
+    },
+    View {
+        top_row: u16,
     },
 }
 
