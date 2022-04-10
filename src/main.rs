@@ -1339,7 +1339,7 @@ enum AskingType {
     Command,
     // The user is inputting more input, to be used with some earlier input
     AdditionalInput,
-    // TODO(Chris): Implement the ability to receive only one character of input
+    // The user is going to enter a single key (e.g. y/n)
     AdditionalInputKey,
 }
 
