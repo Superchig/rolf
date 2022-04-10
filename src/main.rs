@@ -1206,15 +1206,10 @@ fn run(
                                             }
                                             AskingType::AdditionalInput
                                             | AskingType::AdditionalInputKey => {
-                                                if let Some(to_command_tx) = &to_command_tx {
-                                                    to_command_tx
-                                                        .send(fm.input_line.clone())
-                                                        .expect("Failed to send to command thread");
-
-                                                    clear_input_line(&mut fm);
-                                                } else {
-                                                    panic!("Main thread: Asked for additional input despite no command thread being available");
-                                                }
+                                                exit_input_mode_command_thread(
+                                                    &mut fm,
+                                                    &to_command_tx,
+                                                );
                                             }
                                         }
                                     }
@@ -1251,17 +1246,7 @@ fn run(
                                 }
 
                                 if asking_type_clone == AskingType::AdditionalInputKey {
-                                    // FIXME(Chris): Refactor this into a function, since it's too
-                                    // easy to get wrong
-                                    if let Some(to_command_tx) = &to_command_tx {
-                                        to_command_tx
-                                            .send(fm.input_line.clone())
-                                            .expect("Failed to send to command thread");
-
-                                        clear_input_line(&mut fm);
-                                    } else {
-                                        panic!("Main thread: Asked for additional input despite no command thread being available");
-                                    }
+                                    exit_input_mode_command_thread(&mut fm, &to_command_tx);
                                 }
                             }
                         }
@@ -1417,6 +1402,18 @@ fn quit_command_thread(to_main_tx: &Sender<InputEvent>) {
     to_main_tx
         .send(InputEvent::CommandRequest(CommandRequest::Quit))
         .expect("Failed to send to main thread");
+}
+
+fn exit_input_mode_command_thread(fm: &mut FileManager, to_command_tx: &Option<Sender<String>>) {
+    if let Some(to_command_tx) = &to_command_tx {
+        to_command_tx
+            .send(fm.input_line.clone())
+            .expect("Failed to send to command thread");
+
+        clear_input_line(fm);
+    } else {
+        panic!("Main thread: Asked for additional input despite no command thread being available");
+    }
 }
 
 #[derive(Debug)]
