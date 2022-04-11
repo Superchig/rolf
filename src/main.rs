@@ -588,21 +588,48 @@ fn run(
                                     });
                                 }
                                 "help" => {
+                                    let mut keybindings_vec: Vec<(String, String)> = fm
+                                        .config
+                                        .keybindings
+                                        .iter()
+                                        .map(|(key_event, command)| {
+                                            (to_string(*key_event), command.to_owned())
+                                        })
+                                        .collect();
+
+                                    keybindings_vec.sort_unstable_by(
+                                        |(_key_display1, command1), (_key_display2, command2)| {
+                                            command1.cmp(command2)
+                                        },
+                                    );
+
                                     fm.input_mode = InputMode::View {
                                         top_ind: 0,
                                         view_rect: get_help_view_rect(fm.drawing_info),
+                                        keybindings_vec,
                                     };
                                 }
                                 _ => (),
                             }
                         }
                         InputMode::Command { .. } => (),
-                        InputMode::View { ref mut top_ind, view_rect } => match command {
+                        InputMode::View {
+                            ref mut top_ind,
+                            view_rect,
+                            ref keybindings_vec,
+                        } => match command {
                             "quit" => {
                                 fm.input_mode = InputMode::Normal;
                             }
                             "down" => {
-                                *top_ind += 1;
+                                // NOTE(Chris): We subtract 1 to avoid having a possible blank line
+                                // at the bottom of the listed keybindings
+                                let bot_written_y =
+                                    view_rect.top_y + keybindings_vec.len() as u16 - *top_ind - 1;
+
+                                if bot_written_y >= view_rect.bot_y() {
+                                    *top_ind += 1;
+                                }
                             }
                             "up" => {
                                 if *top_ind > 0 {
@@ -1068,7 +1095,11 @@ fn run(
                         }
                     }
                 }
-                InputMode::View { top_ind, view_rect } => {
+                InputMode::View {
+                    top_ind,
+                    view_rect,
+                    keybindings_vec,
+                } => {
                     set_area_dead(&fm, screen_lock, false);
 
                     draw_str(
@@ -1078,15 +1109,6 @@ fn run(
                         "rolf - Help",
                         rolf_grid::Style::default(),
                     );
-
-                    let mut keybindings_vec: Vec<(String, &String)> = fm
-                        .config
-                        .keybindings
-                        .iter()
-                        .map(|(key_event, command)| (to_string(*key_event), command))
-                        .collect();
-
-                    keybindings_vec.sort_unstable_by_key(|(_key_display, command)| *command);
 
                     let key_column_width = keybindings_vec
                         .iter()
@@ -1361,9 +1383,11 @@ fn run(
 
                         match fm.input_mode {
                             InputMode::Normal | InputMode::Command { .. } => (),
-                            InputMode::View { ref mut view_rect, .. } => {
+                            InputMode::View {
+                                ref mut view_rect, ..
+                            } => {
                                 *view_rect = get_help_view_rect(fm.drawing_info);
-                            },
+                            }
                         }
                     }
                 }
@@ -1464,6 +1488,7 @@ enum InputMode {
     View {
         top_ind: u16,
         view_rect: Rect,
+        keybindings_vec: Vec<(String, String)>,
     },
 }
 
