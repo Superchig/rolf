@@ -303,7 +303,7 @@ fn run(
                 Statement::CommandUse(command_use) => {
                     let command: &str = &command_use.name;
 
-                    match &fm.input_mode {
+                    match fm.input_mode {
                         InputMode::Normal => {
                             match command {
                                 "quit" => {
@@ -589,7 +589,7 @@ fn run(
                                 }
                                 "help" => {
                                     fm.input_mode = InputMode::View {
-                                        top_row: 0,
+                                        top_ind: 0,
                                         view_rect: get_help_view_rect(fm.drawing_info),
                                     };
                                 }
@@ -597,11 +597,18 @@ fn run(
                             }
                         }
                         InputMode::Command { .. } => (),
-                        InputMode::View { .. } => match command {
+                        InputMode::View { ref mut top_ind, view_rect } => match command {
                             "quit" => {
                                 fm.input_mode = InputMode::Normal;
                             }
-                            "down" => (),
+                            "down" => {
+                                *top_ind += 1;
+                            }
+                            "up" => {
+                                if *top_ind > 0 {
+                                    *top_ind -= 1;
+                                }
+                            }
                             _ => (),
                         },
                     }
@@ -1061,7 +1068,7 @@ fn run(
                         }
                     }
                 }
-                InputMode::View { top_row, view_rect } => {
+                InputMode::View { top_ind, view_rect } => {
                     set_area_dead(&fm, screen_lock, false);
 
                     draw_str(
@@ -1089,7 +1096,7 @@ fn run(
                         .len();
 
                     for y in view_rect.top_y..view_rect.bot_y() {
-                        let ind = top_row + y - 1;
+                        let ind = top_ind + y - 1;
 
                         if (ind as usize) >= keybindings_vec.len() {
                             break;
@@ -1455,7 +1462,7 @@ enum InputMode {
         asking_type: AskingType,
     },
     View {
-        top_row: u16,
+        top_ind: u16,
         view_rect: Rect,
     },
 }
