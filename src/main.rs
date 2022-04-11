@@ -1102,13 +1102,16 @@ fn run(
                 } => {
                     set_area_dead(&fm, screen_lock, false);
 
-                    draw_str(
-                        screen_lock,
-                        0,
-                        0,
-                        "rolf - Help",
-                        rolf_grid::Style::default(),
-                    );
+                    let mut top_line_builder = LineBuilder::new();
+                    top_line_builder
+                        .push_str("rolf - ")
+                        .use_style(rolf_grid::Style::new_color(
+                            rolf_grid::Color::BrightMagenta,
+                            rolf_grid::Color::Background,
+                        ))
+                        .push_str("Help");
+
+                    screen_lock.build_line(0, 0, &top_line_builder);
 
                     let key_column_width = keybindings_vec
                         .iter()
@@ -1116,6 +1119,12 @@ fn run(
                         .unwrap()
                         .0
                         .len();
+
+                    let key_display_style = rolf_grid::Style::new(
+                        rolf_grid::Attribute::Bold,
+                        rolf_grid::Color::BrightCyan,
+                        rolf_grid::Color::Background,
+                    );
 
                     for y in view_rect.top_y..view_rect.bot_y() {
                         let ind = top_ind + y - 1;
@@ -1127,7 +1136,9 @@ fn run(
                         let (key_display, command) = &keybindings_vec[ind as usize];
 
                         let mut line_builder = LineBuilder::new();
-                        line_builder.push_str(key_display);
+                        line_builder
+                            .use_style(key_display_style)
+                            .push_str(key_display);
 
                         let remaining_width = key_column_width - key_display.len();
                         for _ in 0..remaining_width {
@@ -1135,7 +1146,9 @@ fn run(
                         }
 
                         line_builder.push_str("    ");
-                        line_builder.push_str(command);
+                        line_builder
+                            .use_style(rolf_grid::Style::default())
+                            .push_str(command);
 
                         screen_lock.build_line(view_rect.left_x, y, &line_builder);
                     }
