@@ -888,8 +888,12 @@ fn run(
                                         // NOTE(Chris): 1 is the top_y for all columns
                                         let mut curr_y = 1;
 
+                                        let right_most_x = fm.drawing_info.width - 1;
+
+                                        // NOTE(Chris): We add 1 to avoid having a blank column to
+                                        // the right
                                         let third_width =
-                                            fm.drawing_info.third_right_x - inner_left_x;
+                                            right_most_x - inner_left_x + 1;
 
                                         for line in reader.lines() {
                                             // TODO(Chris): Handle UTF-8 errors here, possibly by just
