@@ -590,12 +590,7 @@ fn run(
                                 "help" => {
                                     fm.input_mode = InputMode::View {
                                         top_row: 0,
-                                        view_rect: Rect {
-                                            left_x: 0,
-                                            top_y: 0, // We already show the help title in the top line
-                                            width: fm.drawing_info.width,
-                                            height: fm.drawing_info.height,
-                                        },
+                                        view_rect: get_help_view_rect(fm.drawing_info),
                                     };
                                 }
                                 _ => (),
@@ -1093,10 +1088,7 @@ fn run(
                         .0
                         .len();
 
-                    // We already show the help title on the top line
-                    let top_y = view_rect.top_y + 1;
-
-                    for y in top_y..view_rect.bot_y() {
+                    for y in view_rect.top_y..view_rect.bot_y() {
                         let ind = top_row + y - 1;
 
                         if (ind as usize) >= keybindings_vec.len() {
@@ -1359,6 +1351,13 @@ fn run(
                         screen_lock.resize_clear_draw(width, height)?;
 
                         update_drawing_info_from_resize(&mut fm.drawing_info)?;
+
+                        match fm.input_mode {
+                            InputMode::Normal | InputMode::Command { .. } => (),
+                            InputMode::View { ref mut view_rect, .. } => {
+                                *view_rect = get_help_view_rect(fm.drawing_info);
+                            },
+                        }
                     }
                 }
             }
@@ -1607,6 +1606,15 @@ enum CommandRequest {
         ask_for_single_key: bool,
     },
     Quit,
+}
+
+fn get_help_view_rect(drawing_info: DrawingInfo) -> Rect {
+    Rect {
+        left_x: 0,
+        top_y: 1, // We already show the help title in the top line
+        width: drawing_info.width,
+        height: drawing_info.column_height,
+    }
 }
 
 fn set_area_dead(fm: &FileManager, screen_lock: &mut Screen, is_dead: bool) {
