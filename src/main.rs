@@ -1190,14 +1190,47 @@ fn run(
                         fm.drawing_info.height - 1,
                     );
                 }
-                InputMode::View { .. } => {
-                    draw_str(
-                        screen_lock,
-                        0,
-                        fm.drawing_info.height - 1,
-                        "VIEWING",
-                        rolf_grid::Style::default(),
-                    );
+                InputMode::View { keybindings_vec, .. } => {
+                    let mut line_builder = LineBuilder::new();
+
+                    let command_space = "   ";
+
+                    let mut quit_key_displays = vec![];
+                    let mut down_key_displays = vec![];
+                    let mut up_key_displays = vec![];
+                    for (key_display, command) in keybindings_vec {
+                        if command == "quit" {
+                            quit_key_displays.push(key_display.as_str());
+                        } else if command == "down" {
+                            down_key_displays.push(key_display.as_str());
+                        } else if command == "up" {
+                            up_key_displays.push(key_display.as_str());
+                        }
+                    }
+
+                    quit_key_displays.sort_unstable();
+                    down_key_displays.sort_unstable();
+                    up_key_displays.sort_unstable_by_key(|vec| vec.len());
+
+                    if !quit_key_displays.is_empty() {
+                        line_builder.push_str(&quit_key_displays.join(","));
+                        line_builder.push_str(":quit");
+                        line_builder.push_str(command_space);
+                    }
+
+                    if !down_key_displays.is_empty() {
+                        line_builder.push_str(&down_key_displays.join(","));
+                        line_builder.push_str(":scroll_down");
+                        line_builder.push_str(command_space);
+                    }
+
+                    if !up_key_displays.is_empty() {
+                        line_builder.push_str(&up_key_displays.join(","));
+                        line_builder.push_str(":scroll_up");
+                        line_builder.push_str(command_space);
+                    }
+
+                    screen_lock.build_line(0, fm.drawing_info.height - 1, &line_builder);
 
                     screen_lock.hide_cursor();
                 }
