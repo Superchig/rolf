@@ -892,8 +892,7 @@ fn run(
 
                                         // NOTE(Chris): We add 1 to avoid having a blank column to
                                         // the right
-                                        let third_width =
-                                            right_most_x - inner_left_x + 1;
+                                        let third_width = right_most_x - inner_left_x + 1;
 
                                         for line in reader.lines() {
                                             // TODO(Chris): Handle UTF-8 errors here, possibly by just
@@ -1190,7 +1189,9 @@ fn run(
                         fm.drawing_info.height - 1,
                     );
                 }
-                InputMode::View { keybindings_vec, .. } => {
+                InputMode::View {
+                    keybindings_vec, ..
+                } => {
                     let mut line_builder = LineBuilder::new();
 
                     let command_space = "   ";
@@ -1284,10 +1285,10 @@ fn run(
 
                                 match event.code {
                                     KeyCode::Esc => {
-                                        fm.input_mode = InputMode::Normal;
-
-                                        fm.input_line.clear();
-                                        fm.input_cursor = 0;
+                                        leave_command_mode_and_additional_thread(
+                                            &mut fm,
+                                            &to_command_tx,
+                                        );
                                     }
                                     KeyCode::Char(ch) => {
                                         if event.modifiers.contains(KeyModifiers::CONTROL) {
@@ -1304,7 +1305,10 @@ fn run(
                                                 }
                                                 'a' => fm.input_cursor = 0,
                                                 'e' => fm.input_cursor = fm.input_line.len(),
-                                                'c' => leave_command_mode(&mut fm),
+                                                'c' => leave_command_mode_and_additional_thread(
+                                                    &mut fm,
+                                                    &to_command_tx,
+                                                ),
                                                 'k' => {
                                                     fm.input_line = fm
                                                         .input_line
@@ -1370,6 +1374,9 @@ fn run(
                                                     }
                                                 }
 
+                                                // In theory, no additional input thread should
+                                                // exist, so we shouldn't need to exit this
+                                                // additional input thread.
                                                 leave_command_mode(&mut fm);
                                             }
                                             AskingType::AdditionalInput
@@ -1570,6 +1577,30 @@ enum AskingType {
     AdditionalInputKey,
 }
 
+fn leave_command_mode_and_additional_thread(
+    fm: &mut FileManager,
+    to_command_tx: &Option<Sender<String>>,
+) {
+    match &fm.input_mode {
+        InputMode::Normal => unreachable!(),
+        InputMode::Command { asking_type, .. } => match asking_type {
+            AskingType::Command => (),
+            AskingType::AdditionalInput | AskingType::AdditionalInputKey => {
+                // TODO(Chris): Use a different function, one which just directly exits
+                // AdditionalInput mode by always sending an empty input_line
+                fm.input_line.clear();
+                exit_input_mode_command_thread(fm, to_command_tx);
+            }
+        },
+        InputMode::View { .. } => unreachable!(),
+    }
+
+    leave_command_mode(fm);
+}
+
+// TODO(Chris): Modify this function to actually interpret the current line of input as necessary,
+// "sending" it to the program "for real," rather than just exiting AdditionalInput mode when
+// necessary
 fn leave_command_mode(fm: &mut FileManager) {
     fm.input_mode = InputMode::Normal;
 
