@@ -2,6 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use nanoserde::DeJson;
 use std::collections::HashMap;
 use std::vec::Vec;
+use thiserror::Error;
 
 #[derive(DeJson)]
 pub struct JsonConfig {
@@ -37,7 +38,17 @@ pub enum ImageProtocol {
     Auto,
 }
 
-pub fn parse_config(config_data: &str) -> Config {
+#[derive(Error, Debug)]
+pub enum ConfigError {
+    #[error("Failed to parse json config file at line:{} col:{}: {}", .0.line, .0.col, .0.msg)]
+    InvalidJson(#[from] nanoserde::DeJsonErr),
+    #[error("Failed to bind invalid key: {0}")]
+    InvalidKeyBinding(String),
+}
+
+type ConfigResult<T> = Result<T, ConfigError>;
+
+pub fn parse_config(config_data: &str) -> ConfigResult<Config> {
     let mut contents = String::new();
 
     // Remove single-line comments
@@ -63,15 +74,15 @@ pub fn parse_config(config_data: &str) -> Config {
         prev_char = ch;
     }
 
-    let mut json_config: JsonConfig = DeJson::deserialize_json(&contents).unwrap();
+    let mut json_config: JsonConfig = DeJson::deserialize_json(&contents)?;
 
     json_config.keybindings.extend(default_key_bindings());
 
-    Config {
+    Ok(Config {
         preview_converter: json_config.preview_converter,
         image_protocol: json_config.image_protocol,
-        keybindings: make_binding_hash_map(&json_config.keybindings),
-    }
+        keybindings: make_binding_hash_map(&json_config.keybindings)?,
+    })
 }
 
 impl Default for Config {
@@ -79,7 +90,8 @@ impl Default for Config {
         Config {
             preview_converter: String::new(),
             image_protocol: ImageProtocol::Auto,
-            keybindings: make_binding_hash_map(&default_key_bindings()),
+            keybindings: make_binding_hash_map(&default_key_bindings())
+                .expect("default keybindings are not valid"),
         }
     }
 }
@@ -112,15 +124,15 @@ fn default_key_bindings() -> Vec<KeyBinding> {
     key_bindings
 }
 
-fn make_binding_hash_map(raw_bindings: &[KeyBinding]) -> HashMap<KeyEvent, String> {
+fn make_binding_hash_map(raw_bindings: &[KeyBinding]) -> ConfigResult<HashMap<KeyEvent, String>> {
     let mut result = HashMap::new();
 
     for raw_binding in raw_bindings {
-        let code = to_key(&raw_binding.key);
+        let code = to_key(&raw_binding.key)?;
         result.insert(code, raw_binding.command.clone());
     }
 
-    result
+    Ok(result)
 }
 
 fn add_raw_binding(key_bindings: &mut Vec<KeyBinding>, key: &str, command: &str) {
@@ -130,7 +142,8 @@ fn add_raw_binding(key_bindings: &mut Vec<KeyBinding>, key: &str, command: &str)
     });
 }
 
-pub fn to_key(key_s: &str) -> KeyEvent {
+// FIXME(Chris): Handle unreachable!() error here for parsing
+pub fn to_key(key_s: &str) -> ConfigResult<KeyEvent> {
     let mut modifiers = KeyModifiers::NONE;
     let tokens: Vec<&str> = key_s.split('+').collect();
     for token in &tokens {
@@ -142,10 +155,10 @@ pub fn to_key(key_s: &str) -> KeyEvent {
         }
     }
 
-    let last_tok = *tokens.last().unwrap();
+    let last_tok = *tokens.last().expect("No final token in key string");
 
     let code = if last_tok.len() == 1 {
-        let ch = last_tok.chars().next().unwrap();
+        let ch = last_tok.chars().next().expect("No final token in key string");
 
         if ch.is_uppercase() {
             modifiers |= KeyModifiers::SHIFT;
@@ -160,11 +173,13 @@ pub fn to_key(key_s: &str) -> KeyEvent {
             "up" => KeyCode::Up,
             "down" => KeyCode::Down,
             "space" => KeyCode::Char(' '),
-            _ => unreachable!("Command token not supported: {}", last_tok),
+            _ => {
+                return Err(ConfigError::InvalidKeyBinding(key_s.to_string()));
+            }
         }
     };
 
-    KeyEvent { code, modifiers }
+    Ok(KeyEvent { code, modifiers })
 }
 
 pub fn to_string(key_event: KeyEvent) -> String {
@@ -188,12 +203,10 @@ pub fn to_string(key_event: KeyEvent) -> String {
         KeyCode::Right => result.push_str("right"),
         KeyCode::Up => result.push_str("up"),
         KeyCode::Down => result.push_str("down"),
-        KeyCode::Char(ch) => {
-            match ch {
-                ' ' => result.push_str("space"),
-                _ => result.push(ch),
-            }
-        }
+        KeyCode::Char(ch) => match ch {
+            ' ' => result.push_str("space"),
+            _ => result.push(ch),
+        },
         _ => panic!("Key code not supported: {:?}", key_event.code),
     }
 
@@ -238,48 +251,63 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_to_key() {
+    fn test_to_key() -> ConfigResult<()> {
         assert_eq!(
-            to_key("up"),
+            to_key("up")?,
             KeyEvent {
                 code: KeyCode::Up,
                 modifiers: KeyModifiers::NONE
             }
         );
+
+        Ok(())
     }
 
     #[test]
-    fn test_to_string() {
-        assert_eq!(to_string(to_key("s")), "s");
-        assert_eq!(to_string(to_key("ctrl+s")), "ctrl+s");
-        assert_eq!(to_string(to_key("ctrl+shift+S")), "ctrl+shift+S");
-        assert_eq!(to_string(to_key("space")), "space");
+    fn test_to_string() -> ConfigResult<()> {
+        assert_eq!(to_string(to_key("s")?), "s");
+        assert_eq!(to_string(to_key("ctrl+s")?), "ctrl+s");
+        assert_eq!(to_string(to_key("ctrl+shift+S")?), "ctrl+shift+S");
+        assert_eq!(to_string(to_key("space")?), "space");
+
+        Ok(())
     }
 
     #[test]
-    fn test_to_key_space() {
+    fn test_to_key_space() -> ConfigResult<()> {
         assert_eq!(
-            to_key("space"),
+            to_key("space")?,
             KeyEvent {
                 code: KeyCode::Char(' '),
                 modifiers: KeyModifiers::NONE
             }
         );
+
+        Ok(())
     }
 
     #[test]
-    fn test_to_key_one_mod() {
+    fn test_to_key_one_mod() -> ConfigResult<()> {
         assert_eq!(
-            to_key("ctrl+f"),
+            to_key("ctrl+f")?,
             KeyEvent {
                 code: KeyCode::Char('f'),
                 modifiers: KeyModifiers::CONTROL,
             }
         );
+
+        Ok(())
     }
 
     #[test]
-    fn test_parse_config_keybindings_no_mod() {
+    fn test_to_key_fails() -> ConfigResult<()> {
+        assert!(to_key("invalid").is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_config_keybindings_no_mod() -> ConfigResult<()> {
         let json = r#"
         {
           "keybindings": [
@@ -289,16 +317,18 @@ mod tests {
         }
         "#;
 
-        let config = parse_config(json);
+        let config = parse_config(json)?;
 
         assert_eq!(config.preview_converter, "");
-        assert_eq!(config.keybindings[&to_key("up")], "up");
-        assert_eq!(config.keybindings[&to_key("down")], "down");
-        assert_eq!(config.keybindings[&to_key("h")], "updir");
+        assert_eq!(config.keybindings[&to_key("up")?], "up");
+        assert_eq!(config.keybindings[&to_key("down")?], "down");
+        assert_eq!(config.keybindings[&to_key("h")?], "updir");
+
+        Ok(())
     }
 
     #[test]
-    fn test_parse_config_comment() {
+    fn test_parse_config_comment() -> ConfigResult<()> {
         let json = r#"
         {
           // This is a comment.
@@ -309,20 +339,22 @@ mod tests {
         }
         "#;
 
-        let config = parse_config(json);
+        let config = parse_config(json)?;
 
         assert_eq!(config.preview_converter, "");
-        assert_eq!(config.keybindings[&to_key("up")], "up");
-        assert_eq!(config.keybindings[&to_key("down")], "down");
-        assert_eq!(config.keybindings[&to_key("h")], "updir");
+        assert_eq!(config.keybindings[&to_key("up")?], "up");
+        assert_eq!(config.keybindings[&to_key("down")?], "down");
+        assert_eq!(config.keybindings[&to_key("h")?], "updir");
+
+        Ok(())
     }
 
     #[test]
-    fn test_make_binding_hash_map() {
+    fn test_make_binding_hash_map() -> ConfigResult<()> {
         let mut raw_bindings = vec![];
         add_raw_binding(&mut raw_bindings, "h", "updir");
 
-        let hash_map = make_binding_hash_map(&raw_bindings);
+        let hash_map = make_binding_hash_map(&raw_bindings)?;
 
         assert_eq!(
             hash_map[&KeyEvent {
@@ -331,5 +363,7 @@ mod tests {
             }],
             "updir",
         );
+
+        Ok(())
     }
 }

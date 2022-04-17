@@ -86,7 +86,8 @@ fn main() -> crossterm::Result<()> {
         fs::create_dir_all(&config_dir)?;
     }
 
-    let mut config = match fs::read_to_string(config_dir.join("config.json")) {
+    // FIXME(Chris): Show error message if a parsing error occurs here
+    let config_result = match fs::read_to_string(config_dir.join("config.json")) {
         Ok(json) => config::parse_config(&json),
         Err(err) => match err.kind() {
             io::ErrorKind::NotFound => {
@@ -95,11 +96,21 @@ fn main() -> crossterm::Result<()> {
                 if let Ok(json) = fs::read_to_string(config_dir.join("config.jsonc")) {
                     config::parse_config(&json)
                 } else {
-                    Config::default()
+                    Ok(Config::default())
                 }
-            },
+            }
             _ => panic!("Error opening config file: {}", err),
         },
+    };
+
+    let mut config = match config_result {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("{}", err);
+            // NOTE(Chris): This won't cause any destructors to call, so we should only create
+            // values with "special" destructors after this
+            std::process::exit(1);
+        }
     };
 
     let term = env::var("TERM").unwrap_or_default();
@@ -303,10 +314,12 @@ fn run(
         for stm in &command_queue {
             match stm {
                 Statement::Map(map) => {
-                    let key_event = config::to_key(&map.key.key);
-                    fm.config
-                        .keybindings
-                        .insert(key_event, map.cmd_name.clone());
+                    // TODO(Chris): Display error message for invalid key map
+                    if let Ok(key_event) = config::to_key(&map.key.key) {
+                        fm.config
+                            .keybindings
+                            .insert(key_event, map.cmd_name.clone());
+                    }
                 }
                 Statement::CommandUse(command_use) => {
                     let command: &str = &command_use.name;

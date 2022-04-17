@@ -22,6 +22,7 @@ chrono = "0.4" # To convert the Unix timestamp into a timezone-aware date
 whoami = "1.2.1"
 nanoserde = "0.1.29" # For parsing json
 rusqlite = "0.27.0" # For embedded sqlite database
+thiserror = "1.0"
 
 [dependencies.rolf-parser]
 path = "rolf-parser"
