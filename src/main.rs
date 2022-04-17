@@ -89,7 +89,15 @@ fn main() -> crossterm::Result<()> {
     let mut config = match fs::read_to_string(config_dir.join("config.json")) {
         Ok(json) => config::parse_config(&json),
         Err(err) => match err.kind() {
-            io::ErrorKind::NotFound => Config::default(),
+            io::ErrorKind::NotFound => {
+                // TODO(Chris): Refactor searching for similar data from multiple files into
+                // its own function
+                if let Ok(json) = fs::read_to_string(config_dir.join("config.jsonc")) {
+                    config::parse_config(&json)
+                } else {
+                    Config::default()
+                }
+            },
             _ => panic!("Error opening config file: {}", err),
         },
     };
