@@ -105,6 +105,11 @@ impl Default for Config {
 }
 
 fn default_key_bindings() -> Vec<KeyBinding> {
+    default_normal_key_bindings()
+}
+
+#[allow(dead_code)]
+fn default_normal_key_bindings() -> Vec<KeyBinding> {
     let mut key_bindings = Vec::new();
 
     add_raw_binding(&mut key_bindings, "q", "quit");
@@ -128,6 +133,28 @@ fn default_key_bindings() -> Vec<KeyBinding> {
     add_raw_binding(&mut key_bindings, "enter", "open");
     add_raw_binding(&mut key_bindings, "o", "open");
     add_raw_binding(&mut key_bindings, "H", "help");
+
+    key_bindings
+}
+
+#[allow(dead_code)]
+fn default_demo_key_bindings() -> Vec<KeyBinding> {
+    let mut key_bindings = Vec::new();
+
+    add_raw_binding(&mut key_bindings, "q", "quit");
+    add_raw_binding(&mut key_bindings, "h", "updir");
+    add_raw_binding(&mut key_bindings, "l", "open");
+    add_raw_binding(&mut key_bindings, "j", "down");
+    add_raw_binding(&mut key_bindings, "k", "up");
+    add_raw_binding(&mut key_bindings, "left", "updir");
+    add_raw_binding(&mut key_bindings, "right", "open");
+    add_raw_binding(&mut key_bindings, "up", "up");
+    add_raw_binding(&mut key_bindings, "down", "down");
+    add_raw_binding(&mut key_bindings, "e", "edit");
+    add_raw_binding(&mut key_bindings, "g", "top");
+    add_raw_binding(&mut key_bindings, "G", "bottom");
+    add_raw_binding(&mut key_bindings, "enter", "open");
+    add_raw_binding(&mut key_bindings, "?", "help");
 
     key_bindings
 }
@@ -180,6 +207,7 @@ pub fn to_key(key_s: &str) -> ConfigResult<KeyEvent> {
             "up" => KeyCode::Up,
             "down" => KeyCode::Down,
             "space" => KeyCode::Char(' '),
+            "escape" => KeyCode::Esc,
             _ => {
                 return Err(ConfigError::InvalidKeyBinding(key_s.to_string()));
             }
@@ -214,6 +242,7 @@ pub fn to_string(key_event: KeyEvent) -> String {
             ' ' => result.push_str("space"),
             _ => result.push(ch),
         },
+        KeyCode::Esc => result.push_str("escape"),
         _ => panic!("Key code not supported: {:?}", key_event.code),
     }
 
