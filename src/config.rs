@@ -74,14 +74,22 @@ pub fn parse_config(config_data: &str) -> ConfigResult<Config> {
         prev_char = ch;
     }
 
-    let mut json_config: JsonConfig = DeJson::deserialize_json(&contents)?;
+    let json_config: JsonConfig = DeJson::deserialize_json(&contents)?;
 
-    json_config.keybindings.extend(default_key_bindings());
+    let mut keybindings = make_binding_hash_map(&json_config.keybindings)?;
+
+    for keybinding in default_key_bindings() {
+        let key_event = to_key(&keybinding.key).expect("Default keybinding can't be converted to KeyEvent");
+
+        if let std::collections::hash_map::Entry::Vacant(e) = keybindings.entry(key_event) {
+            e.insert(keybinding.command);
+        }
+    }
 
     Ok(Config {
         preview_converter: json_config.preview_converter,
         image_protocol: json_config.image_protocol,
-        keybindings: make_binding_hash_map(&json_config.keybindings)?,
+        keybindings,
     })
 }
 
