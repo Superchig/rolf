@@ -1,0 +1,26 @@
+// This configuration file is modeled after VS Code's keybinding configuration
+{
+  "keybindings": [
+    // This keybinding allows you to use the `rename` command by pressing `r`
+    { "key": "r", "command": "rename" },
+
+    // You can use the control key with letters for keybindings
+    { "key": "ctrl+r", "command": "rename" },
+
+    // You can use an explicit shift or a capital letter to represent `shift+R`
+    { "key": "R", "command": "rename" },
+    { "key": "shift+r", "command": "rename" },
+
+    // These keybindings allow you to use WASD to navigate
+    { "key": "w", "command": "up" },
+    { "key": "a", "command": "updir" },
+    { "key": "s", "command": "down" },
+    { "key": "d", "command": "open" },
+
+    // This keybinding allows you to use the space bar to enter a directory/open a file
+    { "key": "space", "command": "open" },
+
+    // This keybinding allows you to use the escape key to quit
+    { "key": "escape", "command": "quit" }
+  ]
+}
