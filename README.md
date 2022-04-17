@@ -36,7 +36,7 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 - [x] Display images successfully on Windows (with capable terminal)
 
 # Long-term TODO (May Never Happen)
-- [x] Add Windows support
+- [ ] Add Windows support
 - [ ] Implement our own png and jpeg decoders
 - [x] Use the kitty protocol (and possibly other terminal image protocols)
       directly for image previews
