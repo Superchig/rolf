@@ -79,7 +79,8 @@ pub fn parse_config(config_data: &str) -> ConfigResult<Config> {
     let mut keybindings = make_binding_hash_map(&json_config.keybindings)?;
 
     for keybinding in default_key_bindings() {
-        let key_event = to_key(&keybinding.key).expect("Default keybinding can't be converted to KeyEvent");
+        let key_event =
+            to_key(&keybinding.key).expect("Default keybinding can't be converted to KeyEvent");
 
         if let std::collections::hash_map::Entry::Vacant(e) = keybindings.entry(key_event) {
             e.insert(keybinding.command);
@@ -192,7 +193,10 @@ pub fn to_key(key_s: &str) -> ConfigResult<KeyEvent> {
     let last_tok = *tokens.last().expect("No final token in key string");
 
     let code = if last_tok.len() == 1 {
-        let ch = last_tok.chars().next().expect("No final token in key string");
+        let ch = last_tok
+            .chars()
+            .next()
+            .expect("No final token in key string");
 
         if ch.is_uppercase() {
             modifiers |= KeyModifiers::SHIFT;
@@ -383,6 +387,22 @@ mod tests {
         assert_eq!(config.keybindings[&to_key("h")?], "updir");
 
         Ok(())
+    }
+
+    #[test]
+    fn test_add_raw_binding() {
+        let mut raw_bindings = vec![];
+        add_raw_binding(&mut raw_bindings, "o", "open");
+
+        assert!(raw_bindings.len() == 1);
+
+        assert_eq!(
+            raw_bindings[0],
+            KeyBinding {
+                key: "o".to_string(),
+                command: "open".to_string()
+            }
+        );
     }
 
     #[test]
