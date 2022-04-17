@@ -86,7 +86,6 @@ fn main() -> crossterm::Result<()> {
         fs::create_dir_all(&config_dir)?;
     }
 
-    // FIXME(Chris): Show error message if a parsing error occurs here
     let config_result = match fs::read_to_string(config_dir.join("config.json")) {
         Ok(json) => config::parse_config(&json),
         Err(err) => match err.kind() {
