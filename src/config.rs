@@ -151,7 +151,6 @@ fn default_demo_key_bindings() -> Vec<KeyBinding> {
     add_raw_binding(&mut key_bindings, "right", "open");
     add_raw_binding(&mut key_bindings, "up", "up");
     add_raw_binding(&mut key_bindings, "down", "down");
-    add_raw_binding(&mut key_bindings, "e", "edit");
     add_raw_binding(&mut key_bindings, "g", "top");
     add_raw_binding(&mut key_bindings, "G", "bottom");
     add_raw_binding(&mut key_bindings, "enter", "open");
@@ -251,6 +250,27 @@ pub fn to_string(key_event: KeyEvent) -> String {
     }
 
     result
+}
+
+pub fn get_command_desc(command: &str) -> &'static str {
+    match command {
+        "bottom" => "Move to the last file in the directory",
+        "down" => "Move the cursor down by one file",
+        "edit" => "Edit the current file in a text editor",
+        "open" => "Enter a directory or open a file",
+        "help" => "Open this help menu",
+        "quit" => "Exit the help menu or the program entirely",
+        "read" => "Read in a command via an input line",
+        "rename" => "Rename the current file",
+        "search" => "Search for a file based on its name",
+        "search-back" => "Search for a file, starting with files above the current one",
+        "search-next" => "Jump to the next matching file after a search",
+        "search-prev" => "Jump to the previous matching after a search",
+        "top" => "Move to the first file in the directory",
+        "up" => "Move the cursor up by one file",
+        "updir" => "Change to the previous directory",
+        _ => "",
+    }
 }
 
 // MIT License

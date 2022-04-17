@@ -17,7 +17,7 @@ mod tiff;
 #[cfg(unix)]
 mod unix_users;
 
-use config::{to_string, Config, ImageProtocol};
+use config::{get_command_desc, to_string, Config, ImageProtocol};
 use human_size::human_size;
 use image::png::PngEncoder;
 use natural_sort::cmp_natural;
@@ -608,17 +608,21 @@ fn run(
                                     });
                                 }
                                 "help" => {
-                                    let mut keybindings_vec: Vec<(String, String)> = fm
+                                    let mut keybindings_vec: Vec<(String, String, String)> = fm
                                         .config
                                         .keybindings
                                         .iter()
                                         .map(|(key_event, command)| {
-                                            (to_string(*key_event), command.to_owned())
+                                            (
+                                                to_string(*key_event),
+                                                command.to_owned(),
+                                                get_command_desc(command).to_string(),
+                                            )
                                         })
                                         .collect();
 
                                     keybindings_vec.sort_unstable_by(
-                                        |(_key_display1, command1), (_key_display2, command2)| {
+                                        |(_key_display1, command1, _), (_key_display2, command2, _)| {
                                             command1.cmp(command2)
                                         },
                                     );
@@ -1138,9 +1142,16 @@ fn run(
 
                     let key_column_width = keybindings_vec
                         .iter()
-                        .max_by_key(|(key_display, _command)| key_display.len())
-                        .unwrap()
+                        .max_by_key(|(key_display, _command, _desc)| key_display.len())
+                        .expect("No keys are bound")
                         .0
+                        .len();
+
+                    let command_column_width = keybindings_vec
+                        .iter()
+                        .max_by_key(|(_key_display, command, _desc)| command.len())
+                        .expect("No commands are bound")
+                        .1
                         .len();
 
                     let key_display_style = rolf_grid::Style::new(
@@ -1156,7 +1167,7 @@ fn run(
                             break;
                         }
 
-                        let (key_display, command) = &keybindings_vec[ind as usize];
+                        let (key_display, command, desc) = &keybindings_vec[ind as usize];
 
                         let mut line_builder = LineBuilder::new();
                         line_builder
@@ -1167,11 +1178,22 @@ fn run(
                         for _ in 0..remaining_width {
                             line_builder.push_def(' ');
                         }
-
                         line_builder.push_str("    ");
                         line_builder
                             .use_style(rolf_grid::Style::default())
                             .push_str(command);
+
+                        let remaining_width = command_column_width - command.len();
+                        for _ in 0..remaining_width {
+                            line_builder.push_def(' ');
+                        }
+                        line_builder.push_str("    ");
+                        line_builder
+                            .use_style(rolf_grid::Style::new_color(
+                                rolf_grid::Color::Yellow,
+                                rolf_grid::Color::Background,
+                            ))
+                            .push_str(desc);
 
                         screen_lock.build_line(view_rect.left_x, y, &line_builder);
                     }
@@ -1219,7 +1241,7 @@ fn run(
                     let mut quit_key_displays = vec![];
                     let mut down_key_displays = vec![];
                     let mut up_key_displays = vec![];
-                    for (key_display, command) in keybindings_vec {
+                    for (key_display, command, _desc) in keybindings_vec {
                         if command == "quit" {
                             quit_key_displays.push(key_display.as_str());
                         } else if command == "down" {
@@ -1567,7 +1589,7 @@ enum InputMode {
     View {
         top_ind: u16,
         view_rect: Rect,
-        keybindings_vec: Vec<(String, String)>,
+        keybindings_vec: Vec<(String, String, String)>,
     },
 }
 
