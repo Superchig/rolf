@@ -1292,9 +1292,11 @@ fn run(
                         match &fm.input_mode {
                             InputMode::Normal | InputMode::View { .. } => {
                                 if let Some(bound_command) = fm.config.keybindings.get(&event) {
-                                    // FIXME(Chris): Handle the possible error here
-                                    command_queue
-                                        .push(parse_statement_from(bound_command).unwrap());
+                                    // TODO(Chris): Show an error message if this bound command
+                                    // fails to parse
+                                    if let Ok(stm) = parse_statement_from(bound_command) {
+                                        command_queue.push(stm);
+                                    }
                                 }
                             }
                             InputMode::Command {
