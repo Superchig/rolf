@@ -142,7 +142,6 @@ fn add_raw_binding(key_bindings: &mut Vec<KeyBinding>, key: &str, command: &str)
     });
 }
 
-// FIXME(Chris): Handle unreachable!() error here for parsing
 pub fn to_key(key_s: &str) -> ConfigResult<KeyEvent> {
     let mut modifiers = KeyModifiers::NONE;
     let tokens: Vec<&str> = key_s.split('+').collect();
