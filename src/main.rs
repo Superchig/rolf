@@ -829,6 +829,7 @@ fn run(
                         fm.second.starting_index,
                         second_entry_index,
                         &fm.dir_states.current_entries,
+                        &fm.selections,
                     );
 
                     let third_column_rect = Rect {
@@ -888,6 +889,7 @@ fn run(
                                     starting_index,
                                     entry_index,
                                     entries_info,
+                                    &fm.selections,
                                 );
                             }
                             PreviewData::UncoloredFile { path } => {
@@ -1980,6 +1982,7 @@ fn draw_column(
     file_top_ind: u16,
     file_curr_ind: u16,
     items: &[DirEntryInfo],
+    selections: &SelectionsMap,
 ) {
     let inner_left_x = rect.left_x + 1;
 
@@ -2005,6 +2008,24 @@ fn draw_column(
         }
 
         let entry_info = &items[ind as usize];
+
+        // Draw the selection marking
+
+        if selections.contains_key(&entry_info.dir_entry.path()) {
+            screen.set_cell_style(
+                rect.left_x,
+                y,
+                ' ',
+                rolf_grid::Style::new_color(
+                    rolf_grid::Color::Foreground,
+                    rolf_grid::Color::Magenta,
+                ),
+            );
+        } else {
+            screen.set_cell_style(rect.left_x, y, ' ', rolf_grid::Style::default());
+        }
+
+        // Draw the file name
 
         let mut draw_style = if ind == file_curr_ind {
             Style::new_attr(rolf_grid::Attribute::Reverse)
@@ -2084,6 +2105,7 @@ fn draw_first_column(screen: &mut Screen, fm: &mut FileManager) {
             starting_index,
             entry_index,
             &fm.dir_states.prev_entries,
+            &fm.selections,
         );
     }
 }
