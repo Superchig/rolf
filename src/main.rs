@@ -519,6 +519,26 @@ fn run(
                                 "toggle" => {
                                     toggle_selection(&mut fm, second_entry_index);
                                 }
+                                "toggle-down" => {
+                                    toggle_selection(&mut fm, second_entry_index);
+
+                                    if !fm.dir_states.current_entries.is_empty()
+                                        && (second_entry_index as usize)
+                                            < fm.dir_states.current_entries.len() - 1
+                                    {
+                                        abort_image_handles(&mut fm.image_handles);
+
+                                        if fm.second.display_offset
+                                            >= (fm.drawing_info.column_height - SCROLL_OFFSET - 1)
+                                            && (second_bottom_index as usize)
+                                                < fm.dir_states.current_entries.len()
+                                        {
+                                            fm.second.starting_index += 1;
+                                        } else if second_entry_index < second_bottom_index {
+                                            fm.second.display_offset += 1;
+                                        }
+                                    }
+                                }
                                 "read" => {
                                     enter_command_mode_with(
                                         &mut fm,
