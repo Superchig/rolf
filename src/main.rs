@@ -544,6 +544,7 @@ fn run(
                                         defer! {
                                             quit_command_thread(&to_our_tx);
                                         }
+
                                         let new_name: String = to_command_rx.recv().unwrap();
                                         if new_name.is_empty() {
                                             return;
@@ -582,24 +583,57 @@ fn run(
                                                 new_name,
                                             })
                                             .expect("Failed to send to main thread");
-
                                     });
                                 }
                                 "delete" => {
                                     if fm.selections.is_empty() {
                                         // Delete the current file
 
-                                        let selected_entry = &fm.dir_states.current_entries
-                                            [second_entry_index as usize];
+                                        // Get the full path of the current file
+                                        let current_file = &fm.dir_states.current_entries
+                                            [second_entry_index as usize]
+                                            .dir_entry;
+                                        let current_file_path = current_file.path();
 
-                                        fs::remove_dir_all(selected_entry.dir_entry.path())?;
+                                        enter_command_mode_with(
+                                            &mut fm,
+                                            // NOTE(Chris): We have a single space to ensure that
+                                            // the cursor is a space after the prompt
+                                            " ",
+                                            format!(
+                                                "Delete '{}' ? (y/n)",
+                                                &current_file_path
+                                                    .as_os_str()
+                                                    .to_str()
+                                                    .expect("File name not in UTF-8")
+                                            ),
+                                            AskingType::AdditionalInputKey,
+                                        );
 
-                                        set_current_dir(
-                                            fm.dir_states.current_dir.clone(),
-                                            &mut fm.dir_states,
-                                            &mut fm.match_positions,
-                                        )
-                                        .expect("Failed to update current directory");
+                                        let (new_tx, to_command_rx) = channel();
+
+                                        to_command_tx = Some(new_tx);
+
+                                        let to_our_tx = tx.clone();
+
+                                        std::thread::spawn(move || {
+                                            defer! {
+                                                quit_command_thread(&to_our_tx);
+                                            }
+
+                                            let next_input: String = to_command_rx.recv().unwrap();
+                                            // NOTE(Chris): We potentially have a space after the
+                                            // y, since the starting prompt is a single space
+                                            if next_input != "y" && next_input != " y" {
+                                                return;
+                                            }
+
+                                            fs::remove_dir_all(&current_file_path).expect("Failed to delete file");
+
+                                            to_our_tx
+                                                .send(InputEvent::ReloadCurrentDir)
+                                                .expect("Failed to send to main thread");
+                                        });
                                     }
                                 }
                                 "help" => {
@@ -1521,6 +1555,14 @@ fn run(
                     leave_command_mode(&mut fm);
                 }
             },
+            InputEvent::ReloadCurrentDir => {
+                set_current_dir(
+                    fm.dir_states.current_dir.clone(),
+                    &mut fm.dir_states,
+                    &mut fm.match_positions,
+                )
+                .expect("Failed to update current directory");
+            }
             InputEvent::ReloadCurrentDirThenFileJump { new_name } => {
                 set_current_dir(
                     fm.dir_states.current_dir.clone(),
@@ -1730,6 +1772,7 @@ enum InputEvent {
     },
     PreviewLoaded(PreviewData),
     CommandRequest(CommandRequest),
+    ReloadCurrentDir,
     ReloadCurrentDirThenFileJump {
         new_name: String,
     },
@@ -1742,6 +1785,7 @@ impl InputEvent {
             InputEvent::CrosstermEvent { .. } => "CrosstermEvent",
             InputEvent::PreviewLoaded(_) => "PreviewLoaded",
             InputEvent::CommandRequest(_) => "CommandRequest",
+            InputEvent::ReloadCurrentDir => "ReloadCurrentDir",
             InputEvent::ReloadCurrentDirThenFileJump { .. } => "ReloadCurrentDirThenFileJump",
             // _ => "UNSUPPORTED EVENT DISPLAY",
         }
