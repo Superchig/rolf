@@ -637,6 +637,7 @@ dependencies = [
  "rolf-grid",
  "rolf-parser",
  "rusqlite",
+ "scopeguard",
  "tempfile",
  "thiserror",
  "which",

@@ -22,6 +22,7 @@ use human_size::human_size;
 use image::png::PngEncoder;
 use natural_sort::cmp_natural;
 use os_abstract::WindowPixels;
+use scopeguard::defer;
 use tiff::{usizeify, Endian, EntryTag, EntryType, IFDEntry};
 
 #[cfg(unix)]
@@ -540,9 +541,11 @@ fn run(
                                     let to_our_tx = tx.clone();
 
                                     std::thread::spawn(move || {
+                                        defer! {
+                                            quit_command_thread(&to_our_tx);
+                                        }
                                         let new_name: String = to_command_rx.recv().unwrap();
                                         if new_name.is_empty() {
-                                            quit_command_thread(&to_our_tx);
                                             return;
                                         }
 
@@ -556,12 +559,10 @@ fn run(
                                             .expect("Failed to send to main thread");
                                         let next_input: String = to_command_rx.recv().unwrap();
                                         if next_input.is_empty() {
-                                            quit_command_thread(&to_our_tx);
                                             return;
                                         }
 
                                         if next_input != "y" {
-                                            quit_command_thread(&to_our_tx);
                                             return;
                                         }
 
@@ -582,10 +583,6 @@ fn run(
                                             })
                                             .expect("Failed to send to main thread");
 
-                                        // NOTE(Chris): We should always end with this function
-                                        // TODO(Chris): Use some sort of defer macro to ensure that this
-                                        // function is always called
-                                        quit_command_thread(&to_our_tx);
                                     });
                                 }
                                 "delete" => {
