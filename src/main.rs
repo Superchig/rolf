@@ -330,22 +330,7 @@ fn run(
                                     break 'input;
                                 }
                                 "down" => {
-                                    if !fm.dir_states.current_entries.is_empty()
-                                        && (second_entry_index as usize)
-                                            < fm.dir_states.current_entries.len() - 1
-                                    {
-                                        abort_image_handles(&mut fm.image_handles);
-
-                                        if fm.second.display_offset
-                                            >= (fm.drawing_info.column_height - SCROLL_OFFSET - 1)
-                                            && (second_bottom_index as usize)
-                                                < fm.dir_states.current_entries.len()
-                                        {
-                                            fm.second.starting_index += 1;
-                                        } else if second_entry_index < second_bottom_index {
-                                            fm.second.display_offset += 1;
-                                        }
-                                    }
+                                    cursor_down(&mut fm, second_entry_index, second_bottom_index);
                                 }
                                 "up" => {
                                     if !fm.dir_states.current_entries.is_empty() {
@@ -522,22 +507,7 @@ fn run(
                                 "toggle-down" => {
                                     toggle_selection(&mut fm, second_entry_index);
 
-                                    if !fm.dir_states.current_entries.is_empty()
-                                        && (second_entry_index as usize)
-                                            < fm.dir_states.current_entries.len() - 1
-                                    {
-                                        abort_image_handles(&mut fm.image_handles);
-
-                                        if fm.second.display_offset
-                                            >= (fm.drawing_info.column_height - SCROLL_OFFSET - 1)
-                                            && (second_bottom_index as usize)
-                                                < fm.dir_states.current_entries.len()
-                                        {
-                                            fm.second.starting_index += 1;
-                                        } else if second_entry_index < second_bottom_index {
-                                            fm.second.display_offset += 1;
-                                        }
-                                    }
+                                    cursor_down(&mut fm, second_entry_index, second_bottom_index);
                                 }
                                 "read" => {
                                     enter_command_mode_with(
@@ -1787,6 +1757,22 @@ fn toggle_selection(fm: &mut FileManager, second_entry_index: u16) {
     if remove.is_none() {
         fm.selections
             .insert(entry_path, second_entry_index as usize);
+    }
+}
+
+fn cursor_down(fm: &mut FileManager, second_entry_index: u16, second_bottom_index: u16) {
+    if !fm.dir_states.current_entries.is_empty()
+        && (second_entry_index as usize) < fm.dir_states.current_entries.len() - 1
+    {
+        abort_image_handles(&mut fm.image_handles);
+
+        if fm.second.display_offset >= (fm.drawing_info.column_height - SCROLL_OFFSET - 1)
+            && (second_bottom_index as usize) < fm.dir_states.current_entries.len()
+        {
+            fm.second.starting_index += 1;
+        } else if second_entry_index < second_bottom_index {
+            fm.second.display_offset += 1;
+        }
     }
 }
 
