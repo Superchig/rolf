@@ -588,6 +588,23 @@ fn run(
                                         quit_command_thread(&to_our_tx);
                                     });
                                 }
+                                "delete" => {
+                                    if fm.selections.is_empty() {
+                                        // Delete the current file
+
+                                        let selected_entry = &fm.dir_states.current_entries
+                                            [second_entry_index as usize];
+
+                                        fs::remove_dir_all(selected_entry.dir_entry.path())?;
+
+                                        set_current_dir(
+                                            fm.dir_states.current_dir.clone(),
+                                            &mut fm.dir_states,
+                                            &mut fm.match_positions,
+                                        )
+                                        .expect("Failed to update current directory");
+                                    }
+                                }
                                 "help" => {
                                     let mut keybindings_vec: Vec<(String, String, String)> = fm
                                         .config
