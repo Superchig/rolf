@@ -517,16 +517,7 @@ fn run(
                                     fm.should_search_forwards = !fm.should_search_forwards;
                                 }
                                 "toggle" => {
-                                    let selected_entry =
-                                        &fm.dir_states.current_entries[second_entry_index as usize];
-
-                                    let entry_path = selected_entry.dir_entry.path();
-
-                                    let remove = fm.selections.remove(&entry_path);
-                                    if remove.is_none() {
-                                        fm.selections
-                                            .insert(entry_path, second_entry_index as usize);
-                                    }
+                                    toggle_selection(&mut fm, second_entry_index);
                                 }
                                 "read" => {
                                     enter_command_mode_with(
@@ -1763,6 +1754,18 @@ enum CommandRequest {
         ask_for_single_key: bool,
     },
     Quit,
+}
+
+fn toggle_selection(fm: &mut FileManager, second_entry_index: u16) {
+    let selected_entry = &fm.dir_states.current_entries[second_entry_index as usize];
+
+    let entry_path = selected_entry.dir_entry.path();
+
+    let remove = fm.selections.remove(&entry_path);
+    if remove.is_none() {
+        fm.selections
+            .insert(entry_path, second_entry_index as usize);
+    }
 }
 
 fn get_help_view_rect(drawing_info: DrawingInfo) -> Rect {
