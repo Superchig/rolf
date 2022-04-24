@@ -1865,24 +1865,30 @@ fn reload_current_dir(fm: &mut FileManager, tx: &Sender<InputEvent>) {
     )
     .expect("Failed to update current directory");
 
-    let mut desired_second_entry_index = fm.get_second_entry_index();
+    if fm.dir_states.current_entries.is_empty() {
+        fm.second = ColumnInfo { starting_index: 0, display_offset: 0 };
 
-    if fm.dir_states.current_entries.len() <= desired_second_entry_index as usize {
-        desired_second_entry_index = (fm.dir_states.current_entries.len() - 1) as u16;
+        fm.preview_data = PreviewData::Blank;
+    } else {
+        let mut desired_second_entry_index = fm.get_second_entry_index();
 
-        fm.second = find_column_pos(
-            fm.dir_states.current_entries.len(),
-            fm.drawing_info.column_height,
-            ColumnInfo {
-                starting_index: 0,
-                display_offset: 0,
-            },
-            desired_second_entry_index as usize,
-        )
-        .unwrap();
+        if fm.dir_states.current_entries.len() <= desired_second_entry_index as usize {
+            desired_second_entry_index = (fm.dir_states.current_entries.len() - 1) as u16;
+
+            fm.second = find_column_pos(
+                fm.dir_states.current_entries.len(),
+                fm.drawing_info.column_height,
+                ColumnInfo {
+                    starting_index: 0,
+                    display_offset: 0,
+                },
+                desired_second_entry_index as usize,
+            )
+            .unwrap();
+        }
+
+        set_preview_data_with_thread(fm, tx, desired_second_entry_index as u16);
     }
-
-    set_preview_data_with_thread(fm, tx, desired_second_entry_index as u16);
 }
 
 fn remove_at_path<P: AsRef<Path>>(path: P) -> io::Result<()> {
