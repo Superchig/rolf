@@ -635,6 +635,44 @@ fn run(
                                                 .send(InputEvent::ReloadCurrentDir)
                                                 .expect("Failed to send to main thread");
                                         });
+                                    } else {
+                                        // Delete the selected files
+
+                                        let selections_len = fm.selections.len();
+                                        enter_command_mode_with(
+                                            &mut fm,
+                                            // NOTE(Chris): We have a single space to ensure that
+                                            // the cursor is a space after the prompt
+                                            " ",
+                                            format!("Delete {} items? (y/n)", selections_len,),
+                                            AskingType::AdditionalInputKey,
+                                        );
+
+                                        // TODO(Chris): Refactor this thread spawning and
+                                        // channel-sending into its own function, as it's now used
+                                        // three times
+                                        let (new_tx, to_command_rx) = channel();
+
+                                        to_command_tx = Some(new_tx);
+
+                                        let to_our_tx = tx.clone();
+
+                                        std::thread::spawn(move || {
+                                            defer! {
+                                                quit_command_thread(&to_our_tx);
+                                            }
+
+                                            let next_input: String = to_command_rx.recv().unwrap();
+                                            // NOTE(Chris): We potentially have a space after the
+                                            // y, since the starting prompt is a single space
+                                            if next_input != "y" && next_input != " y" {
+                                                return;
+                                            }
+
+                                            to_our_tx
+                                                .send(InputEvent::DeleteSelectionsThenReload)
+                                                .expect("Failed to send to main thread");
+                                        });
                                     }
                                 }
                                 "help" => {
@@ -1566,6 +1604,22 @@ fn run(
 
                 set_preview_data_with_thread(&mut fm, &tx, second_entry_index);
             }
+            InputEvent::DeleteSelectionsThenReload => {
+                for (selection_path, _selection_index) in fm.selections.iter() {
+                    remove_at_path(selection_path).expect("Failed to delete file");
+                }
+
+                fm.selections.clear();
+
+                set_current_dir(
+                    fm.dir_states.current_dir.clone(),
+                    &mut fm.dir_states,
+                    &mut fm.match_positions,
+                )
+                .expect("Failed to update current directory");
+
+                set_preview_data_with_thread(&mut fm, &tx, second_entry_index);
+            }
             InputEvent::ReloadCurrentDirThenFileJump { new_name } => {
                 set_current_dir(
                     fm.dir_states.current_dir.clone(),
@@ -1779,6 +1833,7 @@ enum InputEvent {
     ReloadCurrentDirThenFileJump {
         new_name: String,
     },
+    DeleteSelectionsThenReload,
 }
 
 impl InputEvent {
@@ -1790,6 +1845,7 @@ impl InputEvent {
             InputEvent::CommandRequest(_) => "CommandRequest",
             InputEvent::ReloadCurrentDir => "ReloadCurrentDir",
             InputEvent::ReloadCurrentDirThenFileJump { .. } => "ReloadCurrentDirThenFileJump",
+            InputEvent::DeleteSelectionsThenReload => "DeleteSelectionsThenReload",
             // _ => "UNSUPPORTED EVENT DISPLAY",
         }
     }
