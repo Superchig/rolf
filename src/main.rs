@@ -1563,6 +1563,8 @@ fn run(
                     &mut fm.match_positions,
                 )
                 .expect("Failed to update current directory");
+
+                set_preview_data_with_thread(&mut fm, &tx, second_entry_index);
             }
             InputEvent::ReloadCurrentDirThenFileJump { new_name } => {
                 set_current_dir(
