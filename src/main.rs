@@ -1865,30 +1865,27 @@ fn reload_current_dir(fm: &mut FileManager, tx: &Sender<InputEvent>) {
     )
     .expect("Failed to update current directory");
 
-    if fm.dir_states.current_entries.is_empty() {
-        fm.second = ColumnInfo { starting_index: 0, display_offset: 0 };
-
-        fm.preview_data = PreviewData::Blank;
+    fm.second = if fm.dir_states.current_entries.len() <= fm.get_second_entry_index() as usize
+        && !fm.dir_states.current_entries.is_empty()
+    {
+        find_column_pos(
+            fm.dir_states.current_entries.len(),
+            fm.drawing_info.column_height,
+            ColumnInfo {
+                starting_index: 0,
+                display_offset: 0,
+            },
+            fm.dir_states.current_entries.len() - 1,
+        )
+        .unwrap()
     } else {
-        let mut desired_second_entry_index = fm.get_second_entry_index();
-
-        if fm.dir_states.current_entries.len() <= desired_second_entry_index as usize {
-            desired_second_entry_index = (fm.dir_states.current_entries.len() - 1) as u16;
-
-            fm.second = find_column_pos(
-                fm.dir_states.current_entries.len(),
-                fm.drawing_info.column_height,
-                ColumnInfo {
-                    starting_index: 0,
-                    display_offset: 0,
-                },
-                desired_second_entry_index as usize,
-            )
-            .unwrap();
+        ColumnInfo {
+            starting_index: 0,
+            display_offset: 0,
         }
+    };
 
-        set_preview_data_with_thread(fm, tx, desired_second_entry_index as u16);
-    }
+    set_preview_data_with_thread(fm, tx, fm.get_second_entry_index());
 }
 
 fn remove_at_path<P: AsRef<Path>>(path: P) -> io::Result<()> {
@@ -1993,6 +1990,11 @@ fn set_preview_data_with_thread(
     tx: &Sender<InputEvent>,
     second_entry_index: u16,
 ) {
+    if fm.dir_states.current_entries.is_empty() {
+        fm.preview_data = PreviewData::Blank;
+        return;
+    }
+
     let second_entry = &fm.dir_states.current_entries[second_entry_index as usize];
 
     fm.preview_data = PreviewData::Loading;
