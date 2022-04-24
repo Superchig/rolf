@@ -1068,6 +1068,7 @@ fn run(
 
                                         queue!(
                                             w,
+                                            style::SetAttribute(style::Attribute::Reset),
                                             cursor::MoveTo(fm.drawing_info.third_left_x, 1),
                                             // Hide the "Should display!" / "Loading..." message
                                             style::Print("               "),
@@ -1121,6 +1122,7 @@ fn run(
 
                                             queue!(
                                                 w,
+                                                style::SetAttribute(style::Attribute::Reset),
                                                 cursor::MoveTo(inner_left_x, 1),
                                                 style::Print("          "),
                                                 cursor::MoveTo(left_x, 1),
@@ -1154,6 +1156,7 @@ fn run(
 
                                 queue!(
                                     w,
+                                    style::SetAttribute(style::Attribute::Reset),
                                     cursor::MoveTo(fm.drawing_info.third_left_x, 1),
                                     // Hide the "Should display!" / "Loading..." message
                                     style::Print("               "),
