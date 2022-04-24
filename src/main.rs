@@ -628,7 +628,8 @@ fn run(
                                                 return;
                                             }
 
-                                            fs::remove_dir_all(&current_file_path).expect("Failed to delete file");
+                                            remove_at_path(&current_file_path)
+                                                .expect("Failed to delete file");
 
                                             to_our_tx
                                                 .send(InputEvent::ReloadCurrentDir)
@@ -1804,6 +1805,18 @@ enum CommandRequest {
         ask_for_single_key: bool,
     },
     Quit,
+}
+
+fn remove_at_path<P: AsRef<Path>>(path: P) -> io::Result<()> {
+    let metadata = fs::metadata(&path)?;
+
+    if metadata.is_dir() {
+        fs::remove_dir_all(&path)?;
+    } else {
+        fs::remove_file(&path)?;
+    }
+
+    Ok(())
 }
 
 fn toggle_selection(fm: &mut FileManager, second_entry_index: u16) {
