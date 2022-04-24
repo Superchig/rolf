@@ -307,7 +307,7 @@ fn run(
 
     // Main input loop
     'input: loop {
-        let second_entry_index = fm.second.starting_index + fm.second.display_offset;
+        let second_entry_index = fm.get_second_entry_index();
 
         let second_bottom_index = fm.second.starting_index + fm.drawing_info.column_height;
 
@@ -740,7 +740,7 @@ fn run(
         // TODO(Chris): Move this second_entry_index computation into function
         // NOTE(Chris): Recompute second_entry_index since the relevant values may have
         // been modified
-        let second_entry_index = fm.second.starting_index + fm.second.display_offset;
+        let second_entry_index = fm.get_second_entry_index();
 
         let input_mode_top = fm.input_mode.to_top();
 
@@ -1595,14 +1595,7 @@ fn run(
                 }
             },
             InputEvent::ReloadCurrentDir => {
-                set_current_dir(
-                    fm.dir_states.current_dir.clone(),
-                    &mut fm.dir_states,
-                    &mut fm.match_positions,
-                )
-                .expect("Failed to update current directory");
-
-                set_preview_data_with_thread(&mut fm, &tx, second_entry_index);
+                reload_current_dir(&mut fm, &tx);
             }
             InputEvent::DeleteSelectionsThenReload => {
                 for (selection_path, _selection_index) in fm.selections.iter() {
@@ -1611,14 +1604,7 @@ fn run(
 
                 fm.selections.clear();
 
-                set_current_dir(
-                    fm.dir_states.current_dir.clone(),
-                    &mut fm.dir_states,
-                    &mut fm.match_positions,
-                )
-                .expect("Failed to update current directory");
-
-                set_preview_data_with_thread(&mut fm, &tx, second_entry_index);
+                reload_current_dir(&mut fm, &tx);
             }
             InputEvent::ReloadCurrentDirThenFileJump { new_name } => {
                 set_current_dir(
@@ -1673,6 +1659,12 @@ struct FileManager<'a> {
     config: Config,
 
     preview_data: PreviewData,
+}
+
+impl FileManager<'_> {
+    fn get_second_entry_index(&self) -> u16 {
+        self.second.starting_index + self.second.display_offset
+    }
 }
 
 #[derive(Debug)]
@@ -1863,6 +1855,34 @@ enum CommandRequest {
         ask_for_single_key: bool,
     },
     Quit,
+}
+
+fn reload_current_dir(fm: &mut FileManager, tx: &Sender<InputEvent>) {
+    set_current_dir(
+        fm.dir_states.current_dir.clone(),
+        &mut fm.dir_states,
+        &mut fm.match_positions,
+    )
+    .expect("Failed to update current directory");
+
+    let mut desired_second_entry_index = fm.get_second_entry_index();
+
+    if fm.dir_states.current_entries.len() <= desired_second_entry_index as usize {
+        desired_second_entry_index = (fm.dir_states.current_entries.len() - 1) as u16;
+
+        fm.second = find_column_pos(
+            fm.dir_states.current_entries.len(),
+            fm.drawing_info.column_height,
+            ColumnInfo {
+                starting_index: 0,
+                display_offset: 0,
+            },
+            desired_second_entry_index as usize,
+        )
+        .unwrap();
+    }
+
+    set_preview_data_with_thread(fm, tx, desired_second_entry_index as u16);
 }
 
 fn remove_at_path<P: AsRef<Path>>(path: P) -> io::Result<()> {
