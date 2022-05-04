@@ -424,6 +424,12 @@ fn run(
                                             cursor::Hide
                                         )?;
 
+                                        set_preview_data_with_thread(
+                                            &mut fm,
+                                            &tx,
+                                            second_entry_index,
+                                        );
+
                                         let mut screen_lock =
                                             screen.lock().expect("Failed to lock screen mutex!");
                                         let screen_lock = &mut *screen_lock;
