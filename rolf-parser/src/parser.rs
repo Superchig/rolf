@@ -78,7 +78,7 @@ fn lex_id(scanner: &mut Scanner) -> LexResult<Token> {
             continue;
         }
 
-        let uppercase = scanner.pop_in_range('a'..='z');
+        let uppercase = scanner.pop_in_range('A'..='Z');
 
         if let Some(letter) = uppercase {
             buf.push(letter);
