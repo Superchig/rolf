@@ -21,7 +21,7 @@ use config::{get_command_desc, to_string, Config, ImageProtocol};
 use human_size::human_size;
 use image::png::PngEncoder;
 use natural_sort::cmp_natural;
-use os_abstract::WindowPixels;
+use os_abstract::{get_file_id, WindowPixels};
 use scopeguard::defer;
 use tiff::{usizeify, Endian, EntryTag, EntryType, IFDEntry};
 
@@ -526,10 +526,13 @@ fn run(
                                 }
                                 "rename" => {
                                     // Get the full path of the current file
-                                    let current_file = &fm.dir_states.current_entries
-                                        [second_entry_index as usize]
-                                        .dir_entry;
+                                    let current_entry_info =
+                                        &fm.dir_states.current_entries[second_entry_index as usize];
+                                    let current_file = &current_entry_info.dir_entry;
                                     let current_file_path = current_file.path();
+
+                                    let current_metadata = &current_entry_info.metadata;
+                                    let file_id = get_file_id(current_metadata);
 
                                     enter_command_mode_with(
                                         &mut fm,
@@ -586,7 +589,7 @@ fn run(
 
                                         to_our_tx
                                             .send(InputEvent::ReloadCurrentDirThenFileJump {
-                                                new_name,
+                                                file_id,
                                             })
                                             .expect("Failed to send to main thread");
                                     });
@@ -1615,7 +1618,7 @@ fn run(
 
                 reload_current_dir(&mut fm, &tx);
             }
-            InputEvent::ReloadCurrentDirThenFileJump { new_name } => {
+            InputEvent::ReloadCurrentDirThenFileJump { file_id } => {
                 set_current_dir(
                     fm.dir_states.current_dir.clone(),
                     &mut fm.dir_states,
@@ -1623,10 +1626,21 @@ fn run(
                 )
                 .expect("Failed to update current directory");
 
-                fm.match_positions =
-                    find_match_positions(&fm.dir_states.current_entries, &new_name);
+                let current_entry_info_index = fm.dir_states
+                    .current_entries
+                    .iter()
+                    .position(|entry_info| get_file_id(&entry_info.metadata) == file_id);
 
-                search_jump(&mut fm)?;
+                if let Some(current_entry_info_index) = current_entry_info_index {
+                    fm.match_positions = vec![current_entry_info_index];
+
+                    search_jump(&mut fm)?;
+                } else {
+                    fm.second = ColumnInfo {
+                        starting_index: 0,
+                        display_offset: 0,
+                    }
+                };
             }
         }
     }
@@ -1832,7 +1846,7 @@ enum InputEvent {
     CommandRequest(CommandRequest),
     ReloadCurrentDir,
     ReloadCurrentDirThenFileJump {
-        new_name: String,
+        file_id: u64,
     },
     DeleteSelectionsThenReload,
 }

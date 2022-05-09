@@ -79,6 +79,11 @@ pub fn get_home_name() -> String {
     std::env::var("HOME").unwrap()
 }
 
+pub fn get_file_id(metadata: &Metadata) -> u64 {
+    metadata.ino()
+}
+
+
 unsafe fn errno() -> i32 {
     let errno_location = errno_location();
     (*errno_location) as i32
