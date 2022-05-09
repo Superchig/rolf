@@ -1626,7 +1626,8 @@ fn run(
                 )
                 .expect("Failed to update current directory");
 
-                let current_entry_info_index = fm.dir_states
+                let current_entry_info_index = fm
+                    .dir_states
                     .current_entries
                     .iter()
                     .position(|entry_info| get_file_id(&entry_info.metadata) == file_id);
@@ -3152,10 +3153,22 @@ fn get_sorted_entries<P: AsRef<Path>>(path: P) -> io::Result<Vec<DirEntryInfo>> 
                         Err(err) => match err.kind() {
                             io::ErrorKind::NotFound => RecordedFileType::InvalidSymlink,
                             io::ErrorKind::PermissionDenied => RecordedFileType::Unknown,
-                            _ => panic!(
-                                "Error finding out file type of {:?}: {:?}",
-                                &entry_path, err
-                            ),
+                            _ => {
+                                match err.raw_os_error() {
+                                    // This error code represents "Too many levels of symbolic
+                                    // links."
+                                    // The ErrorKind (FilesystemLoop) for this error requires the
+                                    // unstable io_error_more feature:
+                                    // https://github.com/rust-lang/rust/issues/86442
+                                    Some(40) => RecordedFileType::InvalidSymlink,
+                                    Some(_) | None => {
+                                        panic!(
+                                            "Error finding out file type of {:?}: {:?}",
+                                            &entry_path, err
+                                        );
+                                    }
+                                }
+                            }
                         },
                     }
                 } else {
