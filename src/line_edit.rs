@@ -1,5 +1,5 @@
 fn is_word_separator(ch: char) -> bool {
-    ch == ' ' || ch == '_'
+    ch == ' ' || ch == '_' || ch == '.'
 }
 
 pub fn find_prev_word_pos(input_line: &str, cursor_index: usize) -> usize {
