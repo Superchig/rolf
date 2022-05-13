@@ -40,6 +40,3 @@ Once `rolf` is in a more usable state, I'll actually add something useful.
 - [ ] Implement our own png and jpeg decoders
 - [x] Use the kitty protocol (and possibly other terminal image protocols)
       directly for image previews
-- [ ] Make the file manager way faster
-  - [ ] Profile passing DrawingInfo (and possibly ColumnInfo) by reference or
-        by copy
