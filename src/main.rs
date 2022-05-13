@@ -637,7 +637,7 @@ fn run(
                                                 return;
                                             }
 
-                                            remove_at_path(&current_file_path)
+                                            remove_at_path_if_exists(&current_file_path)
                                                 .expect("Failed to delete file");
 
                                             to_our_tx
@@ -1611,7 +1611,7 @@ fn run(
             }
             InputEvent::DeleteSelectionsThenReload => {
                 for (selection_path, _selection_index) in fm.selections.iter() {
-                    remove_at_path(selection_path).expect("Failed to delete file");
+                    remove_at_path_if_exists(selection_path).expect("Failed to delete file");
                 }
 
                 fm.selections.clear();
@@ -1912,8 +1912,16 @@ fn reload_current_dir(fm: &mut FileManager, tx: &Sender<InputEvent>) {
     set_preview_data_with_thread(fm, tx, fm.get_second_entry_index());
 }
 
-fn remove_at_path<P: AsRef<Path>>(path: P) -> io::Result<()> {
-    let metadata = fs::metadata(&path)?;
+fn remove_at_path_if_exists<P: AsRef<Path>>(path: P) -> io::Result<()> {
+    let metadata = match fs::metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(err) => match err.kind() {
+            io::ErrorKind::NotFound => {
+                return Ok(());
+            }
+            _ => return Err(err),
+        },
+    };
 
     if metadata.is_dir() {
         fs::remove_dir_all(&path)?;
