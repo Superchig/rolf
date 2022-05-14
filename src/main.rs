@@ -62,6 +62,12 @@ const SCROLL_OFFSET: u16 = 10;
 type HandlesVec = Vec<DrawHandle>;
 type SelectionsMap = HashMap<PathBuf, usize>;
 
+macro_rules! send_callback_to_main {
+    ($to_main_tx:expr, $command_callback_fn:expr) => {
+        send_callback_to_main($to_main_tx, Box::new($command_callback_fn));
+    };
+}
+
 fn main() -> crossterm::Result<()> {
     let mut w = io::stdout();
 
@@ -640,9 +646,12 @@ fn run(
                                             remove_at_path_if_exists(&current_file_path)
                                                 .expect("Failed to delete file");
 
-                                            to_our_tx
-                                                .send(InputEvent::ReloadCurrentDir)
-                                                .expect("Failed to send to main thread");
+                                            let to_our_tx_2 = to_our_tx.clone();
+                                            send_callback_to_main!(&to_our_tx, move |fm| {
+                                                reload_current_dir(fm, &to_our_tx_2);
+
+                                                Ok(())
+                                            });
                                         });
                                     } else {
                                         // Delete the selected files
@@ -678,9 +687,21 @@ fn run(
                                                 return;
                                             }
 
-                                            to_our_tx
-                                                .send(InputEvent::DeleteSelectionsThenReload)
-                                                .expect("Failed to send to main thread");
+                                            let to_our_tx_2 = to_our_tx.clone();
+                                            send_callback_to_main!(&to_our_tx, move |fm| {
+                                                for (selection_path, _selection_index) in
+                                                    fm.selections.iter()
+                                                {
+                                                    remove_at_path_if_exists(selection_path)
+                                                        .expect("Failed to delete file");
+                                                }
+
+                                                fm.selections.clear();
+
+                                                reload_current_dir(fm, &to_our_tx_2);
+
+                                                Ok(())
+                                            });
                                         });
                                     }
                                 }
@@ -1620,18 +1641,6 @@ fn run(
                     leave_command_mode(&mut fm);
                 }
             },
-            InputEvent::ReloadCurrentDir => {
-                reload_current_dir(&mut fm, &tx);
-            }
-            InputEvent::DeleteSelectionsThenReload => {
-                for (selection_path, _selection_index) in fm.selections.iter() {
-                    remove_at_path_if_exists(selection_path).expect("Failed to delete file");
-                }
-
-                fm.selections.clear();
-
-                reload_current_dir(&mut fm, &tx);
-            }
             InputEvent::ReloadCurrentDirThenFileJump { file_id } => {
                 set_current_dir(
                     fm.dir_states.current_dir.clone(),
@@ -1641,6 +1650,9 @@ fn run(
                 .expect("Failed to update current directory");
 
                 jump_by_file_id(&mut fm, file_id)?;
+            }
+            InputEvent::CommandCallback(CommandCallback(cb)) => {
+                cb(&mut fm)?;
             }
         }
     }
@@ -1844,11 +1856,10 @@ enum InputEvent {
     },
     PreviewLoaded(PreviewData),
     CommandRequest(CommandRequest),
-    ReloadCurrentDir,
     ReloadCurrentDirThenFileJump {
         file_id: u64,
     },
-    DeleteSelectionsThenReload,
+    CommandCallback(CommandCallback),
 }
 
 impl InputEvent {
@@ -1858,12 +1869,26 @@ impl InputEvent {
             InputEvent::CrosstermEvent { .. } => "CrosstermEvent",
             InputEvent::PreviewLoaded(_) => "PreviewLoaded",
             InputEvent::CommandRequest(_) => "CommandRequest",
-            InputEvent::ReloadCurrentDir => "ReloadCurrentDir",
             InputEvent::ReloadCurrentDirThenFileJump { .. } => "ReloadCurrentDirThenFileJump",
-            InputEvent::DeleteSelectionsThenReload => "DeleteSelectionsThenReload",
+            InputEvent::CommandCallback(_) => "CommandCallback",
             // _ => "UNSUPPORTED EVENT DISPLAY",
         }
     }
+}
+
+struct CommandCallback(Box<CommandCallbackFn>);
+type CommandCallbackFn = dyn FnOnce(&mut FileManager) -> io::Result<()> + Send;
+
+impl std::fmt::Debug for CommandCallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CommandCallback(...)")
+    }
+}
+
+fn send_callback_to_main(to_main_tx: &Sender<InputEvent>, cb: Box<CommandCallbackFn>) {
+    to_main_tx
+        .send(InputEvent::CommandCallback(CommandCallback(cb)))
+        .expect("Failed to send to main thread");
 }
 
 enum InputRequest {
