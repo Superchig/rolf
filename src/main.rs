@@ -593,11 +593,18 @@ fn run(
                                         fs::rename(current_file_path, new_file_path)
                                             .expect("Failed to rename file");
 
-                                        to_our_tx
-                                            .send(InputEvent::ReloadCurrentDirThenFileJump {
-                                                file_id,
-                                            })
-                                            .expect("Failed to send to main thread");
+                                        send_callback_to_main!(&to_our_tx, move |fm| {
+                                            set_current_dir(
+                                                fm.dir_states.current_dir.clone(),
+                                                &mut fm.dir_states,
+                                                &mut fm.match_positions,
+                                            )
+                                            .expect("Failed to update current directory");
+
+                                            jump_by_file_id(fm, file_id)?;
+
+                                            Ok(())
+                                        });
                                     });
                                 }
                                 "delete" => {
@@ -1641,16 +1648,6 @@ fn run(
                     leave_command_mode(&mut fm);
                 }
             },
-            InputEvent::ReloadCurrentDirThenFileJump { file_id } => {
-                set_current_dir(
-                    fm.dir_states.current_dir.clone(),
-                    &mut fm.dir_states,
-                    &mut fm.match_positions,
-                )
-                .expect("Failed to update current directory");
-
-                jump_by_file_id(&mut fm, file_id)?;
-            }
             InputEvent::CommandCallback(CommandCallback(cb)) => {
                 cb(&mut fm)?;
             }
@@ -1856,9 +1853,6 @@ enum InputEvent {
     },
     PreviewLoaded(PreviewData),
     CommandRequest(CommandRequest),
-    ReloadCurrentDirThenFileJump {
-        file_id: u64,
-    },
     CommandCallback(CommandCallback),
 }
 
@@ -1869,7 +1863,6 @@ impl InputEvent {
             InputEvent::CrosstermEvent { .. } => "CrosstermEvent",
             InputEvent::PreviewLoaded(_) => "PreviewLoaded",
             InputEvent::CommandRequest(_) => "CommandRequest",
-            InputEvent::ReloadCurrentDirThenFileJump { .. } => "ReloadCurrentDirThenFileJump",
             InputEvent::CommandCallback(_) => "CommandCallback",
             // _ => "UNSUPPORTED EVENT DISPLAY",
         }
