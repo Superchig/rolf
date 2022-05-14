@@ -932,6 +932,20 @@ fn run(
                             set_preview_data_with_thread(&mut fm, &tx, second_entry_index);
                         }
 
+                        // NOTE(Chris): We manually hide the cursor here to avoid showing it when
+                        // manually sending graphics escape codes or writing raw preview data
+                        // TODO(Chris): Figure out how to avoid explicitly hiding the cursor here,
+                        // as this should be automatically handled by our intermediary
+                        // terminal-drawing layer. Maybe using notcurses, rather than rolling our
+                        // own tcell-like API, would help? We'd want the Rust bindings to move
+                        // beyond a development version first, though.
+                        {
+                            let stdout = io::stdout();
+                            let mut w = stdout.lock();
+
+                            queue!(w, cursor::Hide)?;
+                        }
+
                         match &fm.preview_data {
                             PreviewData::Loading => {
                                 draw_str(
