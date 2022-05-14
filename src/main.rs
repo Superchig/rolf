@@ -705,14 +705,21 @@ fn run(
 
                                             let to_our_tx_2 = to_our_tx.clone();
                                             send_callback_to_main!(&to_our_tx, move |fm| {
-                                                let current_file_path =
-                                                    fm.dir_states.current_entries
-                                                        [fm.get_second_entry_index() as usize]
-                                                        .dir_entry
-                                                        .path();
-                                                let old_file_id = get_file_id(
-                                                    &fs::metadata(current_file_path).unwrap(),
-                                                );
+                                                let old_file_id =
+                                                    if fm.dir_states.current_entries.is_empty() {
+                                                        0
+                                                    } else {
+                                                        let current_file_path = fm
+                                                            .dir_states
+                                                            .current_entries
+                                                            [fm.get_second_entry_index() as usize]
+                                                            .dir_entry
+                                                            .path();
+                                                        get_file_id(
+                                                            &fs::metadata(current_file_path)
+                                                                .unwrap(),
+                                                        )
+                                                    };
 
                                                 for (selection_path, _selection_index) in
                                                     fm.selections.iter()
@@ -1949,20 +1956,19 @@ fn reload_current_dir_prefer_id(
 
     for index in initial_second_entry_index as usize..fm.dir_states.current_entries.len() {
         let current_entry = &fm.dir_states.current_entries[index];
+        let current_metadata = &current_entry.metadata;
 
-        if let Ok(current_metadata) = fs::metadata(&current_entry.dir_entry.path()) {
-            existing_file_id = Some(get_file_id(&current_metadata));
-            break;
-        }
+        existing_file_id = Some(get_file_id(current_metadata));
+        break;
     }
 
     if existing_file_id.is_none() {
         for index in (0..initial_second_entry_index as usize).rev() {
             if let Some(current_entry) = fm.dir_states.current_entries.get(index) {
-                if let Ok(current_metadata) = fs::metadata(&current_entry.dir_entry.path()) {
-                    existing_file_id = Some(get_file_id(&current_metadata));
-                    break;
-                }
+                let current_metadata = &current_entry.metadata;
+
+                existing_file_id = Some(get_file_id(current_metadata));
+                break;
             }
         }
     }
@@ -2096,7 +2102,10 @@ fn jump_by_file_id(fm: &mut FileManager, file_id: u64) -> io::Result<()> {
 
         search_jump(fm)?;
     } else {
-        return Err(io::Error::new(io::ErrorKind::NotFound, "Unable to jump to file by id"));
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Unable to jump to file by id",
+        ));
     };
 
     Ok(())
