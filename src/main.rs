@@ -1903,20 +1903,28 @@ fn reload_current_dir(fm: &mut FileManager, tx: &Sender<InputEvent>) {
     )
     .expect("Failed to update current directory");
 
-    fm.second = if fm.dir_states.current_entries.len() <= fm.get_second_entry_index() as usize
-        && !fm.dir_states.current_entries.is_empty()
-    {
+    fm.second = if fm.dir_states.current_entries.is_empty() {
+        ColumnInfo {
+            starting_index: 0,
+            display_offset: 0,
+        }
+    } else if fm.dir_states.current_entries.len() <= fm.get_second_entry_index() as usize {
         find_column_pos(
             fm.dir_states.current_entries.len(),
             fm.drawing_info.column_height,
-            ColumnInfo {
-                starting_index: 0,
-                display_offset: 0,
-            },
+            fm.second,
             fm.dir_states.current_entries.len() - 1,
         )
         .unwrap()
+    } else if fm.dir_states.current_entries.len() > fm.get_second_entry_index() as usize {
+        // NOTE(Chris): We explicitly don't really change the value of fm.second here.
+        fm.second
     } else {
+        debug_assert!(
+            false,
+            "Failed to find good placement for second entry index."
+        );
+
         ColumnInfo {
             starting_index: 0,
             display_offset: 0,
