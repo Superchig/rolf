@@ -608,137 +608,149 @@ fn run(
                                     });
                                 }
                                 "delete" => {
-                                    if fm.selections.is_empty() {
-                                        // Delete the current file
+                                    'delete_command: loop {
+                                        if fm.selections.is_empty() {
+                                            // Delete the current file
 
-                                        // Get the full path of the current file
-                                        let current_file = &fm.dir_states.current_entries
-                                            [second_entry_index as usize]
-                                            .dir_entry;
-                                        let current_file_path = current_file.path();
-
-                                        enter_command_mode_with(
-                                            &mut fm,
-                                            // NOTE(Chris): We have a single space to ensure that
-                                            // the cursor is a space after the prompt
-                                            " ",
-                                            format!(
-                                                "Delete '{}' ? (y/n)",
-                                                &current_file_path
-                                                    .as_os_str()
-                                                    .to_str()
-                                                    .expect("File name not in UTF-8")
-                                            ),
-                                            AskingType::AdditionalInputKey,
-                                        );
-
-                                        let (new_tx, to_command_rx) = channel();
-
-                                        to_command_tx = Some(new_tx);
-
-                                        let to_our_tx = tx.clone();
-
-                                        std::thread::spawn(move || {
-                                            defer! {
-                                                quit_command_thread(&to_our_tx);
+                                            // TODO(Chris): Show some sort of error message here
+                                            if fm.dir_states.current_entries.is_empty() {
+                                                break 'delete_command;
                                             }
 
-                                            let next_input: String = to_command_rx.recv().unwrap();
-                                            // NOTE(Chris): We potentially have a space after the
-                                            // y, since the starting prompt is a single space
-                                            if next_input != "y" && next_input != " y" {
-                                                return;
-                                            }
+                                            // Get the full path of the current file
+                                            let current_file = &fm.dir_states.current_entries
+                                                [second_entry_index as usize]
+                                                .dir_entry;
+                                            let current_file_path = current_file.path();
 
-                                            // TODO(Chris): Handle file to be renamed not found
-                                            let old_file_id = get_file_id(
-                                                &fs::metadata(&current_file_path).unwrap(),
+                                            enter_command_mode_with(
+                                                &mut fm,
+                                                // NOTE(Chris): We have a single space to ensure that
+                                                // the cursor is a space after the prompt
+                                                " ",
+                                                format!(
+                                                    "Delete '{}' ? (y/n)",
+                                                    &current_file_path
+                                                        .as_os_str()
+                                                        .to_str()
+                                                        .expect("File name not in UTF-8")
+                                                ),
+                                                AskingType::AdditionalInputKey,
                                             );
 
-                                            remove_at_path_if_exists(&current_file_path)
-                                                .expect("Failed to delete file");
+                                            let (new_tx, to_command_rx) = channel();
 
-                                            let to_our_tx_2 = to_our_tx.clone();
-                                            send_callback_to_main!(&to_our_tx, move |fm| {
-                                                reload_current_dir_prefer_id(
-                                                    fm,
-                                                    old_file_id,
-                                                    &to_our_tx_2,
-                                                );
+                                            to_command_tx = Some(new_tx);
 
-                                                Ok(())
-                                            });
-                                        });
-                                    } else {
-                                        // Delete the selected files
+                                            let to_our_tx = tx.clone();
 
-                                        let selections_len = fm.selections.len();
-                                        enter_command_mode_with(
-                                            &mut fm,
-                                            // NOTE(Chris): We have a single space to ensure that
-                                            // the cursor is a space after the prompt
-                                            " ",
-                                            format!("Delete {} items? (y/n)", selections_len,),
-                                            AskingType::AdditionalInputKey,
-                                        );
-
-                                        // TODO(Chris): Refactor this thread spawning and
-                                        // channel-sending into its own function, as it's now used
-                                        // three times
-                                        let (new_tx, to_command_rx) = channel();
-
-                                        to_command_tx = Some(new_tx);
-
-                                        let to_our_tx = tx.clone();
-
-                                        std::thread::spawn(move || {
-                                            defer! {
-                                                quit_command_thread(&to_our_tx);
-                                            }
-
-                                            let next_input: String = to_command_rx.recv().unwrap();
-                                            // NOTE(Chris): We potentially have a space after the
-                                            // y, since the starting prompt is a single space
-                                            if next_input != "y" && next_input != " y" {
-                                                return;
-                                            }
-
-                                            let to_our_tx_2 = to_our_tx.clone();
-                                            send_callback_to_main!(&to_our_tx, move |fm| {
-                                                let old_file_id =
-                                                    if fm.dir_states.current_entries.is_empty() {
-                                                        0
-                                                    } else {
-                                                        let current_file_path = fm
-                                                            .dir_states
-                                                            .current_entries
-                                                            [fm.get_second_entry_index() as usize]
-                                                            .dir_entry
-                                                            .path();
-                                                        get_file_id(
-                                                            &fs::metadata(current_file_path)
-                                                                .unwrap(),
-                                                        )
-                                                    };
-
-                                                for (selection_path, _selection_index) in
-                                                    fm.selections.iter()
-                                                {
-                                                    remove_at_path_if_exists(selection_path)
-                                                        .expect("Failed to delete file");
+                                            std::thread::spawn(move || {
+                                                defer! {
+                                                    quit_command_thread(&to_our_tx);
                                                 }
 
-                                                fm.selections.clear();
+                                                let next_input: String =
+                                                    to_command_rx.recv().unwrap();
+                                                // NOTE(Chris): We potentially have a space after the
+                                                // y, since the starting prompt is a single space
+                                                if next_input != "y" && next_input != " y" {
+                                                    return;
+                                                }
 
-                                                reload_current_dir_prefer_id(
-                                                    fm,
-                                                    old_file_id,
-                                                    &to_our_tx_2,
+                                                // TODO(Chris): Handle file to be renamed not found
+                                                let old_file_id = get_file_id(
+                                                    &fs::metadata(&current_file_path).unwrap(),
                                                 );
 
-                                                Ok(())
+                                                remove_at_path_if_exists(&current_file_path)
+                                                    .expect("Failed to delete file");
+
+                                                let to_our_tx_2 = to_our_tx.clone();
+                                                send_callback_to_main!(&to_our_tx, move |fm| {
+                                                    reload_current_dir_prefer_id(
+                                                        fm,
+                                                        old_file_id,
+                                                        &to_our_tx_2,
+                                                    );
+
+                                                    Ok(())
+                                                });
                                             });
-                                        });
+                                        } else {
+                                            // Delete the selected files
+
+                                            let selections_len = fm.selections.len();
+                                            enter_command_mode_with(
+                                                &mut fm,
+                                                // NOTE(Chris): We have a single space to ensure that
+                                                // the cursor is a space after the prompt
+                                                " ",
+                                                format!("Delete {} items? (y/n)", selections_len,),
+                                                AskingType::AdditionalInputKey,
+                                            );
+
+                                            // TODO(Chris): Refactor this thread spawning and
+                                            // channel-sending into its own function, as it's now used
+                                            // three times
+                                            let (new_tx, to_command_rx) = channel();
+
+                                            to_command_tx = Some(new_tx);
+
+                                            let to_our_tx = tx.clone();
+
+                                            std::thread::spawn(move || {
+                                                defer! {
+                                                    quit_command_thread(&to_our_tx);
+                                                }
+
+                                                let next_input: String =
+                                                    to_command_rx.recv().unwrap();
+                                                // NOTE(Chris): We potentially have a space after the
+                                                // y, since the starting prompt is a single space
+                                                if next_input != "y" && next_input != " y" {
+                                                    return;
+                                                }
+
+                                                let to_our_tx_2 = to_our_tx.clone();
+                                                send_callback_to_main!(&to_our_tx, move |fm| {
+                                                    let old_file_id =
+                                                        if fm.dir_states.current_entries.is_empty()
+                                                        {
+                                                            0
+                                                        } else {
+                                                            let current_file_path =
+                                                                fm.dir_states.current_entries[fm
+                                                                    .get_second_entry_index()
+                                                                    as usize]
+                                                                    .dir_entry
+                                                                    .path();
+                                                            get_file_id(
+                                                                &fs::metadata(current_file_path)
+                                                                    .unwrap(),
+                                                            )
+                                                        };
+
+                                                    for (selection_path, _selection_index) in
+                                                        fm.selections.iter()
+                                                    {
+                                                        remove_at_path_if_exists(selection_path)
+                                                            .expect("Failed to delete file");
+                                                    }
+
+                                                    fm.selections.clear();
+
+                                                    reload_current_dir_prefer_id(
+                                                        fm,
+                                                        old_file_id,
+                                                        &to_our_tx_2,
+                                                    );
+
+                                                    Ok(())
+                                                });
+                                            });
+                                        }
+
+                                        break 'delete_command;
                                     }
                                 }
                                 "help" => {
