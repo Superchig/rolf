@@ -2356,10 +2356,22 @@ fn find_match_positions(current_entries: &[DirEntryInfo], search_term: &str) -> 
 }
 
 fn set_current_dir<P: AsRef<Path>>(
-    new_current_dir: P,
+    target_new_current_dir: P,
     dir_states: &mut DirStates,
     match_positions: &mut Vec<usize>,
 ) -> crossterm::Result<()> {
+    let mut new_current_dir: &Path = target_new_current_dir.as_ref();
+    let mut metadata = fs::metadata(&target_new_current_dir);
+
+    while metadata.is_err() && new_current_dir.parent().is_some() {
+        new_current_dir = new_current_dir.parent().expect("No parent of dir");
+        metadata = fs::metadata(&new_current_dir);
+    }
+
+    if metadata.is_err() && new_current_dir.parent().is_none() {
+        panic!("Cannot find directory to make the current one.");
+    }
+
     dir_states.set_current_dir(new_current_dir)?;
     match_positions.clear();
 
