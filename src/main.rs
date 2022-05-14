@@ -650,12 +650,21 @@ fn run(
                                                 return;
                                             }
 
+                                            // TODO(Chris): Handle file to be renamed not found
+                                            let old_file_id = get_file_id(
+                                                &fs::metadata(&current_file_path).unwrap(),
+                                            );
+
                                             remove_at_path_if_exists(&current_file_path)
                                                 .expect("Failed to delete file");
 
                                             let to_our_tx_2 = to_our_tx.clone();
                                             send_callback_to_main!(&to_our_tx, move |fm| {
-                                                reload_current_dir(fm, &to_our_tx_2);
+                                                reload_current_dir_prefer_id(
+                                                    fm,
+                                                    old_file_id,
+                                                    &to_our_tx_2,
+                                                );
 
                                                 Ok(())
                                             });
@@ -696,6 +705,15 @@ fn run(
 
                                             let to_our_tx_2 = to_our_tx.clone();
                                             send_callback_to_main!(&to_our_tx, move |fm| {
+                                                let current_file_path =
+                                                    fm.dir_states.current_entries
+                                                        [fm.get_second_entry_index() as usize]
+                                                        .dir_entry
+                                                        .path();
+                                                let old_file_id = get_file_id(
+                                                    &fs::metadata(current_file_path).unwrap(),
+                                                );
+
                                                 for (selection_path, _selection_index) in
                                                     fm.selections.iter()
                                                 {
@@ -705,7 +723,11 @@ fn run(
 
                                                 fm.selections.clear();
 
-                                                reload_current_dir(fm, &to_our_tx_2);
+                                                reload_current_dir_prefer_id(
+                                                    fm,
+                                                    old_file_id,
+                                                    &to_our_tx_2,
+                                                );
 
                                                 Ok(())
                                             });
@@ -1898,13 +1920,28 @@ enum CommandRequest {
     Quit,
 }
 
-fn reload_current_dir(fm: &mut FileManager, tx: &Sender<InputEvent>) {
+/// Reloads the current directory.
+///
+/// If `maybe_existing_file_id` corresponds to the file id of an existing file in the current
+/// directory, place the second entry index on that file.
+///
+/// Otherwise, find the nearest existing file and place the second entry index on that.
+fn reload_current_dir_prefer_id(
+    fm: &mut FileManager,
+    maybe_existing_file_id: u64,
+    tx: &Sender<InputEvent>,
+) {
     set_current_dir(
         fm.dir_states.current_dir.clone(),
         &mut fm.dir_states,
         &mut fm.match_positions,
     )
     .expect("Failed to update current directory");
+
+    // NOTE(Chris): This is how we try to jump to a desired existing file early.
+    if jump_by_file_id(fm, maybe_existing_file_id).is_ok() {
+        return;
+    }
 
     let mut existing_file_id: Option<u64> = None;
 
@@ -2059,10 +2096,7 @@ fn jump_by_file_id(fm: &mut FileManager, file_id: u64) -> io::Result<()> {
 
         search_jump(fm)?;
     } else {
-        fm.second = ColumnInfo {
-            starting_index: 0,
-            display_offset: 0,
-        }
+        return Err(io::Error::new(io::ErrorKind::NotFound, "Unable to jump to file by id"));
     };
 
     Ok(())
