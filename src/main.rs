@@ -1640,22 +1640,7 @@ fn run(
                 )
                 .expect("Failed to update current directory");
 
-                let current_entry_info_index = fm
-                    .dir_states
-                    .current_entries
-                    .iter()
-                    .position(|entry_info| get_file_id(&entry_info.metadata) == file_id);
-
-                if let Some(current_entry_info_index) = current_entry_info_index {
-                    fm.match_positions = vec![current_entry_info_index];
-
-                    search_jump(&mut fm)?;
-                } else {
-                    fm.second = ColumnInfo {
-                        starting_index: 0,
-                        display_offset: 0,
-                    }
-                };
+                jump_by_file_id(&mut fm, file_id)?;
             }
         }
     }
@@ -1903,29 +1888,34 @@ fn reload_current_dir(fm: &mut FileManager, tx: &Sender<InputEvent>) {
     )
     .expect("Failed to update current directory");
 
-    fm.second = if fm.dir_states.current_entries.is_empty() {
-        ColumnInfo {
-            starting_index: 0,
-            display_offset: 0,
-        }
-    } else if fm.dir_states.current_entries.len() <= fm.get_second_entry_index() as usize {
-        find_column_pos(
-            fm.dir_states.current_entries.len(),
-            fm.drawing_info.column_height,
-            fm.second,
-            fm.dir_states.current_entries.len() - 1,
-        )
-        .unwrap()
-    } else if fm.dir_states.current_entries.len() > fm.get_second_entry_index() as usize {
-        // NOTE(Chris): We explicitly don't really change the value of fm.second here.
-        fm.second
-    } else {
-        debug_assert!(
-            false,
-            "Failed to find good placement for second entry index."
-        );
+    let mut existing_file_id: Option<u64> = None;
 
-        ColumnInfo {
+    let initial_second_entry_index = fm.get_second_entry_index();
+
+    for index in initial_second_entry_index as usize..fm.dir_states.current_entries.len() {
+        let current_entry = &fm.dir_states.current_entries[index];
+
+        if let Ok(current_metadata) = fs::metadata(&current_entry.dir_entry.path()) {
+            existing_file_id = Some(get_file_id(&current_metadata));
+            break;
+        }
+    }
+
+    if existing_file_id.is_none() {
+        for index in (0..initial_second_entry_index as usize).rev() {
+            if let Some(current_entry) = fm.dir_states.current_entries.get(index) {
+                if let Ok(current_metadata) = fs::metadata(&current_entry.dir_entry.path()) {
+                    existing_file_id = Some(get_file_id(&current_metadata));
+                    break;
+                }
+            }
+        }
+    }
+
+    if let Some(existing_file_id) = existing_file_id {
+        jump_by_file_id(fm, existing_file_id).expect("Unable to jump to file by id");
+    } else {
+        fm.second = ColumnInfo {
             starting_index: 0,
             display_offset: 0,
         }
@@ -2035,6 +2025,27 @@ fn search_jump(fm: &mut FileManager) -> io::Result<()> {
         fm.second,
         next_position,
     )?;
+
+    Ok(())
+}
+
+fn jump_by_file_id(fm: &mut FileManager, file_id: u64) -> io::Result<()> {
+    let current_entry_info_index = fm
+        .dir_states
+        .current_entries
+        .iter()
+        .position(|entry_info| get_file_id(&entry_info.metadata) == file_id);
+
+    if let Some(current_entry_info_index) = current_entry_info_index {
+        fm.match_positions = vec![current_entry_info_index];
+
+        search_jump(fm)?;
+    } else {
+        fm.second = ColumnInfo {
+            starting_index: 0,
+            display_offset: 0,
+        }
+    };
 
     Ok(())
 }
