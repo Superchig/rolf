@@ -12,7 +12,10 @@ pub fn parse_statement_from(input: &str) -> ParseResult<Statement> {
     parse_rule_from(input, parse_statement)
 }
 
-pub fn parse_rule_from<T>(input: &str, parse_rule: impl Fn(&mut Parser) -> ParseResult<T>) -> ParseResult<T> {
+pub fn parse_rule_from<T>(
+    input: &str,
+    parse_rule: impl Fn(&mut Parser) -> ParseResult<T>,
+) -> ParseResult<T> {
     let mut scanner = Scanner::new(input);
 
     match lex_overall(&mut scanner) {
@@ -235,26 +238,26 @@ fn parse_key(parser: &mut Parser) -> ParseResult<Key> {
 
 pub type Program = Vec<Statement>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Map(Map),
     CommandUse(CommandUse),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CommandUse {
     pub name: String,
     pub arguments: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub struct Map {
     pub key: Key,
     pub cmd_name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub struct Key {
     pub modifier: Option<Mod>,
@@ -623,3 +626,139 @@ impl fmt::Display for LexError {
 }
 
 impl Error for LexError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lex_id_lowercase() -> LexResult<()> {
+        let mut lowercase_scanner = Scanner::new("item");
+
+        let lowercase_token = lex_id(&mut lowercase_scanner)?;
+        assert_eq!(lowercase_token.kind, TokenKind::Id("item".to_string()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_lex_id() -> LexResult<()> {
+        let mut uppercase_scanner = Scanner::new("Item");
+
+        let uppercase_token = lex_id(&mut uppercase_scanner)?;
+        assert_eq!(uppercase_token.kind, TokenKind::Id("Item".to_string()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_lex_phrase() -> LexResult<()> {
+        let mut scanner = Scanner::new("+");
+
+        let lex_plus = lex_phrase("+");
+
+        let token = lex_plus(&mut scanner)?;
+
+        assert_eq!(token.kind, TokenKind::Phrase("+"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_lex_overall() -> LexResult<()> {
+        let mut scanner = Scanner::new("map j down");
+
+        let result = lex_overall(&mut scanner)?;
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].kind, TokenKind::Phrase("map"));
+        assert_eq!(result[1].kind, TokenKind::Id("j".to_string()));
+        assert_eq!(result[2].kind, TokenKind::Id("down".to_string()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_key() -> ParseResult<()> {
+        let mut scanner = Scanner::new("j");
+        let mut parser = Parser::new(lex_overall(&mut scanner).expect("Failed to lex"));
+
+        let key = parse_key(&mut parser)?;
+
+        assert_eq!(
+            key,
+            Key {
+                key: "j".to_string(),
+                modifier: None
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_key_mod() -> ParseResult<()> {
+        let mut scanner = Scanner::new("shift+j");
+        let mut parser = Parser::new(lex_overall(&mut scanner).expect("Failed to lex"));
+
+        let key = parse_key(&mut parser)?;
+
+        assert_eq!(
+            key,
+            Key {
+                key: "j".to_string(),
+                modifier: Some(Mod::Shift)
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_overall() -> ParseResult<()> {
+        let mut scanner = Scanner::new("map shift+j bottom");
+        let mut parser = Parser::new(lex_overall(&mut scanner).expect("Failed to lex"));
+
+        let program = parse_program(&mut parser)?;
+
+        assert_eq!(
+            &program,
+            &[Statement::Map(Map {
+                key: Key {
+                    modifier: Some(Mod::Shift),
+                    key: "j".to_string()
+                },
+                cmd_name: "bottom".to_string()
+            })]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_overall_two_statements() -> ParseResult<()> {
+        let mut scanner = Scanner::new("map shift+j bottom\ndown");
+        let mut parser = Parser::new(lex_overall(&mut scanner).expect("Failed to lex"));
+
+        let program = parse_program(&mut parser)?;
+
+        assert_eq!(
+            &program,
+            &[
+                Statement::Map(Map {
+                    key: Key {
+                        modifier: Some(Mod::Shift),
+                        key: "j".to_string()
+                    },
+                    cmd_name: "bottom".to_string()
+                }),
+                Statement::CommandUse(CommandUse {
+                    name: "down".to_string(),
+                    arguments: vec![]
+                })
+            ]
+        );
+
+        Ok(())
+    }
+}
