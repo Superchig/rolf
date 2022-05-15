@@ -33,7 +33,7 @@ use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
 use std::env;
 use std::fs::{self, DirEntry, Metadata};
-use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Write, Read, Seek};
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
@@ -446,6 +446,97 @@ fn run(
                                             fm.drawing_info.width,
                                             fm.drawing_info.height,
                                         )?;
+                                    }
+                                }
+                                "edit-sels" => {
+                                    let editor = match std::env::var("VISUAL") {
+                                        Err(std::env::VarError::NotPresent) => {
+                                            match std::env::var("EDITOR") {
+                                                Err(std::env::VarError::NotPresent) => {
+                                                    String::from("")
+                                                }
+                                                Err(err) => panic!("{}", err),
+                                                Ok(editor) => editor,
+                                            }
+                                        }
+                                        Err(err) => panic!("{}", err),
+                                        Ok(visual) => visual,
+                                    };
+
+                                    // It'd be nice if we could do breaking on blocks to exit this whole
+                                    // match statement early, but labeling blocks is still in unstable,
+                                    // as seen in https://github.com/rust-lang/rust/issues/48594
+                                    if !editor.is_empty() {
+                                        let mut tmpfile = tempfile::Builder::new()
+                                            .prefix(".tmp.rolf.selections_")
+                                            .rand_bytes(3)
+                                            .tempfile()?;
+
+                                        let file_ref = tmpfile.as_file_mut();
+
+                                        for selection_path in fm.selections.keys() {
+                                            writeln!(
+                                                file_ref,
+                                                "{}",
+                                                selection_path.to_str().unwrap()
+                                            )?;
+                                        }
+
+                                        let shell_command = format!(
+                                            "{} {}",
+                                            editor,
+                                            tmpfile.path().to_str().unwrap(),
+                                        );
+
+                                        let stdout = io::stdout();
+                                        let mut stdout_lock = stdout.lock();
+
+                                        queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
+
+                                        Command::new("sh")
+                                            .arg("-c")
+                                            .arg(shell_command)
+                                            .status()
+                                            .expect("failed to execute editor command");
+
+                                        queue!(
+                                            stdout_lock,
+                                            terminal::EnterAlternateScreen,
+                                            cursor::Hide
+                                        )?;
+
+                                        set_preview_data_with_thread(
+                                            &mut fm,
+                                            &tx,
+                                            second_entry_index,
+                                        );
+
+                                        let mut screen_lock =
+                                            screen.lock().expect("Failed to lock screen mutex!");
+                                        let screen_lock = &mut *screen_lock;
+
+                                        // TODO(Chris): Write a function that achieves this without
+                                        // resizing anything
+                                        screen_lock.resize_clear_draw(
+                                            fm.drawing_info.width,
+                                            fm.drawing_info.height,
+                                        )?;
+
+                                        fm.selections.clear();
+
+                                        tmpfile.seek(io::SeekFrom::Start(0))?;
+
+                                        let file_reader = BufReader::new(&tmpfile);
+                                        for line in file_reader.lines() {
+                                            let line = line?;
+                                            let path = Path::new(&line);
+
+                                            if Path::exists(path) {
+                                                // FIXME(Chris): Change SelectionsMap to not
+                                                // contain any indices
+                                                fm.selections.insert(path.to_path_buf(), 0);
+                                            }
+                                        }
                                     }
                                 }
                                 "top" => {
