@@ -2085,6 +2085,10 @@ fn enter_shell_command_then_redraw(
 }
 
 fn toggle_selection(fm: &mut FileManager, second_entry_index: u16) {
+    if fm.dir_states.current_entries.is_empty() {
+        return;
+    }
+
     let selected_entry = &fm.dir_states.current_entries[second_entry_index as usize];
 
     let entry_path = selected_entry.dir_entry.path();
