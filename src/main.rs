@@ -33,7 +33,7 @@ use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
 use std::env;
 use std::fs::{self, DirEntry, Metadata};
-use std::io::{self, BufRead, BufReader, BufWriter, Write, Read, Seek};
+use std::io::{self, BufRead, BufReader, BufWriter, Seek, StdoutLock, Write};
 use std::path::{self, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
@@ -255,6 +255,7 @@ fn run(
     update_drawing_info_from_resize(&mut fm.drawing_info)?;
 
     let screen = Screen::new(io::stdout())?;
+    // FIXME(Chris): Remove this mutex entirely
     let screen = Mutex::new(screen);
 
     let mut command_queue = config_ast.clone();
@@ -382,19 +383,7 @@ fn run(
                                 // NOTE(Chris): lf doesn't actually provide a specific command for this, instead using
                                 // a default keybinding that takes advantage of EDITOR
                                 "edit" => {
-                                    let editor = match std::env::var("VISUAL") {
-                                        Err(std::env::VarError::NotPresent) => {
-                                            match std::env::var("EDITOR") {
-                                                Err(std::env::VarError::NotPresent) => {
-                                                    String::from("")
-                                                }
-                                                Err(err) => panic!("{}", err),
-                                                Ok(editor) => editor,
-                                            }
-                                        }
-                                        Err(err) => panic!("{}", err),
-                                        Ok(visual) => visual,
-                                    };
+                                    let editor = get_env_editor();
 
                                     // It'd be nice if we could do breaking on blocks to exit this whole
                                     // match statement early, but labeling blocks is still in unstable,
@@ -413,59 +402,26 @@ fn run(
                                                 .expect("Failed to convert path to string")
                                         );
 
-                                        let stdout = io::stdout();
-                                        let mut stdout_lock = stdout.lock();
-
-                                        queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
-
-                                        Command::new("sh")
-                                            .arg("-c")
-                                            .arg(shell_command)
-                                            .status()
-                                            .expect("failed to execute editor command");
-
-                                        queue!(
-                                            stdout_lock,
-                                            terminal::EnterAlternateScreen,
-                                            cursor::Hide
-                                        )?;
-
-                                        set_preview_data_with_thread(
-                                            &mut fm,
-                                            &tx,
-                                            second_entry_index,
-                                        );
-
                                         let mut screen_lock =
                                             screen.lock().expect("Failed to lock screen mutex!");
                                         let screen_lock = &mut *screen_lock;
 
-                                        // TODO(Chris): Write a function that achieves this without
-                                        // resizing anything
-                                        screen_lock.resize_clear_draw(
-                                            fm.drawing_info.width,
-                                            fm.drawing_info.height,
+                                        let stdout = io::stdout();
+                                        let mut stdout_lock = stdout.lock();
+
+                                        enter_shell_command_then_redraw(
+                                            &mut fm,
+                                            screen_lock,
+                                            &mut stdout_lock,
+                                            &tx,
+                                            second_entry_index,
+                                            shell_command,
                                         )?;
                                     }
                                 }
                                 "edit-sels" => {
-                                    let editor = match std::env::var("VISUAL") {
-                                        Err(std::env::VarError::NotPresent) => {
-                                            match std::env::var("EDITOR") {
-                                                Err(std::env::VarError::NotPresent) => {
-                                                    String::from("")
-                                                }
-                                                Err(err) => panic!("{}", err),
-                                                Ok(editor) => editor,
-                                            }
-                                        }
-                                        Err(err) => panic!("{}", err),
-                                        Ok(visual) => visual,
-                                    };
+                                    let editor = get_env_editor();
 
-                                    // It'd be nice if we could do breaking on blocks to exit this whole
-                                    // match statement early, but labeling blocks is still in unstable,
-                                    // as seen in https://github.com/rust-lang/rust/issues/48594
                                     if !editor.is_empty() {
                                         let mut tmpfile = tempfile::Builder::new()
                                             .prefix(".tmp.rolf.selections_")
@@ -488,46 +444,29 @@ fn run(
                                             tmpfile.path().to_str().unwrap(),
                                         );
 
-                                        let stdout = io::stdout();
-                                        let mut stdout_lock = stdout.lock();
-
-                                        queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
-
-                                        Command::new("sh")
-                                            .arg("-c")
-                                            .arg(shell_command)
-                                            .status()
-                                            .expect("failed to execute editor command");
-
-                                        queue!(
-                                            stdout_lock,
-                                            terminal::EnterAlternateScreen,
-                                            cursor::Hide
-                                        )?;
-
-                                        set_preview_data_with_thread(
-                                            &mut fm,
-                                            &tx,
-                                            second_entry_index,
-                                        );
-
                                         let mut screen_lock =
                                             screen.lock().expect("Failed to lock screen mutex!");
                                         let screen_lock = &mut *screen_lock;
 
-                                        // TODO(Chris): Write a function that achieves this without
-                                        // resizing anything
-                                        screen_lock.resize_clear_draw(
-                                            fm.drawing_info.width,
-                                            fm.drawing_info.height,
-                                        )?;
+                                        let stdout = io::stdout();
+                                        let mut stdout_lock = stdout.lock();
 
-                                        fm.selections.clear();
+                                        enter_shell_command_then_redraw(
+                                            &mut fm,
+                                            screen_lock,
+                                            &mut stdout_lock,
+                                            &tx,
+                                            second_entry_index,
+                                            shell_command,
+                                        )?;
 
                                         tmpfile.seek(io::SeekFrom::Start(0))?;
 
+                                        fm.selections.clear();
+
                                         let file_reader = BufReader::new(&tmpfile);
                                         for line in file_reader.lines() {
+                                            dbg!(&line);
                                             let line = line?;
                                             let path = Path::new(&line);
 
@@ -2104,6 +2043,45 @@ fn remove_at_path_if_exists<P: AsRef<Path>>(path: P) -> io::Result<()> {
     } else {
         fs::remove_file(&path)?;
     }
+
+    Ok(())
+}
+
+fn get_env_editor() -> String {
+    match std::env::var("VISUAL") {
+        Err(std::env::VarError::NotPresent) => match std::env::var("EDITOR") {
+            Err(std::env::VarError::NotPresent) => String::from(""),
+            Err(err) => panic!("{}", err),
+            Ok(editor) => editor,
+        },
+        Err(err) => panic!("{}", err),
+        Ok(visual) => visual,
+    }
+}
+
+fn enter_shell_command_then_redraw(
+    fm: &mut FileManager,
+    screen: &mut Screen,
+    stdout_lock: &mut StdoutLock,
+    tx: &Sender<InputEvent>,
+    second_entry_index: u16,
+    shell_command: String,
+) -> io::Result<()> {
+    queue!(stdout_lock, terminal::LeaveAlternateScreen)?;
+
+    Command::new("sh")
+        .arg("-c")
+        .arg(shell_command)
+        .status()
+        .expect("failed to execute editor command");
+
+    queue!(stdout_lock, terminal::EnterAlternateScreen, cursor::Hide)?;
+
+    set_preview_data_with_thread(fm, tx, second_entry_index);
+
+    // TODO(Chris): Write a function that achieves this without
+    // resizing anything
+    screen.resize_clear_draw(fm.drawing_info.width, fm.drawing_info.height)?;
 
     Ok(())
 }
