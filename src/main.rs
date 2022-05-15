@@ -31,6 +31,7 @@ use which::which;
 
 use std::cmp::Ordering;
 use std::collections::hash_map::HashMap;
+use std::collections::HashSet;
 use std::env;
 use std::fs::{self, DirEntry, Metadata};
 use std::io::{self, BufRead, BufReader, BufWriter, Seek, StdoutLock, Write};
@@ -60,7 +61,7 @@ type Screen = rolf_grid::Screen<io::Stdout>;
 const SCROLL_OFFSET: u16 = 10;
 
 type HandlesVec = Vec<DrawHandle>;
-type SelectionsMap = HashMap<PathBuf, usize>;
+type SelectionsMap = HashSet<PathBuf>;
 
 macro_rules! send_callback_to_main {
     ($to_main_tx:expr, $command_callback_fn:expr) => {
@@ -231,7 +232,7 @@ fn run(
         user_host_display: format!("{}@{}", user_name, host_name),
 
         // Keys are paths, values are indices in their directory
-        selections: HashMap::new(),
+        selections: HashSet::new(),
 
         drawing_info: DrawingInfo {
             win_pixels: os_abstract::get_win_pixels()?,
@@ -430,7 +431,7 @@ fn run(
 
                                         let file_ref = tmpfile.as_file_mut();
 
-                                        for selection_path in fm.selections.keys() {
+                                        for selection_path in &fm.selections {
                                             writeln!(
                                                 file_ref,
                                                 "{}",
@@ -466,14 +467,13 @@ fn run(
 
                                         let file_reader = BufReader::new(&tmpfile);
                                         for line in file_reader.lines() {
-                                            dbg!(&line);
                                             let line = line?;
                                             let path = Path::new(&line);
 
                                             if Path::exists(path) {
                                                 // FIXME(Chris): Change SelectionsMap to not
                                                 // contain any indices
-                                                fm.selections.insert(path.to_path_buf(), 0);
+                                                fm.selections.insert(path.to_path_buf());
                                             }
                                         }
                                     }
@@ -760,9 +760,7 @@ fn run(
                                                             )
                                                         };
 
-                                                    for (selection_path, _selection_index) in
-                                                        fm.selections.iter()
-                                                    {
+                                                    for selection_path in &fm.selections {
                                                         remove_at_path_if_exists(selection_path)
                                                             .expect("Failed to delete file");
                                                     }
@@ -2091,10 +2089,9 @@ fn toggle_selection(fm: &mut FileManager, second_entry_index: u16) {
 
     let entry_path = selected_entry.dir_entry.path();
 
-    let remove = fm.selections.remove(&entry_path);
-    if remove.is_none() {
-        fm.selections
-            .insert(entry_path, second_entry_index as usize);
+    let was_selection_present = fm.selections.remove(&entry_path);
+    if !was_selection_present {
+        fm.selections.insert(entry_path);
     }
 }
 
@@ -2381,7 +2378,7 @@ fn draw_column(
 
         // Draw the selection marking
 
-        if selections.contains_key(&entry_info.dir_entry.path()) {
+        if selections.contains(&entry_info.dir_entry.path()) {
             screen.set_cell_style(
                 rect.left_x,
                 y,
