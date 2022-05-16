@@ -7,6 +7,28 @@
 `rolf` is a terminal file manager written in Rust. It is mostly inspired by
 `lf`, but it is far worse.
 
+## Release Notes: 5/16/2022
+
+### Additional Features
+
+- File selection (by default mapped to the space key)
+  - Press the space key (by default) to mark a file as selected,
+    automatically moving the cursor to the next file.
+  - Files will remain selected even if you change directories, allowing you to
+    have files from multiple directories selected at once.
+  - Edit the selected files with text editor via the 'edit-sels' command.
+- File deletion (by default mapped to 'd')
+  - This will prompt the user to confirm that they really want to delete the
+    file(s).
+  - If no files have been selected, this will delete the current file.
+  - If files have been selected, this will delete the currently selected
+    files.
+
+### Known Bugs
+
+- There is a slight amount of flickering when using the 'rename' command.
+- The program may crash with really small windows.
+
 ## Documentation
 Unfortunately, there's no documentation.
 
