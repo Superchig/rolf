@@ -29,11 +29,6 @@
 - There is a slight amount of flickering when using the 'rename' command.
 - The program may crash with really small windows.
 
-## Documentation
-Unfortunately, there's no documentation.
-
-Once `rolf` is in a more usable state, I'll actually add something useful.
-
 ## TODOs
 - [x] Render three panels
 - [x] Support super-basic hjkl movement
