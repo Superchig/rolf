@@ -49,8 +49,8 @@
 - [x] Search backwards and forwards
 - [x] Display directory preview asynchronously
 - [x] Preview text (source) files asynchronously
-- [x] Build successfully on Windows at all
-- [x] Display images successfully on Windows (with capable terminal)
+- [ ] Build successfully on Windows at all
+- [ ] Display images successfully on Windows (with capable terminal)
 
 # Long-term TODO (May Never Happen)
 - [ ] Add Windows support
