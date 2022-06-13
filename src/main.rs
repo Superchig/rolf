@@ -50,8 +50,6 @@ use crossterm::{
     queue, style, terminal,
 };
 
-use rusqlite::Connection;
-
 use rolf_grid::{LineBuilder, Style};
 use rolf_parser::parser::{self, parse, parse_statement_from, Program, Statement};
 
@@ -143,29 +141,9 @@ fn main() -> crossterm::Result<()> {
         },
     };
 
-    // NOTE(Chris): We initialize the sqlite database here.
-    let data_dir = os_abstract::data_dir(project_name);
-
-    if !data_dir.is_dir() {
-        fs::create_dir_all(&data_dir)?;
-    }
-
-    let conn = Connection::open(data_dir.join("history.db3")).unwrap();
-
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS History (
-            id                   INTEGER PRIMARY KEY,
-            path                 TEXT NOT NULL,
-            last_access_time     INTEGER,
-            access_count         INTEGER
-            )",
-        [],
-    )
-    .unwrap();
-
     Screen::activate_direct(&mut w)?;
 
-    let result = run(&mut config, &ast, &conn);
+    let result = run(&mut config, &ast);
 
     Screen::deactivate_direct(&mut w)?;
 
@@ -182,11 +160,7 @@ fn main() -> crossterm::Result<()> {
 }
 
 // Returns the path to the last dir
-fn run(
-    _config: &mut Config,
-    config_ast: &Program,
-    conn: &Connection,
-) -> crossterm::Result<PathBuf> {
+fn run(_config: &mut Config, config_ast: &Program) -> crossterm::Result<PathBuf> {
     let user_name = whoami::username();
 
     let host_name = whoami::hostname();
@@ -852,58 +826,11 @@ fn run(
 
         let has_changed_entry = fm.dir_states.current_dir != prev_current_dir
             || second_entry_index != prev_second_entry_index;
-        let has_changed_dir = fm.dir_states.current_dir != prev_current_dir;
         let has_changed_input_mode = input_mode_top != prev_input_mode_top;
 
         prev_current_dir.clone_from(&fm.dir_states.current_dir);
         prev_input_mode_top = input_mode_top;
         prev_second_entry_index = second_entry_index;
-
-        // Store directory history with sqlite
-        {
-            if has_changed_dir {
-                if let Some(curr_dir_str) = fm.dir_states.current_dir.to_str() {
-                    let mut stmt = conn
-                    .prepare(
-                        "SELECT id, last_access_time, access_count FROM History WHERE path == $1",
-                    )
-                    .unwrap();
-                    let rows = stmt
-                        .query_map([curr_dir_str], |row| {
-                            Ok(NavigatedDirectory {
-                                id: Some(row.get(0)?),
-                                _last_access_time: row.get(1)?,
-                                access_count: row.get(2)?,
-                            })
-                        })
-                        .unwrap();
-
-                    let mut has_updated_row = false;
-
-                    for row in rows {
-                        let row = row.unwrap();
-
-                        if let Some(id) = row.id {
-                            conn.execute(
-                                "UPDATE History SET last_access_time = unixepoch(), access_count = ?1 WHERE id == ?2",
-                                [row.access_count + 1, id],
-                            )
-                            .unwrap();
-                        }
-
-                        has_updated_row = true;
-                        break;
-                    }
-
-                    if !has_updated_row {
-                        conn.execute(
-                            "INSERT INTO History (path, last_access_time, access_count) VALUES (?1, unixepoch(), 1)",
-                            [curr_dir_str],
-                        ).unwrap();
-                    }
-                }
-            }
-        }
 
         // Main drawing code
         {
@@ -1878,13 +1805,6 @@ fn exit_input_mode_command_thread(fm: &mut FileManager, to_command_tx: &Option<S
     } else {
         panic!("Main thread: Asked for additional input despite no command thread being available");
     }
-}
-
-#[derive(Debug)]
-struct NavigatedDirectory {
-    id: Option<usize>,
-    _last_access_time: usize,
-    access_count: usize,
 }
 
 // NOTE(Chris): When it comes to refactoring many variables into structs, perhaps we should group

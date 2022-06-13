@@ -185,9 +185,3 @@ pub fn config_dir(project_name: &str) -> PathBuf {
         .join("AppData\\Roaming")
         .join(project_name)
 }
-
-pub fn data_dir(project_name: &str) -> PathBuf {
-    // NOTE(Chris): On Windows, we should use the same directory for storing data and configuration
-    // files
-    config_dir(project_name)
-}
